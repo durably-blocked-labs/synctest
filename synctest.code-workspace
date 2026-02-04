@@ -1,0 +1,29 @@
+{
+  "folders": [
+    { "path": "." },
+    { "path": "go/src" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "go/": true
+    },
+    "search.exclude": {
+      "go/": true
+    },
+    "go.goroot": "/Users/shubhaankar/github.com/research/synctest/go",
+    "go.alternateTools": {
+      "go": "/Users/shubhaankar/github.com/research/synctest/go/bin/go"
+    },
+    "go.toolsEnvVars": {
+      "GOTOOLCHAIN": "local",
+      "GOROOT": "/Users/shubhaankar/github.com/research/synctest/go"
+    },
+    "gopls": {
+      "build.env": {
+        "GOTOOLCHAIN": "local",
+        "GOROOT": "/Users/shubhaankar/github.com/research/synctest/go"
+      }
+    },
+    "go.useLanguageServer": true
+  }
+}
