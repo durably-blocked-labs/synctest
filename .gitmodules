@@ -1,4 +1,4 @@
 [submodule "go"]
 	path = go
-	url = git@github.com:Shubhaankar-Sharma/go.git
+	url = git@github.com:durably-blocked-labs/go.git
 	branch = synctest-explorer
