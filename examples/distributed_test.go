@@ -80,8 +80,11 @@ func TestDistributedSimulation(t *testing.T) {
 	// scheduling decisions. Here we just pick FIFO (index 0) always.
 	var orchestratorCalls int
 	var orchestratorMu sync.Mutex
+	orchDone := make(chan struct{})
 	go func() {
-		for {
+		defer close(orchDone)
+		done0, done1 := false, false
+		for !done0 || !done1 {
 			select {
 			case state := <-ctrl0.Req:
 				orchestratorMu.Lock()
@@ -102,13 +105,9 @@ func TestDistributedSimulation(t *testing.T) {
 				orchestratorMu.Unlock()
 				ctrl1.Resp <- 0 // FIFO
 			case <-ctrl0.Done:
-				if ctrl1Done(ctrl1) {
-					return
-				}
+				done0 = true
 			case <-ctrl1.Done:
-				if ctrl0Done(ctrl0) {
-					return
-				}
+				done1 = true
 			}
 		}
 	}()
@@ -165,17 +164,29 @@ func TestDistributedSimulation(t *testing.T) {
 		wg.Wait()
 	}
 
-	// Run both bubbles sequentially (MVP — parallel requires cross-P goready).
-	trace0 := synctest.Test(t, nodeA)
-	ctrl0.Done <- struct{}{}
+	// Run both bubbles in parallel — each is pinned to its own P.
+	var bubbleWg sync.WaitGroup
+	var trace0, trace1 []synctest.Decision
+
+	bubbleWg.Add(2)
+	go func() {
+		defer bubbleWg.Done()
+		trace0 = synctest.Test(t, nodeA)
+		ctrl0.Done <- struct{}{}
+	}()
+	go func() {
+		defer bubbleWg.Done()
+		trace1 = synctest.Test(t, nodeB)
+		ctrl1.Done <- struct{}{}
+	}()
+	bubbleWg.Wait()
+	<-orchDone
+
 	t.Logf("bubble 0: %d decisions", len(trace0))
 	for i, d := range trace0 {
 		t.Logf("  step=%d index=%d chosenBgid=B%d runqSize=%d",
 			i, d.Index, d.ChosenBgid, d.RunqSize)
 	}
-
-	trace1 := synctest.Test(t, nodeB)
-	ctrl1.Done <- struct{}{}
 	t.Logf("bubble 1: %d decisions", len(trace1))
 	for i, d := range trace1 {
 		t.Logf("  step=%d index=%d chosenBgid=B%d runqSize=%d",
@@ -189,25 +200,5 @@ func TestDistributedSimulation(t *testing.T) {
 	if calls == 0 {
 		t.Fatal("orchestrator was never called — global goroutines not triggering forwarding")
 	}
-	t.Logf("PASS: orchestrator called %d times across both bubbles", calls)
-}
-
-// ctrl0Done and ctrl1Done are helpers for the orchestrator to check
-// if the other bubble is done. Non-blocking check.
-func ctrl0Done(ctrl *BubbleControl) bool {
-	select {
-	case <-ctrl.Done:
-		return true
-	default:
-		return false
-	}
-}
-
-func ctrl1Done(ctrl *BubbleControl) bool {
-	select {
-	case <-ctrl.Done:
-		return true
-	default:
-		return false
-	}
+	t.Logf("PASS: orchestrator called %d times across both bubbles (parallel)", calls)
 }
