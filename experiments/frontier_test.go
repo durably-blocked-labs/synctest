@@ -118,8 +118,8 @@ func TestExpandedHookState(t *testing.T) {
 	t.Logf("recorded %d hook states", len(states))
 
 	for i, s := range states {
-		t.Logf("  state[%d]: Step=%d RunnableN=%d Blocked=%d Now=%d NextTimer=%d bgids=%v",
-			i, s.Step, s.RunnableN, s.Blocked, s.Now, s.NextTimer,
+		t.Logf("  state[%d]: Step=%d RunnableN=%d Blocked=%d Now=%d NextTimer=%d LastBgid=B%d bgids=%v",
+			i, s.Step, s.RunnableN, s.Blocked, s.Now, s.NextTimer, s.LastBgid,
 			s.RunnableBgid[:s.RunnableN])
 
 		// Step should increment
