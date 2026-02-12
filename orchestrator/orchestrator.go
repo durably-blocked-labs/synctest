@@ -65,7 +65,9 @@ type bubbleCtrl struct {
 	testFunc BubbleFunc
 	send     chan Message      // bubble → orchestrator (unbuffered)
 	recv     chan Message      // orchestrator → bubble (buffered 1)
-	done     chan bubbleResult // signals bubble completion (buffered 1)
+	done      chan bubbleResult        // signals bubble completion (buffered 1)
+	hookState chan synctest.BubbleState // hook → orchestrator (unbuffered)
+	hookReply chan int32               // orchestrator → hook (unbuffered)
 }
 
 type bubbleResult struct {
@@ -93,20 +95,24 @@ func (o *Orchestrator) AddBubble(name string, f BubbleFunc) {
 		testFunc: f,
 		send:     make(chan Message),
 		recv:     make(chan Message, 1),
-		done:     make(chan bubbleResult, 1),
+		done:      make(chan bubbleResult, 1),
+		hookState: make(chan synctest.BubbleState),
+		hookReply: make(chan int32),
 	}
 	o.bubbles[name] = ctrl
 	o.order = append(o.order, name)
 }
 
 // startBubble launches a bubble in a goroutine. The bubble runs inside
-// synctest.Explore with FIFO scheduling (decision hook returns 0).
+// synctest.Explore with a decision hook that blocks, sending state to
+// the orchestrator and waiting for a scheduling reply.
 func (o *Orchestrator) startBubble(t *testing.T, ctrl *bubbleCtrl) {
 	node := &Node{name: ctrl.name, send: ctrl.send, recv: ctrl.recv}
 	go func() {
 		trace, ok := synctest.Explore(t, func(t *testing.T) {
 			synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
-				return 0 // FIFO for MVP
+				ctrl.hookState <- state
+				return <-ctrl.hookReply
 			})
 			ctrl.testFunc(t, node)
 		}, nil)
@@ -114,19 +120,37 @@ func (o *Orchestrator) startBubble(t *testing.T, ctrl *bubbleCtrl) {
 	}()
 }
 
+// bubbleStatus tracks per-bubble state for turn-based orchestration.
+type bubbleStatus struct {
+	hookPending bool   // hookState received, hookReply not yet sent
+	waitingFor  string // name of bubble we expect a response from ("" = none)
+}
+
 // Run starts all registered bubbles and routes messages between them
-// until all bubbles complete. Uses reflect.Select for N-bubble support.
+// until all bubbles complete. Each bubble's decision hook blocks,
+// sending BubbleState to the orchestrator and waiting for a scheduling reply.
 //
-// The select cases are laid out as:
+// Turn-based invariant: when bubble A sends an RPC to bubble B, A stays
+// frozen (hookReply withheld) until B sends a response back. The orchestrator
+// detects this by tracking waitingFor per bubble.
 //
-//	[outbox_0, outbox_1, ..., done_0, done_1, ...]
+// The reflect.Select cases are laid out as:
 //
-// so the chosen index determines whether it was a message or completion event.
+//	[outbox_0..n-1, hookState_0..n-1, done_0..n-1]
+//
+// so the chosen index determines whether it was a message, decision, or
+// completion event.
 func (o *Orchestrator) Run(t *testing.T) {
 	t.Helper()
 
 	n := len(o.bubbles)
-	runtime.GOMAXPROCS(n + 1)
+	runtime.GOMAXPROCS(1)
+
+	// Per-bubble status tracking.
+	status := make(map[string]*bubbleStatus, n)
+	for _, name := range o.order {
+		status[name] = &bubbleStatus{}
+	}
 
 	// Start all bubbles.
 	for _, name := range o.order {
@@ -134,9 +158,8 @@ func (o *Orchestrator) Run(t *testing.T) {
 	}
 
 	// Build reflect.SelectCase slice.
-	// First n cases: recv from each bubble's outbox (send channel).
-	// Next n cases: recv from each bubble's done channel.
-	cases := make([]reflect.SelectCase, 2*n)
+	// Layout: [outbox_0..n-1, hookState_0..n-1, done_0..n-1]
+	cases := make([]reflect.SelectCase, 3*n)
 	for i, name := range o.order {
 		ctrl := o.bubbles[name]
 		cases[i] = reflect.SelectCase{
@@ -144,6 +167,10 @@ func (o *Orchestrator) Run(t *testing.T) {
 			Chan: reflect.ValueOf(ctrl.send),
 		}
 		cases[n+i] = reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(ctrl.hookState),
+		}
+		cases[2*n+i] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(ctrl.done),
 		}
@@ -155,7 +182,8 @@ func (o *Orchestrator) Run(t *testing.T) {
 	for active > 0 {
 		chosen, value, _ := reflect.Select(cases)
 
-		if chosen < n {
+		switch {
+		case chosen < n:
 			// Message from bubble outbox[chosen].
 			msg := value.Interface().(Message)
 			senderName := o.order[chosen]
@@ -165,17 +193,64 @@ func (o *Orchestrator) Run(t *testing.T) {
 			if !ok {
 				t.Fatalf("orchestrator: bubble %q sent message to unknown bubble %q", senderName, msg.To)
 			}
+
+			// Check if this message is a response that unblocks the recipient.
+			// If recipient X has waitingFor == sender, this is the response.
+			recipientStatus := status[msg.To]
+			isResponse := recipientStatus.waitingFor == senderName
+			if isResponse {
+				recipientStatus.waitingFor = ""
+				t.Logf("orchestrator: bubble %q received response from %q, unblocked", msg.To, senderName)
+			}
+
+			// Only mark sender as waiting if this is a new request, not a response.
+			// A bubble sending a response should remain free to make progress.
+			if !isResponse {
+				senderStatus := status[senderName]
+				senderStatus.waitingFor = msg.To
+			}
+
+			// Route message to target inbox.
 			target.recv <- msg
-		} else {
-			// Done signal from bubble done[chosen-n].
+
+			// If the recipient has a pending hook and is now unblocked, release it.
+			if recipientStatus.hookPending && recipientStatus.waitingFor == "" {
+				o.bubbles[msg.To].hookReply <- 0
+				recipientStatus.hookPending = false
+				t.Logf("orchestrator: releasing held hook for bubble %q", msg.To)
+			}
+
+		case chosen < 2*n:
+			// Decision point: bubble needs a scheduling decision.
 			idx := chosen - n
+			name := o.order[idx]
+			state := value.Interface().(synctest.BubbleState)
+			t.Logf("orchestrator: bubble %q decision (step=%d, runnable=%d)",
+				name, state.Step, state.RunnableN)
+
+			st := status[name]
+			st.hookPending = true
+
+			if st.waitingFor == "" {
+				// Not waiting for anyone — reply immediately.
+				o.bubbles[name].hookReply <- 0
+				st.hookPending = false
+			} else {
+				// Waiting for a response — hold the hook.
+				t.Logf("orchestrator: holding bubble %q (waiting for %q)", name, st.waitingFor)
+			}
+
+		default:
+			// Done signal from bubble done[chosen-2n].
+			idx := chosen - 2*n
 			name := o.order[idx]
 			result := value.Interface().(bubbleResult)
 			results[name] = result
 
-			// Disable this bubble's cases by setting channels to nil.
+			// Disable all cases for this bubble.
 			cases[idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
 			cases[n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+			cases[2*n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
 			active--
 
 			t.Logf("orchestrator: bubble %q finished (ok=%v, decisions=%d)", name, result.ok, len(result.trace))

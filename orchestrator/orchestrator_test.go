@@ -4,6 +4,7 @@ import "testing"
 
 // TestClientServer verifies basic cross-bubble message routing.
 // The client sends "ping" to the server, and the server replies "pong".
+// Run using "make test pkg=orchestrator"
 func TestClientServer(t *testing.T) {
 	orch := New()
 
