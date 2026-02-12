@@ -1,16 +1,5 @@
 package replayerscheduler
 
-// This test demonstrates finding a race bug by iterating scheduling
-// interleavings. It runs the task-processing program under FIFO (default),
-// then tries alternative goroutine choices at each multi-choice decision
-// point until it finds an interleaving that exposes the race.
-//
-// Run:
-//   GOROOT=../../go GODEBUG=asyncpreemptoff=1 ../../go/bin/go test -v -count=1 .
-//
-// The test is EXPECTED TO FAIL — it demonstrates finding the bug.
-// Expected output: ~4 runs (baseline + 3 modifications before bug found).
-
 import (
 	"fmt"
 	"strings"
@@ -31,71 +20,92 @@ func logTrace(t *testing.T, label string, trace []synctest.Decision) {
 	}
 }
 
+// TestFindRace explores scheduling interleavings depth-first until it
+// finds an interleaving that triggers the overdraft bug.
+//
+// The exploration uses context-bounded DFS: at each run, alternatives
+// at NEW frontier decision points (past the prefix) are pushed onto
+// a stack for future exploration. A "context bound" limits how many
+// non-FIFO scheduling decisions any single interleaving may contain.
+//
+// Why depth > 1 is needed:
+//
+//	Under FIFO, the approver (runnext, created last) runs first and
+//	opens the gate before any withdrawer starts. One non-FIFO decision
+//	lets ONE withdrawer run before the approver — that withdrawer blocks
+//	at the gate, the approver opens it, and only one withdrawal occurs.
+//	The overdraft requires BOTH withdrawers to check balance=100 before
+//	the approver opens the gate, which takes TWO non-FIFO decisions.
+//
+// Expected: the DFS finds the overdraft within 3 runs (FIFO baseline,
+// one-withdrawer deviation, two-withdrawer deviation).
 func TestFindRace(t *testing.T) {
-	var lastOutput string
-	var lastFound bool
+	var lastBalance int
+	var lastWithdrawals int
 
+	// Workload: run the program, no assertions (we check externally).
 	workload := func(t *testing.T) {
-		lastOutput, lastFound = RunRace()
-		if !lastFound {
-			t.Errorf("RACE: processor saw Done=false (preparer had not finished)")
-		} else if lastOutput != "processed:raw-data" {
-			t.Errorf("RACE: wrong output: %q", lastOutput)
-		}
+		lastBalance, lastWithdrawals = Run()
 	}
 
-	// ------------------------------------------------------------------
-	// Run 0: FIFO baseline. Preparer (B6, runnext) runs first → PASS.
-	// ------------------------------------------------------------------
-	t.Log("=== Run 0: FIFO baseline ===")
-	baseTrace, ok := synctest.Explore(t, workload, nil)
-	if !ok {
-		t.Fatalf("FIFO baseline FAILED (unexpected): found=%v output=%q", lastFound, lastOutput)
-	}
-	logTrace(t, "Run 0 trace", baseTrace)
-	t.Logf("Run 0: PASSED (found=%v output=%q)", lastFound, lastOutput)
+	// Context bound: max non-FIFO decisions per interleaving.
+	// The overdraft needs exactly 2 (both withdrawers before the approver).
+	const bound = 2
 
-	// ------------------------------------------------------------------
-	// Iterate: at each multi-choice decision point, try every alternative
-	// index (1, 2, ..., runqSize-1). Move to the next step only after
-	// exhausting all alternatives at the current step. The race is found
-	// when the processor (deep in the runq) is picked before the preparer.
-	// ------------------------------------------------------------------
-	runNum := 1
-	for i, d := range baseTrace {
-		if d.RunqSize <= 1 || d.Index != 0 {
-			continue
+	type work struct {
+		prefix  []synctest.Decision
+		nonFIFO int // number of non-zero indices in prefix
+	}
+
+	stack := []work{{}} // empty prefix = FIFO baseline
+	runNum := 0
+
+	for len(stack) > 0 {
+		w := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		trace, _ := synctest.Explore(t, workload, w.prefix)
+
+		label := fmt.Sprintf("Run %d", runNum)
+		t.Logf("=== %s (prefix=%d decisions, nonFIFO=%d) ===", label, len(w.prefix), w.nonFIFO)
+		logTrace(t, label, trace)
+		t.Logf("%s: balance=%d withdrawals=%d", label, lastBalance, lastWithdrawals)
+		runNum++
+
+		if lastBalance < 0 {
+			t.Logf("")
+			t.Logf("========================================")
+			t.Logf("OVERDRAFT FOUND on %s!", label)
+			t.Logf("Both withdrawers checked balance=100 before")
+			t.Logf("either subtracted → balance went negative.")
+			t.Logf("========================================")
+			return
 		}
 
-		for alt := int32(1); alt < d.RunqSize; alt++ {
-			prefix := make([]synctest.Decision, i+1)
-			copy(prefix, baseTrace[:i+1])
-			prefix[i].Index = alt
-
-			altBgid := d.RunqBgids[alt]
-			t.Logf("=== Run %d: step %d index %d→%d (pick B%d instead of B%d) ===",
-				runNum, d.Step, d.Index, alt, altBgid, d.ChosenBgid)
-
-			trace, ok := synctest.Explore(t, workload, prefix)
-			logTrace(t, fmt.Sprintf("Run %d trace", runNum), trace)
-			t.Logf("Run %d: found=%v output=%q ok=%v", runNum, lastFound, lastOutput, ok)
-
-			if !ok {
-				t.Logf("")
-				t.Logf("========================================")
-				t.Logf("RACE FOUND on run %d!", runNum)
-				t.Logf("Changed step %d: picked B%d instead of B%d",
-					d.Step, altBgid, d.ChosenBgid)
-				t.Logf("Processor ran before preparer set Done=true.")
-				t.Logf("========================================")
-				t.Fatalf("RACE FOUND: found=%v output=%q on run %d (step %d, index %d)",
-					lastFound, lastOutput, runNum, d.Step, alt)
+		// Push alternatives at frontier decisions (past the prefix).
+		for i := len(w.prefix); i < len(trace); i++ {
+			d := trace[i]
+			if d.RunqSize <= 1 {
+				continue
 			}
-
-			t.Logf("Run %d: PASSED", runNum)
-			runNum++
+			for alt := int32(0); alt < d.RunqSize; alt++ {
+				if alt == d.Index {
+					continue
+				}
+				newNonFIFO := w.nonFIFO
+				if alt != 0 {
+					newNonFIFO++
+				}
+				if newNonFIFO > bound {
+					continue
+				}
+				newPrefix := make([]synctest.Decision, i+1)
+				copy(newPrefix, trace[:i+1])
+				newPrefix[i].Index = alt
+				stack = append(stack, work{prefix: newPrefix, nonFIFO: newNonFIFO})
+			}
 		}
 	}
 
-	t.Logf("explored %d schedule modifications without finding the race", runNum-1)
+	t.Fatalf("explored %d interleavings without finding overdraft (bound=%d)", runNum, bound)
 }

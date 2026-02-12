@@ -1,70 +1,46 @@
-// Package localreplayer demonstrates record/replay of scheduling decisions
-// using synctest bubbles. A concurrent program's scheduling trace can be
-// recorded and replayed to verify determinism, or modified to explore
-// alternative interleavings.
+// Package localreplayer demonstrates deterministic record and replay of
+// goroutine scheduling using synctest bubbles.
+//
+// The program spawns concurrent goroutines that race to claim work items.
+// The scheduling order determines which goroutine gets which item.
+// The key property: the same goroutine always receives the same bubble-local
+// goroutine ID (BGID) across runs, and replaying a recorded trace produces
+// identical scheduling decisions.
 package localreplayer
 
-import (
-	"fmt"
-	"runtime"
-	"sync"
-)
+import "sync"
 
-// Run executes a concurrent workload where three workers race to process
-// tasks from a shared queue. The order in which workers pick up tasks
-// depends on the scheduler's goroutine ordering, making the output
-// scheduling-dependent.
+// Run executes a concurrent workload where three goroutines each claim
+// one item from a shared list. The scheduling order determines which
+// goroutine claims which item.
 //
-// Returns a log of events in the order they occurred.
-func Run() []string {
+// logf is a printf-style logger (e.g., t.Logf) so goroutines can
+// announce their claims from inside the program.
+//
+// Returns a mapping from goroutine name to claimed item.
+func Run(logf func(string, ...any)) map[string]string {
+	items := []string{"alpha", "beta", "gamma"}
 	var mu sync.Mutex
-	var log []string
+	idx := 0
 
-	appendLog := func(msg string) {
-		mu.Lock()
-		log = append(log, msg)
-		mu.Unlock()
-	}
-
-	// Shared task queue. Workers pull tasks from this slice.
-	tasks := []string{"alpha", "beta", "gamma", "delta"}
-	var taskMu sync.Mutex
-	nextTask := 0
-
-	claimTask := func() (string, bool) {
-		taskMu.Lock()
-		defer taskMu.Unlock()
-		if nextTask >= len(tasks) {
-			return "", false
-		}
-		t := tasks[nextTask]
-		nextTask++
-		return t, true
-	}
+	result := make(map[string]string)
 
 	var wg sync.WaitGroup
-
-	// Launch three workers. Each worker tries to claim and process tasks.
-	for w := 1; w <= 3; w++ {
+	for _, name := range []string{"alice", "bob", "carol"} {
 		wg.Add(1)
-		go func(id int) {
+		go func(name string) {
 			defer wg.Done()
-			appendLog(fmt.Sprintf("worker-%d:start", id))
-			runtime.Gosched() // decision point: all workers may be runnable
-
-			for {
-				task, ok := claimTask()
-				if !ok {
-					break
-				}
-				appendLog(fmt.Sprintf("worker-%d:process(%s)", id, task))
-				runtime.Gosched() // decision point between tasks
+			mu.Lock()
+			if idx < len(items) {
+				item := items[idx]
+				result[name] = item
+				logf("%s claimed %s", name, item)
+				idx++
 			}
-
-			appendLog(fmt.Sprintf("worker-%d:done", id))
-		}(w)
+			mu.Unlock()
+		}(name)
 	}
 
 	wg.Wait()
-	return log
+	return result
 }

@@ -1,75 +1,84 @@
-// Package replayerscheduler demonstrates finding a race bug by iterating
-// scheduling interleavings. A task-processing program has a race between
-// a preparer (computes output, sets done flag) and a processor (checks done
-// flag, reads output). Under FIFO scheduling the preparer runs first
-// (it's the most recently created goroutine → runnext). Under non-FIFO
-// interleavings the processor may run before the preparer sets done.
+// Package replayerscheduler demonstrates finding a concurrency bug by
+// exploring scheduling interleavings.
+//
+// The program simulates a bank account where withdrawal requests must
+// wait for approval before executing. The bug: the balance check happens
+// BEFORE the approval gate, so multiple goroutines can pass the check
+// with a stale balance and then all subtract — overdrawing the account.
+//
+// Under FIFO+priority scheduling, the approver goroutine (created last → runnext)
+// runs first and opens the gate before any withdrawer starts. The
+// withdrawers then run sequentially, each seeing the updated balance.
+//
+// Under non-FIFO scheduling, withdrawers run first, all see balance=100,
+// all block at the gate. When the approver opens it, they all subtract
+// — resulting in a negative balance.
 package replayerscheduler
 
-import (
-	"runtime"
-	"sync"
-)
+import "sync"
 
-// Task represents a job being prepared and processed.
-type Task struct {
-	ID     int
-	Input  string
-	Output string
-	Done   bool
+// Account holds a balance that can be withdrawn from.
+type Account struct {
+	Balance int
 }
 
-// RunRace runs the task-processing race scenario.
+// Withdraw checks if the balance is sufficient, waits for approval,
+// then subtracts. Returns true if the withdrawal was executed.
 //
-// Goroutine creation order determines the initial runq layout:
+// BUG: The balance check happens before the approval gate. If multiple
+// goroutines pass the check before any subtracts, they will all subtract
+// from the stale balance, potentially overdrawing the account.
 //
-//	B3 = padding1 (created first → runq position 1)
-//	B4 = padding2 (created second → runq position 2)
-//	B5 = processor (created third → runq position 3)
-//	B6 = preparer (created last → runnext = position 0)
+// The correct implementation would re-check the balance after approval.
+func (a *Account) Withdraw(amount int, approved <-chan struct{}) bool {
+	if a.Balance >= amount {
+		<-approved // wait for approval — YIELD POINT
+		a.Balance -= amount
+		return true
+	}
+	return false
+}
+
+// Run creates an account with balance=100, launches two withdrawal
+// requests for 60 each (both guarded by an approval gate), and an
+// approver that opens the gate.
 //
-// Under FIFO (index 0), the preparer (B6) runs first and sets Done=true
-// before the processor (B5) checks. To reach B5 at position 3, the
-// explorer must try three alternative indices at step 0 (index 1, 2, 3),
-// finding the race on the third modification.
-//
-// Returns (output, found). found=true means the processor saw Done=true.
-func RunRace() (output string, found bool) {
-	task := &Task{ID: 1, Input: "raw-data"}
+// Returns the final balance and the number of executed withdrawals.
+func Run() (balance int, withdrawals int) {
+	acct := &Account{Balance: 100}
+	gate := make(chan struct{})
+
+	var mu sync.Mutex
+	var count int
 	var wg sync.WaitGroup
+	wg.Add(3) // 2 withdrawers + 1 approver
 
-	wg.Add(4)
-
-	// B3: padding — occupies runq position 1.
+	// Withdrawer 1 — created first, deepest in runq.
 	go func() {
 		defer wg.Done()
-		runtime.Gosched()
-	}()
-
-	// B4: padding — occupies runq position 2.
-	go func() {
-		defer wg.Done()
-		runtime.Gosched()
-	}()
-
-	// B5: processor — occupies runq position 3.
-	// Checks the done flag and reads output.
-	go func() {
-		defer wg.Done()
-		if task.Done {
-			output = task.Output
-			found = true
+		if acct.Withdraw(60, gate) {
+			mu.Lock()
+			count++
+			mu.Unlock()
 		}
 	}()
 
-	// B6: preparer — runnext (position 0), runs first under FIFO.
-	// Computes output, then sets done flag.
+	// Withdrawer 2 — created second.
 	go func() {
 		defer wg.Done()
-		task.Output = "processed:" + task.Input
-		task.Done = true
+		if acct.Withdraw(60, gate) {
+			mu.Lock()
+			count++
+			mu.Unlock()
+		}
+	}()
+
+	// Approver — created last → runnext → runs first under FIFO.
+	go func() {
+		defer wg.Done()
+		close(gate) // open the approval gate for all waiters
 	}()
 
 	wg.Wait()
-	return
+	return acct.Balance, count
 }

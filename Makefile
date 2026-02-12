@@ -1,87 +1,44 @@
 # Synctest development Makefile
 
-GO_ROOT := $(shell pwd)/go
-GO_BIN := $(GO_ROOT)/bin/go
-EXPERIMENTS := ./experiments
+GO_ROOT := $(CURDIR)/go
+GO_BIN  := $(GO_ROOT)/bin/go
+export GOROOT := $(GO_ROOT)
 
-# Preemption flag (GOMAXPROCS set in code)
-NO_PREEMPT := GODEBUG=asyncpreemptoff=1
-
-.PHONY: build-go run test test-det clean help
+.PHONY: build-go test test-all test-det go-version clean help
 
 help:
 	@echo "Synctest Development"
 	@echo ""
-	@echo "Commands:"
-	@echo "  make build-go       Build Go from source (go/)"
-	@echo "  make test           Run all tests (preemption enabled)"
-	@echo "  make test-det       Run all tests (preemption disabled)"
-	@echo "  make go-version     Show custom Go version"
-	@echo "  make clean          Clean build artifacts"
-	@echo ""
-	@echo "Manual Race Tests:"
-	@echo "  make manual-race          Run manual_race_test.go (preemption enabled)"
-	@echo "  make manual-race-det      Run manual_race_test.go (preemption disabled)"
-	@echo ""
-	@echo "Race Tests:"
-	@echo "  make race                 Run race_test.go (preemption enabled)"
-	@echo "  make race-det             Run race_test.go (preemption disabled)"
-	@echo ""
-	@echo "Specific Tests:"
-	@echo "  make preempt-on           Run TestAsyncPreemptOff WITH preemption"
-	@echo "  make preempt-off          Run TestAsyncPreemptOff WITHOUT preemption"
-	@echo "  make determinism          Run TestDeterminism1000"
-	@echo ""
-	@echo "Note: GOMAXPROCS=1 is set in test code, asyncpreemptoff via env"
+	@echo "  make test pkg=examples/local_replayer   Run one package"
+	@echo "  make test-all                           Run all packages"
+	@echo "  make build-go                           Build Go from source"
+	@echo "  make go-version                         Show custom Go version"
+	@echo "  make clean                              Clean build artifacts"
 
 build-go:
-	@echo "Building Go from source..."
 	cd $(GO_ROOT)/src && ./make.bash
-	@echo ""
-	@echo "Done! Test with: make go-version"
 
 go-version:
 	$(GO_BIN) version
 
-# === All Tests ===
+# === Tests ===
+# make test pkg=examples/local_replayer
+# make test-all
 
+ifdef pkg
 test:
-	$(GO_BIN) test -v $(EXPERIMENTS)/...
+	$(GO_BIN) test -v -count=1 ./$(pkg)/...
+else
+test:
+	@echo "usage: make test pkg=examples/local_replayer"
+	@echo "       make test-all"
+endif
+
+test-all:
+	$(GO_BIN) test -v -count=1 ./examples/... ./explorer/... ./experiments/...
 
 test-det:
-	$(NO_PREEMPT) $(GO_BIN) test -v $(EXPERIMENTS)/...
-
-# === manual_race_test.go ===
-
-manual-race:
-	$(GO_BIN) test -v $(EXPERIMENTS)/manual_race_test.go
-
-manual-race-det:
-	$(NO_PREEMPT) $(GO_BIN) test -v $(EXPERIMENTS)/manual_race_test.go
-
-# === race_test.go ===
-
-race:
-	$(GO_BIN) test -v $(EXPERIMENTS)/race_test.go
-
-race-det:
-	$(NO_PREEMPT) $(GO_BIN) test -v $(EXPERIMENTS)/race_test.go
-
-# === Specific Tests ===
-
-preempt-on:
-	$(GO_BIN) test -v -run TestAsyncPreemptOff $(EXPERIMENTS)/manual_race_test.go
-
-preempt-off:
-	$(NO_PREEMPT) $(GO_BIN) test -v -run TestAsyncPreemptOff $(EXPERIMENTS)/manual_race_test.go
-
-determinism:
-	$(NO_PREEMPT) $(GO_BIN) test -v -run TestDeterminism1000 $(EXPERIMENTS)/manual_race_test.go
-
-# Run specific test by name
-# Usage: make test-one TEST=TestManualRace
-test-one:
-	$(NO_PREEMPT) $(GO_BIN) test -v -run $(TEST) $(EXPERIMENTS)/...
+	GODEBUG=asyncpreemptoff=1 $(GO_BIN) test -v -count=1 ./experiments/...
 
 clean:
 	cd $(GO_ROOT)/src && ./clean.bash
