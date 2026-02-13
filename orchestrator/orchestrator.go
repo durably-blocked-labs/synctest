@@ -9,7 +9,6 @@ package orchestrator
 
 import (
 	"reflect"
-	"runtime"
 	"testing"
 	"testing/synctest"
 )
@@ -42,11 +41,20 @@ func (n *Node) Send(to string, payload any) {
 
 // Recv blocks until a message arrives from the orchestrator.
 func (n *Node) Recv() Message {
-	var msg Message
-	synctest.CallExternal(func() {
-		msg = <-n.recv
-	})
-	return msg
+	for {
+		var msg Message
+		got := false
+		synctest.CallExternal(func() {
+			select {
+			case msg = <-n.recv:
+				got = true
+			default:
+			}
+		})
+		if got {
+			return msg
+		}
+	}
 }
 
 // RPC sends a message and waits for a response. Convenience wrapper
@@ -144,7 +152,6 @@ func (o *Orchestrator) Run(t *testing.T) {
 	t.Helper()
 
 	n := len(o.bubbles)
-	runtime.GOMAXPROCS(1)
 
 	// Per-bubble status tracking.
 	status := make(map[string]*bubbleStatus, n)
