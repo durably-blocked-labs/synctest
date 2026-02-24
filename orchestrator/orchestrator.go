@@ -128,27 +128,50 @@ func (o *Orchestrator) startBubble(t *testing.T, ctrl *bubbleCtrl) {
 	}()
 }
 
+// EventType classifies what happened in one orchestrator loop iteration.
+type EventType int
+
+const (
+	EventOutbox EventType = iota // bubble sent a message via outbox
+	EventHook                    // bubble's decision hook fired
+	EventDone                    // bubble completed
+)
+
+// GlobalStep records one orchestrator event loop iteration.
+type GlobalStep struct {
+	Bubble    string    // which bubble this event came from
+	Event     EventType // what kind of event
+	HookReply int32     // reply sent to decision hook (only for EventHook)
+}
+
 // bubbleStatus tracks per-bubble state for turn-based orchestration.
 type bubbleStatus struct {
-	hookPending bool   // hookState received, hookReply not yet sent
-	waitingFor  string // name of bubble we expect a response from ("" = none)
+	hookPending      bool   // hookState received, hookReply not yet sent
+	waitingFor       string // name of bubble we expect a response from ("" = none)
+	pendingHookReply int32  // reply to send when hook is released
 }
 
 // Run starts all registered bubbles and routes messages between them
-// until all bubbles complete. Each bubble's decision hook blocks,
-// sending BubbleState to the orchestrator and waiting for a scheduling reply.
-//
-// Turn-based invariant: when bubble A sends an RPC to bubble B, A stays
-// frozen (hookReply withheld) until B sends a response back. The orchestrator
-// detects this by tracking waitingFor per bubble.
-//
-// The reflect.Select cases are laid out as:
-//
-//	[outbox_0..n-1, hookState_0..n-1, done_0..n-1]
-//
-// so the chosen index determines whether it was a message, decision, or
-// completion event.
+// until all bubbles complete. It delegates to RunExplore with a nil prefix.
 func (o *Orchestrator) Run(t *testing.T) {
+	t.Helper()
+	_, _ = o.RunExplore(t, nil)
+}
+
+// RunExplore starts all bubbles and runs the event loop with record/replay support.
+//
+// In record mode (len(prefix) == 0): uses reflect.Select as normal, appending
+// each event as a GlobalStep to the trace.
+//
+// In replay mode (len(prefix) > 0): uses reflect.Select identically to record
+// mode, but buffers outbox/done events that arrive out of prefix order and
+// processes them in the recorded sequence. Hook events are processed immediately
+// with the same hold/release logic as record mode, preserving the turn-based
+// invariant: bubbles waiting for a response have their hooks held until the
+// response arrives.
+//
+// Returns the full trace and whether all bubbles passed.
+func (o *Orchestrator) RunExplore(t *testing.T, prefix []GlobalStep) ([]GlobalStep, bool) {
 	t.Helper()
 
 	n := len(o.bubbles)
@@ -164,110 +187,206 @@ func (o *Orchestrator) Run(t *testing.T) {
 		o.startBubble(t, o.bubbles[name])
 	}
 
-	// Build reflect.SelectCase slice.
-	// Layout: [outbox_0..n-1, hookState_0..n-1, done_0..n-1]
-	cases := make([]reflect.SelectCase, 3*n)
-	for i, name := range o.order {
-		ctrl := o.bubbles[name]
-		cases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(ctrl.send),
-		}
-		cases[n+i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(ctrl.hookState),
-		}
-		cases[2*n+i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(ctrl.done),
-		}
-	}
-
 	active := n
 	results := make(map[string]bubbleResult)
+	var trace []GlobalStep
+	allPassed := true
 
-	for active > 0 {
-		chosen, value, _ := reflect.Select(cases)
+	// processOutbox handles a message from a bubble's outbox channel.
+	processOutbox := func(bubbleName string, msg Message) {
+		msg.From = bubbleName
 
-		switch {
-		case chosen < n:
-			// Message from bubble outbox[chosen].
-			msg := value.Interface().(Message)
-			senderName := o.order[chosen]
-			msg.From = senderName
+		target, ok := o.bubbles[msg.To]
+		if !ok {
+			t.Fatalf("orchestrator: bubble %q sent message to unknown bubble %q", bubbleName, msg.To)
+		}
 
-			target, ok := o.bubbles[msg.To]
-			if !ok {
-				t.Fatalf("orchestrator: bubble %q sent message to unknown bubble %q", senderName, msg.To)
-			}
+		trace = append(trace, GlobalStep{Bubble: bubbleName, Event: EventOutbox})
 
-			// Check if this message is a response that unblocks the recipient.
-			// If recipient X has waitingFor == sender, this is the response.
-			recipientStatus := status[msg.To]
-			isResponse := recipientStatus.waitingFor == senderName
-			if isResponse {
-				recipientStatus.waitingFor = ""
-				t.Logf("orchestrator: bubble %q received response from %q, unblocked", msg.To, senderName)
-			}
+		recipientStatus := status[msg.To]
+		isResponse := recipientStatus.waitingFor == bubbleName
+		if isResponse {
+			recipientStatus.waitingFor = ""
+			t.Logf("orchestrator: bubble %q received response from %q, unblocked", msg.To, bubbleName)
+		}
+		if !isResponse {
+			senderStatus := status[bubbleName]
+			senderStatus.waitingFor = msg.To
+		}
 
-			// Only mark sender as waiting if this is a new request, not a response.
-			// A bubble sending a response should remain free to make progress.
-			if !isResponse {
-				senderStatus := status[senderName]
-				senderStatus.waitingFor = msg.To
-			}
+		target.recv <- msg
 
-			// Route message to target inbox.
-			target.recv <- msg
-
-			// If the recipient has a pending hook and is now unblocked, release it.
-			if recipientStatus.hookPending && recipientStatus.waitingFor == "" {
-				o.bubbles[msg.To].hookReply <- 0
-				recipientStatus.hookPending = false
-				t.Logf("orchestrator: releasing held hook for bubble %q", msg.To)
-			}
-
-		case chosen < 2*n:
-			// Decision point: bubble needs a scheduling decision.
-			idx := chosen - n
-			name := o.order[idx]
-			state := value.Interface().(synctest.BubbleState)
-			t.Logf("orchestrator: bubble %q decision (step=%d, runnable=%d)",
-				name, state.Step, state.RunnableN)
-
-			st := status[name]
-			st.hookPending = true
-
-			if st.waitingFor == "" {
-				// Not waiting for anyone — reply immediately.
-				o.bubbles[name].hookReply <- 0
-				st.hookPending = false
-			} else {
-				// Waiting for a response — hold the hook.
-				t.Logf("orchestrator: holding bubble %q (waiting for %q)", name, st.waitingFor)
-			}
-
-		default:
-			// Done signal from bubble done[chosen-2n].
-			idx := chosen - 2*n
-			name := o.order[idx]
-			result := value.Interface().(bubbleResult)
-			results[name] = result
-
-			// Disable all cases for this bubble.
-			cases[idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
-			cases[n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
-			cases[2*n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
-			active--
-
-			t.Logf("orchestrator: bubble %q finished (ok=%v, decisions=%d)", name, result.ok, len(result.trace))
+		if recipientStatus.hookPending && recipientStatus.waitingFor == "" {
+			o.bubbles[msg.To].hookReply <- recipientStatus.pendingHookReply
+			recipientStatus.hookPending = false
+			t.Logf("orchestrator: releasing held hook for bubble %q", msg.To)
 		}
 	}
 
-	// Fail if any bubble failed.
+	// processHook handles a scheduling decision from a bubble.
+	// 
+	// Is it possible for hook to be received before the RPC?
+	processHook := func(bubbleName string, state synctest.BubbleState, hookReply int32) {
+		t.Logf("orchestrator: bubble %q decision (step=%d, runnable=%d)",
+			bubbleName, state.Step, state.RunnableN)
+
+		st := status[bubbleName]
+		st.hookPending = true
+		st.pendingHookReply = hookReply
+
+		trace = append(trace, GlobalStep{Bubble: bubbleName, Event: EventHook, HookReply: hookReply})
+
+		if st.waitingFor == "" {
+			o.bubbles[bubbleName].hookReply <- st.pendingHookReply
+			st.hookPending = false
+		} else {
+			t.Logf("orchestrator: holding bubble %q (waiting for %q)", bubbleName, st.waitingFor)
+		}
+	}
+
+	// processDone handles a bubble completion.
+	processDone := func(bubbleName string, result bubbleResult) {
+		results[bubbleName] = result
+		trace = append(trace, GlobalStep{Bubble: bubbleName, Event: EventDone})
+		active--
+		t.Logf("orchestrator: bubble %q finished (ok=%v, decisions=%d)", bubbleName, result.ok, len(result.trace))
+	}
+
+	if len(prefix) > 0 {
+		// Replay mode.
+		//
+		// Uses reflect.Select directly (same as record mode) to receive events
+		// from all bubble channels. Hook events are processed immediately with
+		// the same hold/release logic as record mode, preserving the turn-based
+		// invariant. Outbox and done events are buffered and processed in the
+		// order recorded in the prefix, ensuring deterministic message routing
+		// regardless of reflect.Select's non-deterministic channel selection.
+		cases := make([]reflect.SelectCase, 3*n)
+		for i, name := range o.order {
+			ctrl := o.bubbles[name]
+			cases[i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctrl.send),
+			}
+			cases[n+i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctrl.hookState),
+			}
+			cases[2*n+i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctrl.done),
+			}
+		}
+
+		// Build replay schedule from prefix: outbox and done events only.
+		type eventKey struct {
+			bubble string
+			event  EventType
+		}
+		pending := make(map[eventKey][]any)
+
+		var replaySteps []GlobalStep
+		for _, step := range prefix {
+			if step.Event == EventOutbox || step.Event == EventDone {
+				replaySteps = append(replaySteps, step)
+			}
+		}
+		replayIdx := 0
+
+		// flushPending processes buffered events that match the next prefix steps.
+		flushPending := func() {
+			for replayIdx < len(replaySteps) {
+				step := replaySteps[replayIdx]
+				key := eventKey{step.Bubble, step.Event}
+				if len(pending[key]) == 0 {
+					return
+				}
+				val := pending[key][0]
+				pending[key] = pending[key][1:]
+				switch step.Event {
+				case EventOutbox:
+					processOutbox(step.Bubble, val.(Message))
+				case EventDone:
+					processDone(step.Bubble, val.(bubbleResult))
+				}
+				replayIdx++
+			}
+		}
+
+		for active > 0 {
+			chosen, value, _ := reflect.Select(cases)
+
+			switch {
+			case chosen < n:
+				name := o.order[chosen]
+				if replayIdx < len(replaySteps) {
+					key := eventKey{name, EventOutbox}
+					pending[key] = append(pending[key], value.Interface().(Message))
+					flushPending()
+				} else {
+					processOutbox(name, value.Interface().(Message))
+				}
+			case chosen < 2*n:
+				processHook(o.order[chosen-n], value.Interface().(synctest.BubbleState), 0)
+			default:
+				idx := chosen - 2*n
+				name := o.order[idx]
+				cases[idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+				cases[n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+				cases[2*n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+				if replayIdx < len(replaySteps) {
+					key := eventKey{name, EventDone}
+					pending[key] = append(pending[key], value.Interface().(bubbleResult))
+					flushPending()
+				} else {
+					processDone(name, value.Interface().(bubbleResult))
+				}
+			}
+		}
+	} else {
+		// Record mode: use reflect.Select directly.
+		cases := make([]reflect.SelectCase, 3*n)
+		for i, name := range o.order {
+			ctrl := o.bubbles[name]
+			cases[i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctrl.send),
+			}
+			cases[n+i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctrl.hookState),
+			}
+			cases[2*n+i] = reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctrl.done),
+			}
+		}
+
+		for active > 0 {
+			chosen, value, _ := reflect.Select(cases)
+
+			switch {
+			case chosen < n:
+				processOutbox(o.order[chosen], value.Interface().(Message))
+			case chosen < 2*n:
+				processHook(o.order[chosen-n], value.Interface().(synctest.BubbleState), 0)
+			default:
+				idx := chosen - 2*n
+				processDone(o.order[idx], value.Interface().(bubbleResult))
+				cases[idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+				cases[n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+				cases[2*n+idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
+			}
+		}
+	}
+
+	// Check if any bubble failed.
 	for _, name := range o.order {
 		if r, ok := results[name]; ok && !r.ok {
 			t.Errorf("orchestrator: bubble %q failed", name)
+			allPassed = false
 		}
 	}
+
+	return trace, allPassed
 }
