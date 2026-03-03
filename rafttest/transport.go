@@ -6,42 +6,54 @@ package rafttest
 import (
 	"fmt"
 	"io"
+	"sync"
+	"sync/atomic"
 	"testing/synctest"
 
 	"github.com/hashicorp/raft"
 	"github.com/shubhaankar/synctest/orchestratorv2"
 )
 
+type envelopeKind int
+
+const (
+	envelopeRequest envelopeKind = iota
+	envelopeResponse
+)
+
+type envelope struct {
+	kind    envelopeKind
+	reqID   uint64
+	from    raft.ServerAddress
+	to      raft.ServerAddress
+	rpcType string
+
+	command interface{}
+	reader  io.Reader
+	resp    raft.RPCResponse
+}
+
 // RaftTransport implements raft.Transport (and raft.WithPreVote, raft.WithClose)
-// using an orchestrator-routed mailbox. All cross-node RPCs go through the
-// orchestratorv2 outbox so the orchestrator can control delivery order.
-//
-// Design: mailbox + bridge goroutine
-//   - mailbox (buffered 16): send Execute writes here; bridge goroutine reads here
-//   - recvPermit (unbuffered): recv Execute writes here; bridge goroutine waits here
-//
-// The bridge goroutine (started via StartBridge, inside the bubble) loops:
-//
-//	CallExternal {
-//	    outbox <- OpRecv{Execute: func(){ recvPermit <- struct{}{} }}
-//	    <-recvPermit           // blocks until orchestrator schedules this recv
-//	    msg := <-mailbox       // consume the delivered message
-//	    internalConsumer <- msg
-//	}
+// using an orchestrator-routed mailbox. All cross-node request and response
+// messages go through the orchestratorv2 outbox so delivery order is controlled.
 type RaftTransport struct {
 	localAddr        raft.ServerAddress
 	outbox           chan *orchestratorv2.PendingOp // unbuffered; to orchestrator
-	internalConsumer chan raft.RPC                   // intra-bubble; Raft reads this
-	mailbox          chan raft.RPC                   // buffered(16); send Execute writes here
-	recvPermit       chan struct{}                   // unbuffered; recv Execute grants permit
+	internalConsumer chan raft.RPC                  // intra-bubble; Raft reads this
+	mailbox          chan envelope                  // buffered; orchestrator writes here
+	recvPermit       chan struct{}                  // unbuffered; recv Execute grants permit
 	peers            map[raft.ServerAddress]*RaftTransport
 	closeCh          chan struct{}
+
+	nextReqID uint64
+	pendingMu sync.Mutex
+	pending   map[uint64]chan raft.RPCResponse
 }
 
 // Compile-time interface checks.
-var _ raft.Transport               = (*RaftTransport)(nil)
-var _ raft.WithPreVote             = (*RaftTransport)(nil)
-var _ raft.WithClose               = (*RaftTransport)(nil)
+var _ raft.Transport = (*RaftTransport)(nil)
+var _ raft.WithPreVote = (*RaftTransport)(nil)
+var _ raft.WithClose = (*RaftTransport)(nil)
 var _ orchestratorv2.NodeTransport = (*RaftTransport)(nil)
 
 // NewRaftTransport creates a transport for the given address.
@@ -50,10 +62,11 @@ func NewRaftTransport(addr raft.ServerAddress) *RaftTransport {
 		localAddr:        addr,
 		outbox:           make(chan *orchestratorv2.PendingOp),
 		internalConsumer: make(chan raft.RPC, 16),
-		mailbox:          make(chan raft.RPC, 16),
+		mailbox:          make(chan envelope, 16),
 		recvPermit:       make(chan struct{}),
 		peers:            make(map[raft.ServerAddress]*RaftTransport),
 		closeCh:          make(chan struct{}),
+		pending:          make(map[uint64]chan raft.RPCResponse),
 	}
 }
 
@@ -73,19 +86,19 @@ func (t *RaftTransport) Outbox() <-chan *orchestratorv2.PendingOp {
 }
 
 // StartBridge spawns the bridge goroutine that connects the orchestrator's
-// delivery decisions to Raft's internal consumer channel. Must be called
-// inside the bubble (i.e., from within the testFunc passed to orch.AddNode).
+// delivery decisions to Raft's internal consumer channel and response waiters.
+// Must be called inside the bubble.
 func (t *RaftTransport) StartBridge() {
 	go func() {
 		for {
+			select {
 			case <-t.closeCh:
 				return
 			default:
 			}
 
 			synctest.CallExternal(func() {
-				// Submit a recv op to the orchestrator. This blocks until
-			}				select {
+				select {
 				case t.outbox <- &orchestratorv2.PendingOp{
 					Dir:  orchestratorv2.OpRecv,
 					From: string(t.localAddr),
@@ -98,48 +111,125 @@ func (t *RaftTransport) StartBridge() {
 					return
 				}
 
-				// Wait for the orchestrator to schedule this recv.
 				select {
 				case <-t.recvPermit:
 				case <-t.closeCh:
 					return
 				}
 
-				// Consume the delivered message from mailbox.
 				msg := <-t.mailbox
-				t.internalConsumer <- msg
+				t.handleEnvelope(msg)
 			})
 		}
 	}()
 }
 
-// makeRPC sends an RPC to the target and waits for the response.
-// Uses two CallExternal calls: one to submit the send op, one to wait for reply.
+func (t *RaftTransport) handleEnvelope(msg envelope) {
+	switch msg.kind {
+	case envelopeRequest:
+		proxyRespCh := make(chan raft.RPCResponse, 1)
+		t.internalConsumer <- raft.RPC{Command: msg.command, Reader: msg.reader, RespChan: proxyRespCh}
+		go t.forwardResponse(msg, proxyRespCh)
+
+	case envelopeResponse:
+		t.pendingMu.Lock()
+		respCh := t.pending[msg.reqID]
+		t.pendingMu.Unlock()
+		if respCh == nil {
+			return
+		}
+		select {
+		case respCh <- msg.resp:
+		case <-t.closeCh:
+		}
+	}
+}
+
+func (t *RaftTransport) forwardResponse(req envelope, proxyRespCh <-chan raft.RPCResponse) {
+	var resp raft.RPCResponse
+	select {
+	case resp = <-proxyRespCh:
+	case <-t.closeCh:
+		return
+	}
+
+	peer, ok := t.peers[req.from]
+	if !ok {
+		return
+	}
+
+	synctest.CallExternal(func() {
+		select {
+		case t.outbox <- &orchestratorv2.PendingOp{
+			Dir:  orchestratorv2.OpSend,
+			From: string(t.localAddr),
+			To:   string(req.from),
+			Type: req.rpcType + "Response",
+			Execute: func() {
+				peer.mailbox <- envelope{
+					kind:  envelopeResponse,
+					reqID: req.reqID,
+					from:  t.localAddr,
+					to:    req.from,
+					resp:  resp,
+				}
+			},
+		}:
+		case <-t.closeCh:
+		}
+	})
+}
+
+// makeRPC sends an RPC to the target and waits for the orchestrator-delivered response.
 func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io.Reader) (raft.RPCResponse, error) {
 	peer, ok := t.peers[target]
 	if !ok {
 		return raft.RPCResponse{}, fmt.Errorf("rafttest: no peer for %q", target)
 	}
 
+	reqID := atomic.AddUint64(&t.nextReqID, 1)
 	respCh := make(chan raft.RPCResponse, 1)
 
-	// CallExternal #1: submit OpSend; blocks until orchestrator reads from outbox.
+	t.pendingMu.Lock()
+	t.pending[reqID] = respCh
+	t.pendingMu.Unlock()
+	defer func() {
+		t.pendingMu.Lock()
+		delete(t.pending, reqID)
+		t.pendingMu.Unlock()
+	}()
+
+	rpcType := rpcTypeName(cmd)
 	synctest.CallExternal(func() {
-		t.outbox <- &orchestratorv2.PendingOp{
+		select {
+		case t.outbox <- &orchestratorv2.PendingOp{
 			Dir:  orchestratorv2.OpSend,
 			From: string(t.localAddr),
 			To:   string(target),
-			Type: rpcTypeName(cmd),
+			Type: rpcType,
 			Execute: func() {
-				peer.mailbox <- raft.RPC{Command: cmd, Reader: r, RespChan: respCh}
+				peer.mailbox <- envelope{
+					kind:    envelopeRequest,
+					reqID:   reqID,
+					from:    t.localAddr,
+					to:      target,
+					rpcType: rpcType,
+					command: cmd,
+					reader:  r,
+				}
 			},
+		}:
+		case <-t.closeCh:
 		}
 	})
 
-	// CallExternal #2: wait for Raft on the target to call rpc.Respond().
 	var resp raft.RPCResponse
 	synctest.CallExternal(func() {
-		resp = <-respCh
+		select {
+		case resp = <-respCh:
+		case <-t.closeCh:
+			resp = raft.RPCResponse{Error: fmt.Errorf("rafttest: transport %q closed", t.localAddr)}
+		}
 	})
 	if resp.Error != nil {
 		return resp, resp.Error
@@ -198,7 +288,7 @@ func (t *RaftTransport) TimeoutNow(id raft.ServerID, target raft.ServerAddress, 
 }
 
 // AppendEntriesPipeline implements raft.Transport.
-// Returns ErrPipelineReplicationNotSupported — the orchestrator does not support pipelining.
+// Returns ErrPipelineReplicationNotSupported - the orchestrator does not support pipelining.
 func (t *RaftTransport) AppendEntriesPipeline(id raft.ServerID, target raft.ServerAddress) (raft.AppendPipeline, error) {
 	return nil, raft.ErrPipelineReplicationNotSupported
 }
