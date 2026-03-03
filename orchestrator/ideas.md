@@ -28,3 +28,10 @@ The tradeoffs:
 - Testing (2) would satisfy completeness requirement, but is likely much more challenging due to the responsibility of managing intra-node goroutines.
 
 Although (2) is more complete, prioritizing (1) may be more practical due to the complexity of managing intra-node goroutines. We can likely also surface concurrency bugs that arise from RPC interleavings as well, which is a goal of systematic testing of a distributed system.
+
+
+## Testing Hashicorp Raft
+
+Hashicorp Raft uses an InmemTransport abstraction for the transport layer. Nothing goes over the real network. 
+- The "tester" can define a set of RPC names that are used in the system. This is required because their transport just uses channels to deliver RPCs. We have to distinguish whether a channel is used for inter-node or intra-node communication.
+
