@@ -1,17 +1,31 @@
 // Package orchestratorv2 coordinates multiple synctest bubbles acting as
 // distributed nodes that communicate via controlled message delivery.
-// Each bubble runs in its own goroutine with an isolated fake clock.
-// The orchestrator receives PendingOps from node transports and decides
-// which to execute next, giving full control over cross-node message ordering.
 //
-// Core invariant: sends are always immediately schedulable; recvs are only
-// schedulable once a delivered-but-not-yet-consumed message is waiting.
+// Each node runs in its own synctest bubble with a distributed.Bubble local
+// orchestrator managing intra-bubble scheduling. The global orchestrator
+// only intervenes when ALL bubbles are idle — when every goroutine in every
+// bubble is blocked waiting on orchestrator-controlled channels (ExternalWait).
+//
+// At each idle point the global orchestrator:
+//  1. Drains each node's outbox to collect pending OpSend operations.
+//  2. Picks the next op to execute (FIFO).
+//  3. Calls op.Execute() to deliver the message to the target's mailbox.
+//  4. Sends Resume{} to the target bubble so its bridge goroutine wakes.
+//
+// When no messages are pending, the orchestrator advances the global virtual
+// clock to the earliest pending timer across all bubbles and resumes every
+// bubble with Resume{AdvanceTimeTo: t}.
+//
+// Core invariant: at most one bubble is active (not frozen in its hook) at
+// any time, guaranteeing fully deterministic cross-node scheduling.
 package orchestratorv2
 
 import (
 	"reflect"
 	"testing"
 	"testing/synctest"
+
+	"github.com/shubhaankar/synctest/distributed"
 )
 
 // OpDir classifies the direction of a pending operation.
@@ -19,23 +33,21 @@ type OpDir int
 
 const (
 	OpSend OpDir = iota
-	OpRecv
+	OpRecv // retained for trace compatibility; no longer submitted by transports
 )
 
 // PendingOp is the unit of work submitted by a transport to the orchestrator.
-// Both sends and recvs carry an Execute closure.
-// For sends, Execute delivers the message to the target's mailbox.
-// For recvs, Execute grants permission to the waiting bridge goroutine.
+// In the ExternalWait model only OpSend ops are submitted. The Execute closure
+// delivers the message directly into the target node's mailbox channel.
 type PendingOp struct {
 	Dir     OpDir
-	From    string  // OpSend: sender addr; OpRecv: waiting node addr
-	To      string  // OpSend: target addr; OpRecv: unused
-	Type    string  // RPC type name for tracing ("AppendEntries", etc.)
-	Execute func()  // non-nil for both OpSend and OpRecv
+	From    string // sender addr
+	To      string // target addr
+	Type    string // RPC type name for tracing ("AppendEntries", etc.)
+	Execute func() // writes message to target's mailbox
 }
 
 // NodeTransport is the interface transport implementations must satisfy.
-// A single Outbox carries both OpSend and OpRecv ops.
 type NodeTransport interface {
 	Addr()   string
 	Outbox() <-chan *PendingOp
@@ -64,9 +76,7 @@ type GlobalStep struct {
 type nodeCtrl struct {
 	transport NodeTransport
 	testFunc  func(t *testing.T)
-	// blockedCh is a stub — not yet implemented in synctest.
-	// Full impl waits for all N bubbles to signal before scheduling.
-	blockedCh chan struct{}
+	bubble    *distributed.Bubble // local orchestrator for this node's bubble
 	done      chan struct{}
 }
 
@@ -76,9 +86,7 @@ type Orchestrator struct {
 	order      []string // insertion order for deterministic iteration
 	globalTime int64
 
-	schedulable  []*PendingOp            // ops ready to execute (FIFO)
-	blockedRecvs map[string][]*PendingOp // recv ops waiting for a delivered message; keyed by From
-	deliveredTo  map[string]int          // count of delivered-but-not-consumed messages per node
+	schedulable []*PendingOp // ops ready to execute (FIFO)
 
 	trace []GlobalStep
 }
@@ -86,9 +94,7 @@ type Orchestrator struct {
 // New creates an empty orchestrator.
 func New() *Orchestrator {
 	return &Orchestrator{
-		nodes:        make(map[string]*nodeCtrl),
-		blockedRecvs: make(map[string][]*PendingOp),
-		deliveredTo:  make(map[string]int),
+		nodes: make(map[string]*nodeCtrl),
 	}
 }
 
@@ -98,77 +104,42 @@ func (o *Orchestrator) AddNode(transport NodeTransport, f func(t *testing.T)) {
 	ctrl := &nodeCtrl{
 		transport: transport,
 		testFunc:  f,
-		blockedCh: make(chan struct{}, 1),
+		bubble:    distributed.NewBubble(addr),
 		done:      make(chan struct{}),
 	}
 	o.nodes[addr] = ctrl
 	o.order = append(o.order, addr)
 }
 
-// enqueue adds an op to the schedulable queue or defers it if blocked.
-func (o *Orchestrator) enqueue(op *PendingOp) {
-	switch op.Dir {
-	case OpSend:
-		// Sends are always immediately schedulable.
-		o.schedulable = append(o.schedulable, op)
-
-	case OpRecv:
-		// Only schedulable if there is already a delivered-but-unconsumed message.
-		if o.deliveredTo[op.From] > 0 {
-			o.deliveredTo[op.From]--
-			o.schedulable = append(o.schedulable, op)
-		} else {
-			o.blockedRecvs[op.From] = append(o.blockedRecvs[op.From], op)
-		}
-	}
-}
-
-// deliverNext executes the next schedulable op.
-func (o *Orchestrator) deliverNext(t *testing.T) {
-	op := o.schedulable[0]
-	o.schedulable = o.schedulable[1:]
-
-	go op.Execute() // must not block orchestrator goroutine
-
-	if op.Dir == OpSend {
-		// Track that a message is now sitting in the target's mailbox.
-		o.deliveredTo[op.To]++
-		// If any recv was blocked waiting for this, unblock it now.
-		if recvs := o.blockedRecvs[op.To]; len(recvs) > 0 {
-			recv := recvs[0]
-			o.blockedRecvs[op.To] = recvs[1:]
-			o.deliveredTo[op.To]-- // recv will consume this slot
-			o.schedulable = append(o.schedulable, recv)
-		}
-	}
-
-	o.trace = append(o.trace, GlobalStep{
-		Type:   StepDeliver,
-		Dir:    op.Dir,
-		From:   op.From,
-		To:     op.To,
-		OpType: op.Type,
-		Time:   o.globalTime,
-	})
-	t.Logf("orchestratorv2: deliver %s %s→%s (%s)", dirName(op.Dir), op.From, op.To, op.Type)
-}
-
 // startBubble launches a node's test function inside a synctest bubble.
+// It installs the distributed.Bubble decision hook before calling the user's
+// function, enabling idle-based synchronisation with the global orchestrator.
 func (o *Orchestrator) startBubble(t *testing.T, ctrl *nodeCtrl) {
+	b := ctrl.bubble
+	userFn := ctrl.testFunc
 	go func() {
 		synctest.Test(t, func(t *testing.T) {
-			ctrl.testFunc(t)
+			synctest.SetDecisionHook(b.Hook())
+			userFn(t)
 		})
 		close(ctrl.done)
 	}()
 }
 
-// Run starts all registered nodes and routes messages between them
-// until all bubbles complete. Returns the full event trace and whether
-// all bubbles passed.
+// Run starts all registered nodes and drives cross-node message delivery until
+// all bubbles complete. Returns the full event trace and whether all bubbles
+// passed.
 //
-// TODO: Full impl waits for all N bubbles to signal via blockedCh before
-// scheduling. This stub delivers eagerly as ops arrive.
+// Algorithm:
+//  1. Start all bubbles.
+//  2. Wait for every active, non-pending-idle bubble to report idle (IdleState)
+//     or to complete (done channel).
+//  3. Once all active bubbles are idle, drain their outboxes to collect pending
+//     OpSend operations.
+//  4. If sends are available: deliver the next one (FIFO), resume the target.
+//  5. If no sends but timers exist: advance global time, resume all idle bubbles.
+//  6. If neither: resume all (allowing bubbles to finish) and exit.
+//  7. Repeat from step 2.
 func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
 	t.Helper()
 
@@ -179,92 +150,165 @@ func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
 		o.startBubble(t, o.nodes[addr])
 	}
 
+	// pendingIdle holds bubbles that sent an IdleState but have not yet
+	// received a Resume. They are frozen in their hook.
+	pendingIdle := make(map[string]distributed.IdleState)
+	doneSet := make(map[string]bool)
 	active := n
-
-	// Build reflect.Select cases:
-	//   [0..n-1]     outbox channels (one per node)
-	//   [n..2n-1]    done channels (one per node)
-	//   [2n]         default (non-blocking drain)
-	outboxCases := make([]reflect.SelectCase, n)
-	doneCases := make([]reflect.SelectCase, n)
-	for i, addr := range o.order {
-		ctrl := o.nodes[addr]
-		outboxCases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(ctrl.transport.Outbox()),
-		}
-		doneCases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(ctrl.done),
-		}
-	}
-	defaultCase := reflect.SelectCase{Dir: reflect.SelectDefault}
-
 	allPassed := true
 
-	disableIdx := func(idx int) {
-		outboxCases[idx] = reflect.SelectCase{Dir: reflect.SelectRecv} // nil chan blocks forever
-		doneCases[idx] = reflect.SelectCase{Dir: reflect.SelectRecv}
-	}
-
-	buildCases := func(withDefault bool) []reflect.SelectCase {
-		cases := make([]reflect.SelectCase, 0, 2*n+1)
-		cases = append(cases, outboxCases...)
-		cases = append(cases, doneCases...)
-		if withDefault {
-			cases = append(cases, defaultCase)
-		}
-		return cases
-	}
-
 	for active > 0 {
-		// Non-blocking drain: collect all immediately-available ops.
+		// ── Step 2: collect idle states from all non-pending, non-done bubbles ──
+		//
+		// Build a reflect.Select over the Idle and done channels of every bubble
+		// that is neither already in pendingIdle nor already done. We loop until
+		// every active bubble is accounted for.
 		for {
-			cases := buildCases(true)
-			chosen, value, _ := reflect.Select(cases)
-			if chosen == 2*n {
-				// default: nothing immediately available
+			// Count how many active bubbles still need to report.
+			needed := 0
+			for _, addr := range o.order {
+				if doneSet[addr] {
+					continue
+				}
+				if _, ok := pendingIdle[addr]; ok {
+					continue
+				}
+				needed++
+			}
+			if needed == 0 {
 				break
 			}
-			if chosen < n {
-				// outbox
-				op := value.Interface().(*PendingOp)
-				o.enqueue(op)
-			} else {
-				// done
-				idx := chosen - n
-				addr := o.order[idx]
+
+			// Build select cases: [idle_0, done_0, idle_1, done_1, ...]
+			cases := make([]reflect.SelectCase, 0, needed*2)
+			addrs := make([]string, 0, needed*2)
+			isDone := make([]bool, 0, needed*2)
+
+			for _, addr := range o.order {
+				if doneSet[addr] {
+					continue
+				}
+				if _, ok := pendingIdle[addr]; ok {
+					continue
+				}
+				ctrl := o.nodes[addr]
+				cases = append(cases, reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(ctrl.bubble.Idle),
+				})
+				addrs = append(addrs, addr)
+				isDone = append(isDone, false)
+
+				cases = append(cases, reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(ctrl.done),
+				})
+				addrs = append(addrs, addr)
+				isDone = append(isDone, true)
+			}
+
+			chosen, val, _ := reflect.Select(cases)
+			addr := addrs[chosen]
+
+			if isDone[chosen] {
+				doneSet[addr] = true
+				delete(pendingIdle, addr)
 				active--
-				disableIdx(idx)
 				o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
 				t.Logf("orchestratorv2: node %q bubble done", addr)
+			} else {
+				idleState := val.Interface().(distributed.IdleState)
+				pendingIdle[addr] = idleState
 			}
-		}
-
-		if len(o.schedulable) > 0 {
-			o.deliverNext(t)
-			continue
 		}
 
 		if active == 0 {
 			break
 		}
 
-		// Nothing schedulable. Block until next event.
-		cases := buildCases(false)
-		chosen, value, _ := reflect.Select(cases)
-		if chosen < n {
-			// outbox
-			op := value.Interface().(*PendingOp)
-			o.enqueue(op)
+		// ── Step 3: drain outboxes (non-blocking) ──
+		//
+		// Each sending goroutine is frozen in ExternalWait on an unbuffered
+		// outbox channel. Reading from that channel completes the goroutine's
+		// ExternalWait (puts it in the bubble's runq) but the bubble stays
+		// frozen — its hook is still blocking on Resume.
+		for _, addr := range o.order {
+			if doneSet[addr] {
+				continue
+			}
+			ctrl := o.nodes[addr]
+			select {
+			case op := <-ctrl.transport.Outbox():
+				o.schedulable = append(o.schedulable, op)
+			default:
+			}
+		}
+
+		// ── Steps 4–6: make a scheduling decision ──
+
+		if len(o.schedulable) > 0 {
+			// Deliver the next pending send.
+			op := o.schedulable[0]
+			o.schedulable = o.schedulable[1:]
+
+			// Execute delivers the message to the target node's mailbox.
+			// The target's bridge goroutine is frozen in ExternalWait on
+			// that mailbox, so it will wake when its bubble receives Resume.
+			op.Execute()
+
+			o.trace = append(o.trace, GlobalStep{
+				Type:   StepDeliver,
+				Dir:    op.Dir,
+				From:   op.From,
+				To:     op.To,
+				OpType: op.Type,
+				Time:   o.globalTime,
+			})
+			t.Logf("orchestratorv2: deliver %s %s→%s (%s)", dirName(op.Dir), op.From, op.To, op.Type)
+
+			// Resume the target bubble so its bridge goroutine can process
+			// the newly delivered message.
+			if targetCtrl, ok := o.nodes[op.To]; ok {
+				if _, pending := pendingIdle[op.To]; pending {
+					targetCtrl.bubble.Resume <- distributed.Resume{}
+					delete(pendingIdle, op.To)
+				}
+			}
+
 		} else {
-			// done
-			idx := chosen - n
-			addr := o.order[idx]
-			active--
-			disableIdx(idx)
-			o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-			t.Logf("orchestratorv2: node %q bubble done", addr)
+			// No pending sends. Check for timers.
+			var earliest int64
+			for _, idleState := range pendingIdle {
+				if idleState.State.NextTimer > 0 {
+					if earliest == 0 || idleState.State.NextTimer < earliest {
+						earliest = idleState.State.NextTimer
+					}
+				}
+			}
+
+			if earliest > 0 {
+				// Advance time: resume all idle bubbles at the same clock value.
+				o.globalTime = earliest
+				o.trace = append(o.trace, GlobalStep{Type: StepTimeAdvance, Time: earliest})
+				t.Logf("orchestratorv2: advance time to %d ns", earliest)
+
+				// I'm not too sure if we should wake up all timers here. Maybe we should just wake the earliest ones.
+				for addr := range pendingIdle {
+					ctrl := o.nodes[addr]
+					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
+				}
+				pendingIdle = make(map[string]distributed.IdleState)
+
+			} else {
+				// No sends and no timers. Resume all idle bubbles so they
+				// can finish any remaining internal work and exit.
+				t.Logf("orchestratorv2: no pending sends or timers — resuming all to drain")
+				for addr := range pendingIdle {
+					ctrl := o.nodes[addr]
+					ctrl.bubble.Resume <- distributed.Resume{}
+				}
+				pendingIdle = make(map[string]distributed.IdleState)
+			}
 		}
 	}
 

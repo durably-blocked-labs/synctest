@@ -1,7 +1,9 @@
 package rafttest_test
 
 import (
+	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,10 +22,12 @@ func init() {
 // routed through the orchestrator, and verifies that a leader is elected.
 func TestRaftThreeNodeElection(t *testing.T) {
 	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
+	expectedServers := make(map[raft.ServerID]raft.ServerAddress, len(addrs))
 
 	// Build the Raft configuration (all 3 as Voter).
 	configuration := raft.Configuration{}
 	for _, addr := range addrs {
+		expectedServers[raft.ServerID(addr)] = addr
 		configuration.Servers = append(configuration.Servers, raft.Server{
 			Suffrage: raft.Voter,
 			ID:       raft.ServerID(addr),
@@ -52,6 +56,7 @@ func TestRaftThreeNodeElection(t *testing.T) {
 		cfg := configuration // capture for closure
 
 		bubbleFunc := func(t *testing.T) {
+			_ = t
 			// Start the bridge goroutine inside the bubble.
 			trans.StartBridge()
 
@@ -69,31 +74,32 @@ func TestRaftThreeNodeElection(t *testing.T) {
 
 			// Bootstrap this node with the full cluster configuration.
 			if err := raft.BootstrapCluster(conf, store, store, snap, trans, cfg); err != nil {
-				t.Fatalf("BootstrapCluster: %v", err)
+				panic(fmt.Sprintf("BootstrapCluster: %v", err))
 			}
 
 			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
 			if err != nil {
-				t.Fatalf("NewRaft: %v", err)
+				panic(fmt.Sprintf("NewRaft: %v", err))
 			}
+			defer func() {
+				if err := trans.Close(); err != nil {
+					panic(fmt.Sprintf("Close transport: %v", err))
+				}
+				if err := r.Shutdown().Error(); err != nil {
+					panic(fmt.Sprintf("Shutdown: %v", err))
+				}
+			}()
 
 			// Poll until a leader is elected or fake-time deadline expires.
 			deadline := time.Now().Add(30 * time.Second)
 			for r.Leader() == "" {
 				if time.Now().After(deadline) {
-					t.Error("timed out waiting for leader election")
-					break
+					panic("timed out waiting for leader election")
 				}
 				time.Sleep(5 * time.Millisecond)
 			}
 
-			if leader := r.Leader(); leader != "" {
-				t.Logf("node %s sees leader: %s", addr, leader)
-			}
-
-			if err := r.Shutdown().Error(); err != nil {
-				t.Errorf("Shutdown: %v", err)
-			}
+			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
 		}
 
 		orch.AddNode(trans, bubbleFunc)
@@ -129,4 +135,52 @@ func TestRaftThreeNodeElection(t *testing.T) {
 
 	t.Logf("trace: %d steps total, %d sends delivered, %d nodes done",
 		len(trace), sendOps, doneSteps)
+}
+
+func verifyRaftNodeState(r *raft.Raft, localID raft.ServerID, expected map[raft.ServerID]raft.ServerAddress) {
+	leaderAddr, leaderID := r.LeaderWithID()
+	if leaderAddr == "" || leaderID == "" {
+		panic(fmt.Sprintf("node %s: empty leader info addr=%q id=%q", localID, leaderAddr, leaderID))
+	}
+
+	cfgFuture := r.GetConfiguration()
+	if err := cfgFuture.Error(); err != nil {
+		panic(fmt.Sprintf("node %s: GetConfiguration: %v", localID, err))
+	}
+	gotCfg := cfgFuture.Configuration()
+	if len(gotCfg.Servers) != len(expected) {
+		panic(fmt.Sprintf("node %s: expected %d servers, got %d", localID, len(expected), len(gotCfg.Servers)))
+	}
+	for _, srv := range gotCfg.Servers {
+		wantAddr, ok := expected[srv.ID]
+		if !ok {
+			panic(fmt.Sprintf("node %s: unexpected server id %q in config", localID, srv.ID))
+		}
+		if srv.Address != wantAddr {
+			panic(fmt.Sprintf("node %s: server %q has addr %q, want %q", localID, srv.ID, srv.Address, wantAddr))
+		}
+		if srv.Suffrage != raft.Voter {
+			panic(fmt.Sprintf("node %s: server %q suffrage=%v, want voter", localID, srv.ID, srv.Suffrage))
+		}
+	}
+
+	applied := r.AppliedIndex()
+	last := r.LastIndex()
+	if applied > last {
+		panic(fmt.Sprintf("node %s: applied index %d > last index %d", localID, applied, last))
+	}
+
+	stats := r.Stats()
+	if stats == nil {
+		panic(fmt.Sprintf("node %s: nil stats map", localID))
+	}
+	if term := stats["term"]; term == "" {
+		panic(fmt.Sprintf("node %s: empty term in stats", localID))
+	}
+	if state := stats["state"]; state == "" {
+		panic(fmt.Sprintf("node %s: empty state in stats", localID))
+	}
+	if state := stats["state"]; !strings.EqualFold(state, r.State().String()) {
+		panic(fmt.Sprintf("node %s: stats state %q != raft state %q", localID, state, r.State().String()))
+	}
 }

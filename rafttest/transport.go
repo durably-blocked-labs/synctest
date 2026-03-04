@@ -19,6 +19,7 @@ type envelopeKind int
 const (
 	envelopeRequest envelopeKind = iota
 	envelopeResponse
+	envelopeClose // sentinel: transport closed
 )
 
 type envelope struct {
@@ -36,12 +37,19 @@ type envelope struct {
 // RaftTransport implements raft.Transport (and raft.WithPreVote, raft.WithClose)
 // using an orchestrator-routed mailbox. All cross-node request and response
 // messages go through the orchestratorv2 outbox so delivery order is controlled.
+//
+// Bridge goroutines use ExternalWait to signal to the bubble that they are
+// waiting on orchestrator-controlled channels. When all goroutines in the
+// bubble are in ExternalWait, the bubble goes idle and notifies the global
+// orchestrator, which then decides what to deliver next.
+//
+// internalConsumer MUST be created inside the bubble (via StartBridge) so that
+// Raft goroutines blocking on it are durably blocked and the bubble can go idle.
 type RaftTransport struct {
 	localAddr        raft.ServerAddress
 	outbox           chan *orchestratorv2.PendingOp // unbuffered; to orchestrator
-	internalConsumer chan raft.RPC                  // intra-bubble; Raft reads this
+	internalConsumer chan raft.RPC                  // created inside bubble by StartBridge; Raft reads this
 	mailbox          chan envelope                  // buffered; orchestrator writes here
-	recvPermit       chan struct{}                  // unbuffered; recv Execute grants permit
 	peers            map[raft.ServerAddress]*RaftTransport
 	closeCh          chan struct{}
 
@@ -57,16 +65,18 @@ var _ raft.WithClose = (*RaftTransport)(nil)
 var _ orchestratorv2.NodeTransport = (*RaftTransport)(nil)
 
 // NewRaftTransport creates a transport for the given address.
+// internalConsumer is intentionally left nil here; it is created inside the
+// bubble by StartBridge() so that Raft goroutines receive from a bubble channel.
 func NewRaftTransport(addr raft.ServerAddress) *RaftTransport {
 	return &RaftTransport{
-		localAddr:        addr,
-		outbox:           make(chan *orchestratorv2.PendingOp),
-		internalConsumer: make(chan raft.RPC, 16),
-		mailbox:          make(chan envelope, 16),
-		recvPermit:       make(chan struct{}),
-		peers:            make(map[raft.ServerAddress]*RaftTransport),
-		closeCh:          make(chan struct{}),
-		pending:          make(map[uint64]chan raft.RPCResponse),
+		localAddr: addr,
+		// Buffered to avoid deadlock when a bubble must report idle before the
+		// orchestrator starts draining outboxes.
+		outbox:    make(chan *orchestratorv2.PendingOp, 64),
+		mailbox:   make(chan envelope, 16),
+		peers:     make(map[raft.ServerAddress]*RaftTransport),
+		closeCh:   make(chan struct{}),
+		pending:   make(map[uint64]chan raft.RPCResponse),
 	}
 }
 
@@ -85,41 +95,36 @@ func (t *RaftTransport) Outbox() <-chan *orchestratorv2.PendingOp {
 	return t.outbox
 }
 
-// StartBridge spawns the bridge goroutine that connects the orchestrator's
-// delivery decisions to Raft's internal consumer channel and response waiters.
-// Must be called inside the bubble.
+// StartBridge creates the internalConsumer channel (inside the bubble so Raft
+// goroutines are durably blocked on it) and spawns the bridge goroutine that
+// connects the orchestrator's delivery decisions to Raft's consumer channel.
+//
+// The bridge uses ExternalWait to block on the mailbox. When all goroutines
+// in the bubble are in ExternalWait (including this one), the bubble goes idle
+// and the global orchestrator decides which message to deliver next. The
+// orchestrator writes directly to the mailbox, then sends Resume — at which
+// point the bridge goroutine wakes and processes the envelope.
+//
+// Must be called inside the bubble, before raft.NewRaft().
 func (t *RaftTransport) StartBridge() {
+	// Create inside the bubble so raft goroutines blocking on Consumer() are
+	// durably blocked (bubble channel), enabling idle detection.
+	t.internalConsumer = make(chan raft.RPC, 16)
+
 	go func() {
 		for {
-			select {
-			case <-t.closeCh:
-				return
-			default:
-			}
-
-			synctest.CallExternal(func() {
+			var msg envelope
+			synctest.ExternalWait(func() {
 				select {
-				case t.outbox <- &orchestratorv2.PendingOp{
-					Dir:  orchestratorv2.OpRecv,
-					From: string(t.localAddr),
-					Type: "recv",
-					Execute: func() {
-						t.recvPermit <- struct{}{}
-					},
-				}:
+				case msg = <-t.mailbox:
 				case <-t.closeCh:
-					return
+					msg = envelope{kind: envelopeClose}
 				}
-
-				select {
-				case <-t.recvPermit:
-				case <-t.closeCh:
-					return
-				}
-
-				msg := <-t.mailbox
-				t.handleEnvelope(msg)
 			})
+			if msg.kind == envelopeClose {
+				return
+			}
+			t.handleEnvelope(msg)
 		}
 	}()
 }
@@ -128,8 +133,12 @@ func (t *RaftTransport) handleEnvelope(msg envelope) {
 	switch msg.kind {
 	case envelopeRequest:
 		proxyRespCh := make(chan raft.RPCResponse, 1)
-		t.internalConsumer <- raft.RPC{Command: msg.command, Reader: msg.reader, RespChan: proxyRespCh}
-		go t.forwardResponse(msg, proxyRespCh)
+		select {
+		case t.internalConsumer <- raft.RPC{Command: msg.command, Reader: msg.reader, RespChan: proxyRespCh}:
+			go t.forwardResponse(msg, proxyRespCh)
+		case <-t.closeCh:
+			return
+		}
 
 	case envelopeResponse:
 		t.pendingMu.Lock()
@@ -138,10 +147,8 @@ func (t *RaftTransport) handleEnvelope(msg envelope) {
 		if respCh == nil {
 			return
 		}
-		select {
-		case respCh <- msg.resp:
-		case <-t.closeCh:
-		}
+		// respCh is buffered(1) and created inside the bubble — durable send.
+		respCh <- msg.resp
 	}
 }
 
@@ -158,7 +165,7 @@ func (t *RaftTransport) forwardResponse(req envelope, proxyRespCh <-chan raft.RP
 		return
 	}
 
-	synctest.CallExternal(func() {
+	synctest.ExternalWait(func() {
 		select {
 		case t.outbox <- &orchestratorv2.PendingOp{
 			Dir:  orchestratorv2.OpSend,
@@ -181,6 +188,14 @@ func (t *RaftTransport) forwardResponse(req envelope, proxyRespCh <-chan raft.RP
 }
 
 // makeRPC sends an RPC to the target and waits for the orchestrator-delivered response.
+//
+// Phase 1: ExternalWait on the outbox send. The orchestrator reads the PendingOp,
+// calls Execute (delivering the envelope to the target's mailbox), then resumes
+// the target bubble. The sender's bubble stays frozen until the response arrives.
+//
+// Phase 2: ExternalWait on the response channel. The orchestrator delivers the
+// response envelope to this node's mailbox; the bridge goroutine processes it
+// and writes to respCh, completing this ExternalWait.
 func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io.Reader) (raft.RPCResponse, error) {
 	peer, ok := t.peers[target]
 	if !ok {
@@ -200,7 +215,9 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 	}()
 
 	rpcType := rpcTypeName(cmd)
-	synctest.CallExternal(func() {
+
+	// Phase 1: deliver request to target via orchestrator.
+	synctest.ExternalWait(func() {
 		select {
 		case t.outbox <- &orchestratorv2.PendingOp{
 			Dir:  orchestratorv2.OpSend,
@@ -223,14 +240,10 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 		}
 	})
 
-	var resp raft.RPCResponse
-	synctest.CallExternal(func() {
-		select {
-		case resp = <-respCh:
-		case <-t.closeCh:
-			resp = raft.RPCResponse{Error: fmt.Errorf("rafttest: transport %q closed", t.localAddr)}
-		}
-	})
+	// Phase 2: wait for response delivered by orchestrator.
+	// respCh is created inside the bubble, so this must remain a durable
+	// in-bubble receive (not ExternalWait).
+	resp := <-respCh
 	if resp.Error != nil {
 		return resp, resp.Error
 	}
