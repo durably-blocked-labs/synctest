@@ -71,6 +71,11 @@ func TestRaftThreeNodeElection(t *testing.T) {
 		}
 	}
 
+	// observations is populated inside each bubbleFunc and read after orch.Run.
+	// No mutex needed: the orchestrator runs bubbles one at a time, so writes
+	// are sequential; orch.Run returning establishes happens-before for reads.
+	observations := make(map[raft.ServerAddress]nodeObs)
+
 	// Build orchestrator and register nodes.
 	orch := orchestratorv2.New()
 	for i, trans := range transports {
@@ -122,6 +127,10 @@ func TestRaftThreeNodeElection(t *testing.T) {
 			}
 
 			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+			observations[addr] = nodeObs{
+				leader:  r.Leader(),
+				term:    r.Stats()["term"],
+			}
 		}
 
 		orch.AddNode(trans, bubbleFunc)
@@ -144,6 +153,8 @@ func TestRaftThreeNodeElection(t *testing.T) {
 	}
 	t.Logf("trace: %d steps total, %d sends delivered, %d nodes done",
 		len(rec.GlobalTrace), sendOps, doneSteps)
+
+	checkClusterConsensus(t, observations)
 }
 
 // TestRaftThreeNodeElectionReplay records a 3-node election run and then replays
@@ -187,7 +198,7 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 		return transports, configuration, expectedServers
 	}
 
-	addNodes := func(orch *orchestratorv2.Orchestrator, transports []*rafttest.RaftTransport, cfg raft.Configuration, expectedServers map[raft.ServerID]raft.ServerAddress) {
+	addNodes := func(orch *orchestratorv2.Orchestrator, transports []*rafttest.RaftTransport, cfg raft.Configuration, expectedServers map[raft.ServerID]raft.ServerAddress, obs map[raft.ServerAddress]nodeObs) {
 		addrs := []raft.ServerAddress{"node1", "node2", "node3"}
 		for i, trans := range transports {
 			addr := addrs[i]
@@ -216,6 +227,10 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 				}()
 				waitForLeader(r, 30*time.Second)
 				verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+				obs[addr] = nodeObs{
+					leader:  r.Leader(),
+					term:    r.Stats()["term"],
+				}
 			}
 			orch.AddNode(trans, bubbleFunc)
 		}
@@ -234,24 +249,28 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 	rand.Seed(seed) //nolint:staticcheck // randseednop=0 set in TestMain makes this work
 	transports1, cfg, expectedServers := newCluster()
 	orch1 := orchestratorv2.New()
-	addNodes(orch1, transports1, cfg, expectedServers)
+	obs1 := make(map[raft.ServerAddress]nodeObs)
+	addNodes(orch1, transports1, cfg, expectedServers, obs1)
 	rec1, ok1 := orch1.Run(t)
 	if !ok1 {
 		t.Fatal("record run: one or more nodes failed")
 	}
 	sends1, done1 := countTrace(rec1.GlobalTrace)
 	t.Logf("record: %d steps, %d sends, %d done", len(rec1.GlobalTrace), sends1, done1)
+	checkClusterConsensus(t, obs1)
 
 	// Second run: replay. Reset the rand source to the same seed so the
 	// timer jitter sequence is identical to the record run.
 	rand.Seed(seed) //nolint:staticcheck
 	transports2, _, _ := newCluster()
 	orch2 := orchestratorv2.New()
-	addNodes(orch2, transports2, cfg, expectedServers)
+	obs2 := make(map[raft.ServerAddress]nodeObs)
+	addNodes(orch2, transports2, cfg, expectedServers, obs2)
 	rec2, ok2 := orch2.Replay(t, rec1)
 	if !ok2 {
 		t.Fatal("replay run: one or more nodes failed")
 	}
+	checkClusterConsensus(t, obs2)
 	sends2, done2 := countTrace(rec2.GlobalTrace)
 	t.Logf("replay: %d steps, %d sends, %d done", len(rec2.GlobalTrace), sends2, done2)
 
@@ -324,6 +343,7 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 		}
 	}
 
+	obs1 := make(map[raft.ServerAddress]nodeObs)
 	orch1 := orchestratorv2.New()
 	for i, trans := range transports1 {
 		addr := addrs[i]
@@ -355,6 +375,10 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 
 			waitForLeader(r, 30*time.Second)
 			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+			obs1[addr] = nodeObs{
+				leader:  r.Leader(),
+				term:    r.Stats()["term"],
+			}
 		}
 		orch1.AddNode(trans, bubbleFunc)
 	}
@@ -363,6 +387,7 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 	if !ok1 {
 		t.Fatal("phase1: one or more nodes failed")
 	}
+	checkClusterConsensus(t, obs1)
 	if sends, done := countTrace(rec1.GlobalTrace); sends == 0 || done != len(addrs) {
 		t.Fatalf("phase1: expected sends>0 and done=%d, got sends=%d done=%d", len(addrs), sends, done)
 	}
@@ -414,6 +439,7 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 		}
 	}
 
+	obs2 := make(map[raft.ServerAddress]nodeObs)
 	orch2 := orchestratorv2.New()
 	for i, trans := range transports2 {
 		addr := addrs[i]
@@ -440,6 +466,10 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 
 			waitForLeader(r, 30*time.Second)
 			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+			obs2[addr] = nodeObs{
+				leader:  r.Leader(),
+				term:    r.Stats()["term"],
+			}
 		}
 		orch2.AddNode(trans, bubbleFunc)
 	}
@@ -448,9 +478,46 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 	if !ok2 {
 		t.Fatal("phase3: one or more recovered nodes failed")
 	}
+	checkClusterConsensus(t, obs2)
 	if sends, done := countTrace(rec2.GlobalTrace); sends == 0 || done != len(addrs) {
 		t.Fatalf("phase3: expected sends>0 and done=%d, got sends=%d done=%d", len(addrs), sends, done)
 	}
+}
+
+// nodeObs holds the cluster state observed by a single node at the end of a run.
+type nodeObs struct {
+	leader raft.ServerAddress
+	term   string
+}
+
+// checkClusterConsensus asserts that every node in obs agrees on the same leader
+// and term. It does not check appliedIdx because waitForLeader only guarantees
+// that the leader is known — followers may not have applied the commit yet.
+//
+// obs is populated inside bubble funcs (which run sequentially under the
+// orchestrator) and read here after orch.Run returns, so no mutex is needed.
+func checkClusterConsensus(t *testing.T, obs map[raft.ServerAddress]nodeObs) {
+	t.Helper()
+	if len(obs) == 0 {
+		t.Error("checkClusterConsensus: no observations recorded")
+		return
+	}
+
+	var wantLeader raft.ServerAddress
+	var wantTerm string
+	for addr, o := range obs {
+		if wantLeader == "" {
+			wantLeader = o.leader
+			wantTerm = o.term
+		}
+		if o.leader != wantLeader {
+			t.Errorf("node %s sees leader %q, want %q", addr, o.leader, wantLeader)
+		}
+		if o.term != wantTerm {
+			t.Errorf("node %s is on term %s, want %s", addr, o.term, wantTerm)
+		}
+	}
+	t.Logf("cluster consensus: leader=%s term=%s", wantLeader, wantTerm)
 }
 
 func testRaftConfig(localID raft.ServerID) *raft.Config {
