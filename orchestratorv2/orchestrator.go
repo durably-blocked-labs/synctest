@@ -8,7 +8,7 @@
 //
 // At each idle point the global orchestrator:
 //  1. Drains each node's outbox to collect pending OpSend operations.
-//  2. Picks the next op to execute (FIFO).
+//  2. Picks the next op to execute (FIFO for Run; recorded order for Replay).
 //  3. Calls op.Execute() to deliver the message to the target's mailbox.
 //  4. Sends Resume{} to the target bubble so its bridge goroutine wakes.
 //
@@ -72,12 +72,26 @@ type GlobalStep struct {
 	Time   int64
 }
 
+// RecordedRun captures a complete orchestrator run for deterministic replay.
+//
+// GlobalTrace is the sequence of global events (message deliveries, time
+// advances, node completions). LocalTraces contains the per-node scheduling
+// decisions recorded inside each bubble. Together they fully specify the
+// execution and can be fed back into Replay to reproduce it exactly.
+type RecordedRun struct {
+	GlobalTrace []GlobalStep
+	LocalTraces map[string][]synctest.Decision
+}
+
 // nodeCtrl is the orchestrator's per-node state.
+// The bubble field is nil until Run or Replay initialises it.
 type nodeCtrl struct {
-	transport NodeTransport
-	testFunc  func(t *testing.T)
-	bubble    *distributed.Bubble // local orchestrator for this node's bubble
-	done      chan struct{}
+	transport  NodeTransport
+	testFunc   func(t *testing.T)
+	bubble     *distributed.Bubble // assigned in initBubbles; nil after AddNode
+	done       chan struct{}
+	localTrace []synctest.Decision // captured when bubble completes
+	passed     bool                // whether the bubble's test passed
 }
 
 // Orchestrator manages nodes and controls cross-node message delivery.
@@ -86,7 +100,7 @@ type Orchestrator struct {
 	order      []string // insertion order for deterministic iteration
 	globalTime int64
 
-	schedulable []*PendingOp // ops ready to execute (FIFO)
+	schedulable []*PendingOp // ops ready to execute
 
 	trace []GlobalStep
 }
@@ -99,36 +113,84 @@ func New() *Orchestrator {
 }
 
 // AddNode registers a node transport and its bubble test function.
+// The bubble is created lazily when Run or Replay is called.
 func (o *Orchestrator) AddNode(transport NodeTransport, f func(t *testing.T)) {
 	addr := transport.Addr()
 	ctrl := &nodeCtrl{
 		transport: transport,
 		testFunc:  f,
-		bubble:    distributed.NewBubble(addr),
-		done:      make(chan struct{}),
 	}
 	o.nodes[addr] = ctrl
 	o.order = append(o.order, addr)
 }
 
-// startBubble launches a node's test function inside a synctest bubble.
-// It installs the distributed.Bubble decision hook before calling the user's
-// function, enabling idle-based synchronisation with the global orchestrator.
+// initBubbles (re-)creates all per-node bubbles.
+// localPrefixes maps node address → local scheduling prefix to replay;
+// a nil map creates fresh bubbles with default FIFO scheduling.
+func (o *Orchestrator) initBubbles(localPrefixes map[string][]synctest.Decision) {
+	for _, addr := range o.order {
+		ctrl := o.nodes[addr]
+		opts := []distributed.Option{}
+		if localPrefixes != nil {
+			if prefix, ok := localPrefixes[addr]; ok && len(prefix) > 0 {
+				opts = append(opts, distributed.WithPrefix(prefix))
+			}
+		}
+		ctrl.bubble = distributed.NewBubble(addr, opts...)
+		ctrl.done = make(chan struct{})
+		ctrl.localTrace = nil
+		ctrl.passed = false
+	}
+}
+
+// startBubble launches a node's test function inside a synctest bubble using
+// synctest.Explore so the local scheduling trace is captured without calling
+// t.FailNow() mid-goroutine. Failures are propagated via t.Fail().
 func (o *Orchestrator) startBubble(t *testing.T, ctrl *nodeCtrl) {
 	b := ctrl.bubble
 	userFn := ctrl.testFunc
 	go func() {
-		synctest.Test(t, func(t *testing.T) {
+		trace, ok := synctest.Explore(t, func(t *testing.T) {
 			synctest.SetDecisionHook(b.Hook())
 			userFn(t)
-		})
+		}, nil)
+		ctrl.localTrace = trace
+		ctrl.passed = ok
+		if !ok {
+			t.Fail()
+		}
 		close(ctrl.done)
 	}()
 }
 
 // Run starts all registered nodes and drives cross-node message delivery until
-// all bubbles complete. Returns the full event trace and whether all bubbles
-// passed.
+// all bubbles complete. Delivery order is FIFO over the ops drained from each
+// node's outbox. Returns a RecordedRun that can be fed into Replay.
+func (o *Orchestrator) Run(t *testing.T) (RecordedRun, bool) {
+	t.Helper()
+	o.initBubbles(nil)
+	return o.run(t, nil)
+}
+
+// Replay re-runs all registered nodes, replaying the local scheduling
+// decisions from rec.LocalTraces and following rec.GlobalTrace's delivery
+// order for cross-node messages. Both global and local behaviour should be
+// identical to the original run, making the returned RecordedRun equal to rec.
+//
+// Replay requires a freshly configured Orchestrator (same AddNode calls as
+// the original run, but new transport instances with the same connectivity).
+func (o *Orchestrator) Replay(t *testing.T, rec RecordedRun) (RecordedRun, bool) {
+	t.Helper()
+	o.initBubbles(rec.LocalTraces)
+	return o.run(t, rec.GlobalTrace)
+}
+
+// run is the shared implementation of Run and Replay.
+//
+// deliveryTrace is the sequence of GlobalSteps from a previous run; when
+// non-nil, each StepDeliver entry is matched against the schedulable queue and
+// that specific op is delivered first (replay ordering). When nil, FIFO order
+// is used (normal run).
 //
 // Algorithm:
 //  1. Start all bubbles.
@@ -136,18 +198,27 @@ func (o *Orchestrator) startBubble(t *testing.T, ctrl *nodeCtrl) {
 //     or to complete (done channel).
 //  3. Once all active bubbles are idle, drain their outboxes to collect pending
 //     OpSend operations.
-//  4. If sends are available: deliver the next one (FIFO), resume the target.
+//  4. If sends are available: deliver the next one, resume the target.
 //  5. If no sends but timers exist: advance global time, resume all idle bubbles.
-//  6. If neither: resume all (allowing bubbles to finish) and exit.
+//  6. If neither: resume all (allowing bubbles to finish) and return.
 //  7. Repeat from step 2.
-func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
-	t.Helper()
+func (o *Orchestrator) run(t *testing.T, deliveryTrace []GlobalStep) (RecordedRun, bool) {
+	// Reset orchestrator run state.
+	o.trace = nil
+	o.schedulable = nil
+	o.globalTime = 0
 
 	n := len(o.nodes)
 
-	// Start all bubbles.
-	for _, addr := range o.order {
-		o.startBubble(t, o.nodes[addr])
+	// Pre-filter delivery steps for O(1) indexed lookup during replay.
+	var deliveries []GlobalStep
+	deliveryIdx := 0
+	if deliveryTrace != nil {
+		for _, step := range deliveryTrace {
+			if step.Type == StepDeliver {
+				deliveries = append(deliveries, step)
+			}
+		}
 	}
 
 	// pendingIdle holds bubbles that sent an IdleState but have not yet
@@ -155,7 +226,26 @@ func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
 	pendingIdle := make(map[string]distributed.IdleState)
 	doneSet := make(map[string]bool)
 	active := n
-	allPassed := true
+
+	// Start bubbles one at a time, waiting for each to reach its first idle
+	// point before starting the next. Sequential startup eliminates concurrent
+	// access to shared resources (e.g. a seeded *rand.Rand in the application
+	// under test) during the initialization phase, which is necessary for
+	// fully deterministic replay. After startup all active bubbles are in
+	// pendingIdle and the delivery loop below takes over.
+	for _, addr := range o.order {
+		o.startBubble(t, o.nodes[addr])
+		ctrl := o.nodes[addr]
+		select {
+		case idle := <-ctrl.bubble.Idle:
+			pendingIdle[addr] = idle
+		case <-ctrl.done:
+			doneSet[addr] = true
+			active--
+			o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
+			t.Logf("orchestratorv2: node %q bubble done during init", addr)
+		}
+	}
 
 	for active > 0 {
 		// ── Step 2: collect idle states from all non-pending, non-done bubbles ──
@@ -247,9 +337,31 @@ func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
 		// ── Steps 4–6: make a scheduling decision ──
 
 		if len(o.schedulable) > 0 {
-			// Deliver the next pending send.
-			op := o.schedulable[0]
-			o.schedulable = o.schedulable[1:]
+			// Select which op to deliver: follow recorded order during replay,
+			// or take the first (FIFO) during a free run.
+			var op *PendingOp
+			if deliveries != nil && deliveryIdx < len(deliveries) {
+				want := deliveries[deliveryIdx]
+				idx := findDeliveryOp(o.schedulable, want)
+				if idx < 0 {
+					// The run has diverged from the recorded trace (e.g. due
+					// to application-level randomness like timer jitter). Log
+					// a warning and switch to FIFO for the remainder of the
+					// replay — the replay is best-effort.
+					t.Logf("orchestratorv2: replay diverged: no op matching %s→%s (%s); switching to FIFO",
+						want.From, want.To, want.OpType)
+					deliveries = nil // disable replay ordering for rest of run
+					op = o.schedulable[0]
+					o.schedulable = o.schedulable[1:]
+				} else {
+					op = o.schedulable[idx]
+					o.schedulable = append(o.schedulable[:idx], o.schedulable[idx+1:]...)
+					deliveryIdx++
+				}
+			} else {
+				op = o.schedulable[0]
+				o.schedulable = o.schedulable[1:]
+			}
 
 			// Execute delivers the message to the target node's mailbox.
 			// The target's bridge goroutine is frozen in ExternalWait on
@@ -292,7 +404,6 @@ func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
 				o.trace = append(o.trace, GlobalStep{Type: StepTimeAdvance, Time: earliest})
 				t.Logf("orchestratorv2: advance time to %d ns", earliest)
 
-				// I'm not too sure if we should wake up all timers here. Maybe we should just wake the earliest ones.
 				for addr := range pendingIdle {
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
@@ -312,7 +423,33 @@ func (o *Orchestrator) Run(t *testing.T) ([]GlobalStep, bool) {
 		}
 	}
 
-	return o.trace, allPassed
+	// Collect per-node results.
+	allPassed := true
+	localTraces := make(map[string][]synctest.Decision, len(o.nodes))
+	for _, addr := range o.order {
+		ctrl := o.nodes[addr]
+		localTraces[addr] = ctrl.localTrace
+		if !ctrl.passed {
+			allPassed = false
+		}
+	}
+
+	return RecordedRun{
+		GlobalTrace: o.trace,
+		LocalTraces: localTraces,
+	}, allPassed
+}
+
+// findDeliveryOp returns the index in schedulable of the first op whose
+// From, To, and Type match those of the given GlobalStep.
+// Returns -1 if no match is found.
+func findDeliveryOp(schedulable []*PendingOp, want GlobalStep) int {
+	for i, op := range schedulable {
+		if op.From == want.From && op.To == want.To && op.Type == want.OpType {
+			return i
+		}
+	}
+	return -1
 }
 
 func dirName(d OpDir) string {

@@ -72,11 +72,11 @@ func NewRaftTransport(addr raft.ServerAddress) *RaftTransport {
 		localAddr: addr,
 		// Buffered to avoid deadlock when a bubble must report idle before the
 		// orchestrator starts draining outboxes.
-		outbox:    make(chan *orchestratorv2.PendingOp, 64),
-		mailbox:   make(chan envelope, 16),
-		peers:     make(map[raft.ServerAddress]*RaftTransport),
-		closeCh:   make(chan struct{}),
-		pending:   make(map[uint64]chan raft.RPCResponse),
+		outbox:  make(chan *orchestratorv2.PendingOp, 64),
+		mailbox: make(chan envelope, 16),
+		peers:   make(map[raft.ServerAddress]*RaftTransport),
+		closeCh: make(chan struct{}),
+		pending: make(map[uint64]chan raft.RPCResponse),
 	}
 }
 
