@@ -399,26 +399,57 @@ func (o *Orchestrator) run(t *testing.T, deliveryTrace []GlobalStep) (RecordedRu
 			}
 
 			if earliest > 0 {
-				// Advance time: resume all idle bubbles at the same clock value.
+				// Advance time: resume idle bubbles one at a time in registration
+				// order. Sequential resumption eliminates concurrent rand access
+				// across bubbles (e.g. raft's randomTimeout calls), which is the
+				// key requirement for bit-for-bit replay determinism.
 				o.globalTime = earliest
 				o.trace = append(o.trace, GlobalStep{Type: StepTimeAdvance, Time: earliest})
 				t.Logf("orchestratorv2: advance time to %d ns", earliest)
 
-				for addr := range pendingIdle {
+				for _, addr := range o.order {
+					if _, idle := pendingIdle[addr]; !idle {
+						continue
+					}
+					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
+					select {
+					case idleState := <-ctrl.bubble.Idle:
+						pendingIdle[addr] = idleState
+					case <-ctrl.done:
+						if !doneSet[addr] {
+							doneSet[addr] = true
+							active--
+							o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
+							t.Logf("orchestratorv2: node %q bubble done during time advance", addr)
+						}
+					}
 				}
-				pendingIdle = make(map[string]distributed.IdleState)
 
 			} else {
-				// No sends and no timers. Resume all idle bubbles so they
-				// can finish any remaining internal work and exit.
+				// No sends and no timers. Resume idle bubbles one at a time so
+				// they can finish any remaining internal work and exit.
 				t.Logf("orchestratorv2: no pending sends or timers — resuming all to drain")
-				for addr := range pendingIdle {
+				for _, addr := range o.order {
+					if _, idle := pendingIdle[addr]; !idle {
+						continue
+					}
+					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{}
+					select {
+					case idleState := <-ctrl.bubble.Idle:
+						pendingIdle[addr] = idleState
+					case <-ctrl.done:
+						if !doneSet[addr] {
+							doneSet[addr] = true
+							active--
+							o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
+							t.Logf("orchestratorv2: node %q bubble done during drain", addr)
+						}
+					}
 				}
-				pendingIdle = make(map[string]distributed.IdleState)
 			}
 		}
 	}

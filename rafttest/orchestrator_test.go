@@ -3,6 +3,7 @@ package rafttest_test
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -19,6 +20,24 @@ func init() {
 	// Each synctest bubble requires its own dedicated P.
 	// 3 nodes + 1 for the orchestrator goroutine.
 	runtime.GOMAXPROCS(4)
+}
+
+func TestMain(m *testing.M) {
+	// Re-enable rand.Seed, which became a no-op in Go 1.24+.
+	// The internal/godebug package updates settings when GODEBUG changes via
+	// os.Setenv, so this takes effect before any test (and before any raft
+	// goroutine) calls rand.Int63().
+	//
+	// This is needed by TestRaftThreeNodeElectionReplay, which resets the
+	// global rand source to a fixed seed before each run so that raft's
+	// randomTimeout produces identical timer jitter across record and replay.
+	existing := os.Getenv("GODEBUG")
+	sep := ""
+	if existing != "" {
+		sep = ","
+	}
+	os.Setenv("GODEBUG", existing+sep+"randseednop=0")
+	os.Exit(m.Run())
 }
 
 // TestRaftThreeNodeElection starts a 3-node Raft cluster inside synctest bubbles,
@@ -212,7 +231,7 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 	const seed = 42
 
 	// First run: record.
-	raft.TestRand = rand.New(rand.NewSource(seed))
+	rand.Seed(seed) //nolint:staticcheck // randseednop=0 set in TestMain makes this work
 	transports1, cfg, expectedServers := newCluster()
 	orch1 := orchestratorv2.New()
 	addNodes(orch1, transports1, cfg, expectedServers)
@@ -225,7 +244,7 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 
 	// Second run: replay. Reset the rand source to the same seed so the
 	// timer jitter sequence is identical to the record run.
-	raft.TestRand = rand.New(rand.NewSource(seed))
+	rand.Seed(seed) //nolint:staticcheck
 	transports2, _, _ := newCluster()
 	orch2 := orchestratorv2.New()
 	addNodes(orch2, transports2, cfg, expectedServers)
@@ -261,8 +280,8 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 	}
 	t.Logf("global trace exact match: %v", exactMatch)
 
-	printRun(t, "record", rec1)
-	printRun(t, "replay", rec2)
+	// printRun(t, "record", rec1)
+	// printRun(t, "replay", rec2)
 }
 
 // TestRaftRecoverClusterOrchestrated mirrors raft.TestRaft_RecoverCluster in the
