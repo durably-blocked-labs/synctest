@@ -332,12 +332,33 @@ func (t *RaftTransport) DecodePeer(buf []byte) raft.ServerAddress {
 func (t *RaftTransport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {}
 
 // Close implements raft.WithClose.
+// In addition to closing closeCh (which stops the bridge goroutine and
+// forwardResponse goroutines), it sends a transport-closed error to every
+// pending respCh so that makeRPC goroutines blocked on the response unblock
+// immediately. Without this, a non-FIFO delivery ordering can leave a
+// makeRPC goroutine permanently stuck on resp := <-respCh if forwardResponse
+// exited via closeCh before forwarding the response.
 func (t *RaftTransport) Close() error {
 	select {
 	case <-t.closeCh:
-		// already closed
+		return nil // already closed
 	default:
 		close(t.closeCh)
+	}
+
+	// Drain pending RPCs: snapshot and clear the map under the lock, then send
+	// the error sentinel outside the lock so we don't hold it during channel ops.
+	t.pendingMu.Lock()
+	pending := t.pending
+	t.pending = make(map[uint64]chan raft.RPCResponse)
+	t.pendingMu.Unlock()
+
+	closeErr := raft.RPCResponse{Error: fmt.Errorf("rafttest: transport closed")}
+	for _, ch := range pending {
+		select {
+		case ch <- closeErr:
+		default: // ch already has a real response; makeRPC will use it
+		}
 	}
 	return nil
 }

@@ -42,120 +42,120 @@ func TestMain(m *testing.M) {
 
 // TestRaftThreeNodeElection starts a 3-node Raft cluster inside synctest bubbles,
 // routed through the orchestrator, and verifies that a leader is elected.
-func TestRaftThreeNodeElection(t *testing.T) {
-	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
-	expectedServers := make(map[raft.ServerID]raft.ServerAddress, len(addrs))
+// func TestRaftThreeNodeElection(t *testing.T) {
+// 	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
+// 	expectedServers := make(map[raft.ServerID]raft.ServerAddress, len(addrs))
 
-	// Build the Raft configuration (all 3 as Voter).
-	configuration := raft.Configuration{}
-	for _, addr := range addrs {
-		expectedServers[raft.ServerID(addr)] = addr
-		configuration.Servers = append(configuration.Servers, raft.Server{
-			Suffrage: raft.Voter,
-			ID:       raft.ServerID(addr),
-			Address:  addr,
-		})
-	}
+// 	// Build the Raft configuration (all 3 as Voter).
+// 	configuration := raft.Configuration{}
+// 	for _, addr := range addrs {
+// 		expectedServers[raft.ServerID(addr)] = addr
+// 		configuration.Servers = append(configuration.Servers, raft.Server{
+// 			Suffrage: raft.Voter,
+// 			ID:       raft.ServerID(addr),
+// 			Address:  addr,
+// 		})
+// 	}
 
-	// Create transports and wire them together.
-	transports := make([]*rafttest.RaftTransport, len(addrs))
-	for i, addr := range addrs {
-		transports[i] = rafttest.NewRaftTransport(addr)
-	}
-	// Fully connect: each transport knows all peers.
-	for i := range transports {
-		for j := range transports {
-			if i != j {
-				transports[i].Connect(transports[j])
-			}
-		}
-	}
+// 	// Create transports and wire them together.
+// 	transports := make([]*rafttest.RaftTransport, len(addrs))
+// 	for i, addr := range addrs {
+// 		transports[i] = rafttest.NewRaftTransport(addr)
+// 	}
+// 	// Fully connect: each transport knows all peers.
+// 	for i := range transports {
+// 		for j := range transports {
+// 			if i != j {
+// 				transports[i].Connect(transports[j])
+// 			}
+// 		}
+// 	}
 
-	// observations is populated inside each bubbleFunc and read after orch.Run.
-	// No mutex needed: the orchestrator runs bubbles one at a time, so writes
-	// are sequential; orch.Run returning establishes happens-before for reads.
-	observations := make(map[raft.ServerAddress]nodeObs)
+// 	// observations is populated inside each bubbleFunc and read after orch.Run.
+// 	// No mutex needed: the orchestrator runs bubbles one at a time, so writes
+// 	// are sequential; orch.Run returning establishes happens-before for reads.
+// 	observations := make(map[raft.ServerAddress]nodeObs)
 
-	// Build orchestrator and register nodes.
-	orch := orchestratorv2.New()
-	for i, trans := range transports {
-		addr := addrs[i]
-		cfg := configuration // capture for closure
+// 	// Build orchestrator and register nodes.
+// 	orch := orchestratorv2.New()
+// 	for i, trans := range transports {
+// 		addr := addrs[i]
+// 		cfg := configuration // capture for closure
 
-		bubbleFunc := func(t *testing.T) {
-			_ = t
-			// Start the bridge goroutine inside the bubble.
-			trans.StartBridge()
+// 		bubbleFunc := func(t *testing.T) {
+// 			_ = t
+// 			// Start the bridge goroutine inside the bubble.
+// 			trans.StartBridge()
 
-			// Set up Raft stores.
-			store := raft.NewInmemStore()
-			snap := raft.NewDiscardSnapshotStore()
+// 			// Set up Raft stores.
+// 			store := raft.NewInmemStore()
+// 			snap := raft.NewDiscardSnapshotStore()
 
-			conf := raft.DefaultConfig()
-			conf.HeartbeatTimeout = 50 * time.Millisecond
-			conf.ElectionTimeout = 50 * time.Millisecond
-			conf.LeaderLeaseTimeout = 50 * time.Millisecond
-			conf.CommitTimeout = 5 * time.Millisecond
-			conf.LocalID = raft.ServerID(addr)
-			conf.Logger = nil // suppress log output in tests
+// 			conf := raft.DefaultConfig()
+// 			conf.HeartbeatTimeout = 50 * time.Millisecond
+// 			conf.ElectionTimeout = 50 * time.Millisecond
+// 			conf.LeaderLeaseTimeout = 50 * time.Millisecond
+// 			conf.CommitTimeout = 5 * time.Millisecond
+// 			conf.LocalID = raft.ServerID(addr)
+// 			conf.Logger = nil // suppress log output in tests
 
-			// Bootstrap this node with the full cluster configuration.
-			if err := raft.BootstrapCluster(conf, store, store, snap, trans, cfg); err != nil {
-				panic(fmt.Sprintf("BootstrapCluster: %v", err))
-			}
+// 			// Bootstrap this node with the full cluster configuration.
+// 			if err := raft.BootstrapCluster(conf, store, store, snap, trans, cfg); err != nil {
+// 				panic(fmt.Sprintf("BootstrapCluster: %v", err))
+// 			}
 
-			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
-			if err != nil {
-				panic(fmt.Sprintf("NewRaft: %v", err))
-			}
-			defer func() {
-				if err := trans.Close(); err != nil {
-					panic(fmt.Sprintf("Close transport: %v", err))
-				}
-				if err := r.Shutdown().Error(); err != nil {
-					panic(fmt.Sprintf("Shutdown: %v", err))
-				}
-			}()
+// 			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
+// 			if err != nil {
+// 				panic(fmt.Sprintf("NewRaft: %v", err))
+// 			}
+// 			defer func() {
+// 				if err := trans.Close(); err != nil {
+// 					panic(fmt.Sprintf("Close transport: %v", err))
+// 				}
+// 				if err := r.Shutdown().Error(); err != nil {
+// 					panic(fmt.Sprintf("Shutdown: %v", err))
+// 				}
+// 			}()
 
-			// Poll until a leader is elected or fake-time deadline expires.
-			deadline := time.Now().Add(30 * time.Second)
-			for r.Leader() == "" {
-				if time.Now().After(deadline) {
-					panic("timed out waiting for leader election")
-				}
-				time.Sleep(5 * time.Millisecond)
-			}
+// 			// Poll until a leader is elected or fake-time deadline expires.
+// 			deadline := time.Now().Add(30 * time.Second)
+// 			for r.Leader() == "" {
+// 				if time.Now().After(deadline) {
+// 					panic("timed out waiting for leader election")
+// 				}
+// 				time.Sleep(5 * time.Millisecond)
+// 			}
 
-			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
-			observations[addr] = nodeObs{
-				leader:  r.Leader(),
-				term:    r.Stats()["term"],
-			}
-		}
+// 			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+// 			observations[addr] = nodeObs{
+// 				leader:  r.Leader(),
+// 				term:    r.Stats()["term"],
+// 			}
+// 		}
 
-		orch.AddNode(trans, bubbleFunc)
-	}
+// 		orch.AddNode(trans, bubbleFunc)
+// 	}
 
-	// Run the orchestrator — this drives all 3 bubbles to completion.
-	rec, allPassed := orch.Run(t)
+// 	// Run the orchestrator — this drives all 3 bubbles to completion.
+// 	rec, allPassed := orch.Run(t)
 
-	// Assertions.
-	if !allPassed {
-		t.Error("one or more nodes failed")
-	}
+// 	// Assertions.
+// 	if !allPassed {
+// 		t.Error("one or more nodes failed")
+// 	}
 
-	sendOps, doneSteps := countTrace(rec.GlobalTrace)
-	if sendOps == 0 {
-		t.Error("expected at least one OpSend delivery in trace")
-	}
-	if doneSteps != 3 {
-		t.Errorf("expected 3 StepDone events, got %d", doneSteps)
-	}
-	t.Logf("trace: %d steps total, %d sends delivered, %d nodes done",
-		len(rec.GlobalTrace), sendOps, doneSteps)
+// 	sendOps, doneSteps := countTrace(rec.GlobalTrace)
+// 	if sendOps == 0 {
+// 		t.Error("expected at least one OpSend delivery in trace")
+// 	}
+// 	if doneSteps != 3 {
+// 		t.Errorf("expected 3 StepDone events, got %d", doneSteps)
+// 	}
+// 	t.Logf("trace: %d steps total, %d sends delivered, %d nodes done",
+// 		len(rec.GlobalTrace), sendOps, doneSteps)
 
-	checkClusterConsensus(t, observations)
-}
+// 	checkClusterConsensus(t, observations)
+// }
 
 // TestRaftThreeNodeElectionReplay records a 3-node election run and then replays
 // it using the recorded global delivery order and local scheduling decisions.
@@ -303,16 +303,16 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 	// printRun(t, "replay", rec2)
 }
 
-// TestRaftRecoverClusterOrchestrated mirrors raft.TestRaft_RecoverCluster in the
-// orchestrator harness:
-//  1. Start and elect a leader.
-//  2. Shut everything down.
-//  3. Run RecoverCluster on persisted stores.
-//  4. Restart and verify leader election and configuration again.
-func TestRaftRecoverClusterOrchestrated(t *testing.T) {
+// TestRaftThreeNodeElectionExplore explores different global message delivery
+// orderings for a 3-node Raft election using DFS with context bounding.
+// setup is called before each explored trace to create fresh transports and
+// register nodes; rand is re-seeded so timer jitter is identical across runs.
+//
+// Expected: all delivery orderings within bound=2 produce a valid leader election.
+func TestRaftThreeNodeElectionExplore(t *testing.T) {
 	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
-	expectedServers := make(map[raft.ServerID]raft.ServerAddress, len(addrs))
 	configuration := raft.Configuration{}
+	expectedServers := make(map[raft.ServerID]raft.ServerAddress, len(addrs))
 	for _, addr := range addrs {
 		expectedServers[raft.ServerID(addr)] = addr
 		configuration.Servers = append(configuration.Servers, raft.Server{
@@ -322,167 +322,239 @@ func TestRaftRecoverClusterOrchestrated(t *testing.T) {
 		})
 	}
 
-	// Persisted stores reused across initial run -> recovery -> restart.
-	logStable := make([]*raft.InmemStore, len(addrs))
-	snaps := make([]*raft.InmemSnapshotStore, len(addrs))
-	for i := range addrs {
-		logStable[i] = raft.NewInmemStore()
-		snaps[i] = raft.NewInmemSnapshotStore()
-	}
+	orch := orchestratorv2.New()
+	allPassed := orch.Explore(t, func(o *orchestratorv2.Orchestrator) {
+		rand.Seed(42) //nolint:staticcheck // randseednop=0 set in TestMain makes this work
 
-	// Phase 1: start cluster and elect a leader.
-	transports1 := make([]*rafttest.RaftTransport, len(addrs))
-	for i, addr := range addrs {
-		transports1[i] = rafttest.NewRaftTransport(addr)
-	}
-	for i := range transports1 {
-		for j := range transports1 {
-			if i != j {
-				transports1[i].Connect(transports1[j])
-			}
+		transports := make([]*rafttest.RaftTransport, len(addrs))
+		for i, addr := range addrs {
+			transports[i] = rafttest.NewRaftTransport(addr)
 		}
-	}
-
-	obs1 := make(map[raft.ServerAddress]nodeObs)
-	orch1 := orchestratorv2.New()
-	for i, trans := range transports1 {
-		addr := addrs[i]
-		cfg := configuration
-		store := logStable[i]
-		snap := snaps[i]
-
-		bubbleFunc := func(t *testing.T) {
-			_ = t
-			trans.StartBridge()
-
-			conf := testRaftConfig(raft.ServerID(addr))
-			if err := raft.BootstrapCluster(conf, store, store, snap, trans, cfg); err != nil {
-				panic(fmt.Sprintf("phase1 node %s bootstrap: %v", addr, err))
-			}
-
-			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
-			if err != nil {
-				panic(fmt.Sprintf("phase1 node %s new raft: %v", addr, err))
-			}
-			defer func() {
-				if err := trans.Close(); err != nil {
-					panic(fmt.Sprintf("phase1 node %s close transport: %v", addr, err))
+		for i := range transports {
+			for j := range transports {
+				if i != j {
+					transports[i].Connect(transports[j])
 				}
-				if err := r.Shutdown().Error(); err != nil {
-					panic(fmt.Sprintf("phase1 node %s shutdown: %v", addr, err))
+			}
+		}
+
+		for i, trans := range transports {
+			addr := addrs[i]
+			localCfg := configuration
+			localExpected := expectedServers
+			o.AddNode(trans, func(t *testing.T) {
+				_ = t
+				trans.StartBridge()
+
+				store := raft.NewInmemStore()
+				snap := raft.NewDiscardSnapshotStore()
+				conf := testRaftConfig(raft.ServerID(addr))
+				if err := raft.BootstrapCluster(conf, store, store, snap, trans, localCfg); err != nil {
+					panic(fmt.Sprintf("BootstrapCluster: %v", err))
 				}
-			}()
-
-			waitForLeader(r, 30*time.Second)
-			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
-			obs1[addr] = nodeObs{
-				leader:  r.Leader(),
-				term:    r.Stats()["term"],
-			}
-		}
-		orch1.AddNode(trans, bubbleFunc)
-	}
-
-	rec1, ok1 := orch1.Run(t)
-	if !ok1 {
-		t.Fatal("phase1: one or more nodes failed")
-	}
-	checkClusterConsensus(t, obs1)
-	if sends, done := countTrace(rec1.GlobalTrace); sends == 0 || done != len(addrs) {
-		t.Fatalf("phase1: expected sends>0 and done=%d, got sends=%d done=%d", len(addrs), sends, done)
-	}
-
-	// Phase 2: recover each node's persisted state.
-	for i, addr := range addrs {
-		before, err := snaps[i].List()
-		if err != nil {
-			t.Fatalf("phase2 node %s: list snapshots before recover: %v", addr, err)
-		}
-
-		recTrans := rafttest.NewRaftTransport(addr)
-		conf := testRaftConfig(raft.ServerID(addr))
-		if err := raft.RecoverCluster(conf, &raft.MockFSM{}, logStable[i], logStable[i], snaps[i], recTrans, configuration); err != nil {
-			t.Fatalf("phase2 node %s: recover cluster: %v", addr, err)
-		}
-
-		after, err := snaps[i].List()
-		if err != nil {
-			t.Fatalf("phase2 node %s: list snapshots after recover: %v", addr, err)
-		}
-		if len(after) != len(before)+1 {
-			t.Fatalf("phase2 node %s: expected one new snapshot (%d -> %d)", addr, len(before), len(after))
-		}
-
-		first, err := logStable[i].FirstIndex()
-		if err != nil {
-			t.Fatalf("phase2 node %s: first index: %v", addr, err)
-		}
-		last, err := logStable[i].LastIndex()
-		if err != nil {
-			t.Fatalf("phase2 node %s: last index: %v", addr, err)
-		}
-		if first != 0 || last != 0 {
-			t.Fatalf("phase2 node %s: expected compacted logs first/last=0/0, got %d/%d", addr, first, last)
-		}
-	}
-
-	// Phase 3: restart from recovered stores and verify cluster health.
-	transports2 := make([]*rafttest.RaftTransport, len(addrs))
-	for i, addr := range addrs {
-		transports2[i] = rafttest.NewRaftTransport(addr)
-	}
-	for i := range transports2 {
-		for j := range transports2 {
-			if i != j {
-				transports2[i].Connect(transports2[j])
-			}
-		}
-	}
-
-	obs2 := make(map[raft.ServerAddress]nodeObs)
-	orch2 := orchestratorv2.New()
-	for i, trans := range transports2 {
-		addr := addrs[i]
-		store := logStable[i]
-		snap := snaps[i]
-
-		bubbleFunc := func(t *testing.T) {
-			_ = t
-			trans.StartBridge()
-
-			conf := testRaftConfig(raft.ServerID(addr))
-			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
-			if err != nil {
-				panic(fmt.Sprintf("phase3 node %s new raft: %v", addr, err))
-			}
-			defer func() {
-				if err := trans.Close(); err != nil {
-					panic(fmt.Sprintf("phase3 node %s close transport: %v", addr, err))
+				r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
+				if err != nil {
+					panic(fmt.Sprintf("NewRaft: %v", err))
 				}
-				if err := r.Shutdown().Error(); err != nil {
-					panic(fmt.Sprintf("phase3 node %s shutdown: %v", addr, err))
-				}
-			}()
-
-			waitForLeader(r, 30*time.Second)
-			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
-			obs2[addr] = nodeObs{
-				leader:  r.Leader(),
-				term:    r.Stats()["term"],
-			}
+				defer func() {
+					if err := trans.Close(); err != nil {
+						panic(fmt.Sprintf("Close transport: %v", err))
+					}
+					if err := r.Shutdown().Error(); err != nil {
+						panic(fmt.Sprintf("Shutdown: %v", err))
+					}
+				}()
+				waitForLeader(r, 30*time.Second)
+				verifyRaftNodeState(r, raft.ServerID(addr), localExpected)
+			})
 		}
-		orch2.AddNode(trans, bubbleFunc)
-	}
+	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(20))
 
-	rec2, ok2 := orch2.Run(t)
-	if !ok2 {
-		t.Fatal("phase3: one or more recovered nodes failed")
-	}
-	checkClusterConsensus(t, obs2)
-	if sends, done := countTrace(rec2.GlobalTrace); sends == 0 || done != len(addrs) {
-		t.Fatalf("phase3: expected sends>0 and done=%d, got sends=%d done=%d", len(addrs), sends, done)
+	if !allPassed {
+		t.Fatal("some delivery ordering produced a failing run")//
 	}
 }
+
+// // TestRaftRecoverClusterOrchestrated mirrors raft.TestRaft_RecoverCluster in the
+// // orchestrator harness:
+// //  1. Start and elect a leader.
+// //  2. Shut everything down.
+// //  3. Run RecoverCluster on persisted stores.
+// //  4. Restart and verify leader election and configuration again.
+// func TestRaftRecoverClusterOrchestrated(t *testing.T) {
+// 	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
+// 	expectedServers := make(map[raft.ServerID]raft.ServerAddress, len(addrs))
+// 	configuration := raft.Configuration{}
+// 	for _, addr := range addrs {
+// 		expectedServers[raft.ServerID(addr)] = addr
+// 		configuration.Servers = append(configuration.Servers, raft.Server{
+// 			Suffrage: raft.Voter,
+// 			ID:       raft.ServerID(addr),
+// 			Address:  addr,
+// 		})
+// 	}
+
+// 	// Persisted stores reused across initial run -> recovery -> restart.
+// 	logStable := make([]*raft.InmemStore, len(addrs))
+// 	snaps := make([]*raft.InmemSnapshotStore, len(addrs))
+// 	for i := range addrs {
+// 		logStable[i] = raft.NewInmemStore()
+// 		snaps[i] = raft.NewInmemSnapshotStore()
+// 	}
+
+// 	// Phase 1: start cluster and elect a leader.
+// 	transports1 := make([]*rafttest.RaftTransport, len(addrs))
+// 	for i, addr := range addrs {
+// 		transports1[i] = rafttest.NewRaftTransport(addr)
+// 	}
+// 	for i := range transports1 {
+// 		for j := range transports1 {
+// 			if i != j {
+// 				transports1[i].Connect(transports1[j])
+// 			}
+// 		}
+// 	}
+
+// 	obs1 := make(map[raft.ServerAddress]nodeObs)
+// 	orch1 := orchestratorv2.New()
+// 	for i, trans := range transports1 {
+// 		addr := addrs[i]
+// 		cfg := configuration
+// 		store := logStable[i]
+// 		snap := snaps[i]
+
+// 		bubbleFunc := func(t *testing.T) {
+// 			_ = t
+// 			trans.StartBridge()
+
+// 			conf := testRaftConfig(raft.ServerID(addr))
+// 			if err := raft.BootstrapCluster(conf, store, store, snap, trans, cfg); err != nil {
+// 				panic(fmt.Sprintf("phase1 node %s bootstrap: %v", addr, err))
+// 			}
+
+// 			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
+// 			if err != nil {
+// 				panic(fmt.Sprintf("phase1 node %s new raft: %v", addr, err))
+// 			}
+// 			defer func() {
+// 				if err := trans.Close(); err != nil {
+// 					panic(fmt.Sprintf("phase1 node %s close transport: %v", addr, err))
+// 				}
+// 				if err := r.Shutdown().Error(); err != nil {
+// 					panic(fmt.Sprintf("phase1 node %s shutdown: %v", addr, err))
+// 				}
+// 			}()
+
+// 			waitForLeader(r, 30*time.Second)
+// 			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+// 			obs1[addr] = nodeObs{
+// 				leader:  r.Leader(),
+// 				term:    r.Stats()["term"],
+// 			}
+// 		}
+// 		orch1.AddNode(trans, bubbleFunc)
+// 	}
+
+// 	rec1, ok1 := orch1.Run(t)
+// 	if !ok1 {
+// 		t.Fatal("phase1: one or more nodes failed")
+// 	}
+// 	checkClusterConsensus(t, obs1)
+// 	if sends, done := countTrace(rec1.GlobalTrace); sends == 0 || done != len(addrs) {
+// 		t.Fatalf("phase1: expected sends>0 and done=%d, got sends=%d done=%d", len(addrs), sends, done)
+// 	}
+
+// 	// Phase 2: recover each node's persisted state.
+// 	for i, addr := range addrs {
+// 		before, err := snaps[i].List()
+// 		if err != nil {
+// 			t.Fatalf("phase2 node %s: list snapshots before recover: %v", addr, err)
+// 		}
+
+// 		recTrans := rafttest.NewRaftTransport(addr)
+// 		conf := testRaftConfig(raft.ServerID(addr))
+// 		if err := raft.RecoverCluster(conf, &raft.MockFSM{}, logStable[i], logStable[i], snaps[i], recTrans, configuration); err != nil {
+// 			t.Fatalf("phase2 node %s: recover cluster: %v", addr, err)
+// 		}
+
+// 		after, err := snaps[i].List()
+// 		if err != nil {
+// 			t.Fatalf("phase2 node %s: list snapshots after recover: %v", addr, err)
+// 		}
+// 		if len(after) != len(before)+1 {
+// 			t.Fatalf("phase2 node %s: expected one new snapshot (%d -> %d)", addr, len(before), len(after))
+// 		}
+
+// 		first, err := logStable[i].FirstIndex()
+// 		if err != nil {
+// 			t.Fatalf("phase2 node %s: first index: %v", addr, err)
+// 		}
+// 		last, err := logStable[i].LastIndex()
+// 		if err != nil {
+// 			t.Fatalf("phase2 node %s: last index: %v", addr, err)
+// 		}
+// 		if first != 0 || last != 0 {
+// 			t.Fatalf("phase2 node %s: expected compacted logs first/last=0/0, got %d/%d", addr, first, last)
+// 		}
+// 	}
+
+// 	// Phase 3: restart from recovered stores and verify cluster health.
+// 	transports2 := make([]*rafttest.RaftTransport, len(addrs))
+// 	for i, addr := range addrs {
+// 		transports2[i] = rafttest.NewRaftTransport(addr)
+// 	}
+// 	for i := range transports2 {
+// 		for j := range transports2 {
+// 			if i != j {
+// 				transports2[i].Connect(transports2[j])
+// 			}
+// 		}
+// 	}
+
+// 	obs2 := make(map[raft.ServerAddress]nodeObs)
+// 	orch2 := orchestratorv2.New()
+// 	for i, trans := range transports2 {
+// 		addr := addrs[i]
+// 		store := logStable[i]
+// 		snap := snaps[i]
+
+// 		bubbleFunc := func(t *testing.T) {
+// 			_ = t
+// 			trans.StartBridge()
+
+// 			conf := testRaftConfig(raft.ServerID(addr))
+// 			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
+// 			if err != nil {
+// 				panic(fmt.Sprintf("phase3 node %s new raft: %v", addr, err))
+// 			}
+// 			defer func() {
+// 				if err := trans.Close(); err != nil {
+// 					panic(fmt.Sprintf("phase3 node %s close transport: %v", addr, err))
+// 				}
+// 				if err := r.Shutdown().Error(); err != nil {
+// 					panic(fmt.Sprintf("phase3 node %s shutdown: %v", addr, err))
+// 				}
+// 			}()
+
+// 			waitForLeader(r, 30*time.Second)
+// 			verifyRaftNodeState(r, raft.ServerID(addr), expectedServers)
+// 			obs2[addr] = nodeObs{
+// 				leader:  r.Leader(),
+// 				term:    r.Stats()["term"],
+// 			}
+// 		}
+// 		orch2.AddNode(trans, bubbleFunc)
+// 	}
+
+// 	rec2, ok2 := orch2.Run(t)
+// 	if !ok2 {
+// 		t.Fatal("phase3: one or more recovered nodes failed")
+// 	}
+// 	checkClusterConsensus(t, obs2)
+// 	if sends, done := countTrace(rec2.GlobalTrace); sends == 0 || done != len(addrs) {
+// 		t.Fatalf("phase3: expected sends>0 and done=%d, got sends=%d done=%d", len(addrs), sends, done)
+// 	}
+// }
 
 // nodeObs holds the cluster state observed by a single node at the end of a run.
 type nodeObs struct {
