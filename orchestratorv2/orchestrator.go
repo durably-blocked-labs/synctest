@@ -22,7 +22,6 @@ package orchestratorv2
 
 import (
 	"fmt"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -102,12 +101,14 @@ func GlobalMaxRuns(n int) ExploreOption { return func(c *exploreConfig) { c.maxR
 // RecordedRun captures a complete orchestrator run for deterministic replay.
 //
 // GlobalTrace is the sequence of global events (message deliveries, time
-// advances, node completions). LocalTraces contains the per-node scheduling
-// decisions recorded inside each bubble. Together they fully specify the
-// execution and can be fed back into Replay to reproduce it exactly.
+// advances, node completions). GlobalDecisions records the index-based
+// delivery choices (one per delivery step). LocalTraces contains the per-node
+// scheduling decisions recorded inside each bubble. Together they fully
+// specify the execution and can be fed back into Replay to reproduce it.
 type RecordedRun struct {
-	GlobalTrace []GlobalStep
-	LocalTraces map[string][]synctest.Decision
+	GlobalTrace     []GlobalStep
+	GlobalDecisions []GlobalDecision
+	LocalTraces     map[string][]synctest.Decision
 }
 
 // nodeCtrl is the orchestrator's per-node state.
@@ -115,7 +116,8 @@ type RecordedRun struct {
 type nodeCtrl struct {
 	transport  NodeTransport
 	testFunc   func(t *testing.T)
-	bubble     *distributed.Bubble // assigned in initBubbles; nil after AddNode
+	bubbleOpts []distributed.Option // per-node options (e.g. WithScheduler)
+	bubble     *distributed.Bubble  // assigned in initBubbles; nil after AddNode
 	done       chan struct{}
 	localTrace []synctest.Decision // captured when bubble completes
 	passed     bool                // whether the bubble's test passed
@@ -139,13 +141,15 @@ func New() *Orchestrator {
 	}
 }
 
-// AddNode registers a node transport and its bubble test function.
+// AddNode registers a node transport and its bubble test function with
+// optional per-node distributed.Options (e.g. WithScheduler).
 // The bubble is created lazily when Run or Replay is called.
-func (o *Orchestrator) AddNode(transport NodeTransport, f func(t *testing.T)) {
+func (o *Orchestrator) AddNode(transport NodeTransport, f func(t *testing.T), opts ...distributed.Option) {
 	addr := transport.Addr()
 	ctrl := &nodeCtrl{
-		transport: transport,
-		testFunc:  f,
+		transport:  transport,
+		testFunc:   f,
+		bubbleOpts: opts,
 	}
 	o.nodes[addr] = ctrl
 	o.order = append(o.order, addr)
@@ -154,10 +158,13 @@ func (o *Orchestrator) AddNode(transport NodeTransport, f func(t *testing.T)) {
 // initBubbles (re-)creates all per-node bubbles.
 // localPrefixes maps node address → local scheduling prefix to replay;
 // a nil map creates fresh bubbles with default FIFO scheduling.
+// Per-node bubbleOpts are prepended before any prefix option, so
+// WithScheduler takes effect at the frontier.
 func (o *Orchestrator) initBubbles(localPrefixes map[string][]synctest.Decision) {
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
-		opts := []distributed.Option{}
+		// Start with per-node options (e.g. WithScheduler).
+		opts := append([]distributed.Option{}, ctrl.bubbleOpts...)
 		if localPrefixes != nil {
 			if prefix, ok := localPrefixes[addr]; ok && len(prefix) > 0 {
 				opts = append(opts, distributed.WithPrefix(prefix))
@@ -190,26 +197,38 @@ func (o *Orchestrator) startBubble(t *testing.T, ctrl *nodeCtrl) {
 	}()
 }
 
+// pickFn selects which op to deliver from the schedulable queue.
+// Returns the index into schedulable. Called once per delivery step.
+type pickFn func(schedulable []*PendingOp, step int) int
+
 // Run starts all registered nodes and drives cross-node message delivery until
 // all bubbles complete. Delivery order is FIFO over the ops drained from each
 // node's outbox. Returns a RecordedRun that can be fed into Replay.
 func (o *Orchestrator) Run(t *testing.T) (RecordedRun, bool) {
 	t.Helper()
 	o.initBubbles(nil)
-	return o.run(t, nil)
+	rec, _, ok := o.runOnce(t, func(_ []*PendingOp, _ int) int { return 0 })
+	return rec, ok
 }
 
 // Replay re-runs all registered nodes, replaying the local scheduling
-// decisions from rec.LocalTraces and following rec.GlobalTrace's delivery
-// order for cross-node messages. Both global and local behaviour should be
-// identical to the original run, making the returned RecordedRun equal to rec.
+// decisions from rec.LocalTraces and following rec.GlobalDecisions for
+// cross-node message delivery order. Both global and local behaviour should
+// be identical to the original run.
 //
 // Replay requires a freshly configured Orchestrator (same AddNode calls as
 // the original run, but new transport instances with the same connectivity).
 func (o *Orchestrator) Replay(t *testing.T, rec RecordedRun) (RecordedRun, bool) {
 	t.Helper()
 	o.initBubbles(rec.LocalTraces)
-	return o.run(t, rec.GlobalTrace)
+	pick := func(_ []*PendingOp, step int) int {
+		if step < len(rec.GlobalDecisions) {
+			return rec.GlobalDecisions[step].Index
+		}
+		return 0
+	}
+	rec2, _, ok := o.runOnce(t, pick)
+	return rec2, ok
 }
 
 // exploreItem is one pending work item on the DFS stack.
@@ -223,7 +242,7 @@ type exploreItem struct {
 //
 // setup is called before each run to register fresh nodes (transports + bubble
 // funcs). It must call o.AddNode for every node, exactly as one would before
-// calling Run. Explore	 resets o.nodes and o.order before each setup call so
+// calling Run. Explore resets o.nodes and o.order before each setup call so
 // the orchestrator is clean.
 //
 // Options:
@@ -262,7 +281,14 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 		// bubbles are created.
 		runtime.GC()
 
-		_, decisions, passed := o.runWithGlobalPrefix(t, item.prefix)
+		prefix := item.prefix
+		pick := func(_ []*PendingOp, step int) int {
+			if step < len(prefix) {
+				return prefix[step].Index
+			}
+			return 0
+		}
+		_, decisions, passed := o.runOnce(t, pick)
 		runCount++
 
 		// Log a compact delivery sequence so different orderings are visible.
@@ -305,12 +331,36 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 	return true
 }
 
-// run is the shared implementation of Run and Replay.
+// bubbleEvent is one event from a fan-in goroutine: either idle or done.
+type bubbleEvent struct {
+	addr string
+	idle *distributed.IdleState
+	done bool
+}
+
+// collectEvents launches fan-in goroutines for nodes that haven't reported.
+// Returns a channel that receives one event per needed node.
+func (o *Orchestrator) collectEvents(needed map[string]*nodeCtrl) <-chan bubbleEvent {
+	ch := make(chan bubbleEvent, len(needed))
+	for addr, ctrl := range needed {
+		addr, ctrl := addr, ctrl
+		go func() {
+			select {
+			case idle := <-ctrl.bubble.Idle:
+				ch <- bubbleEvent{addr: addr, idle: &idle}
+			case <-ctrl.done:
+				ch <- bubbleEvent{addr: addr, done: true}
+			}
+		}()
+	}
+	return ch
+}
+
+// runOnce is the unified implementation for Run, Replay, and Explore.
 //
-// deliveryTrace is the sequence of GlobalSteps from a previous run; when
-// non-nil, each StepDeliver entry is matched against the schedulable queue and
-// that specific op is delivered first (replay ordering). When nil, FIFO order
-// is used (normal run).
+// pick selects which op to deliver at each step. For Run it always returns 0
+// (FIFO). For Replay it follows rec.GlobalDecisions. For Explore it follows
+// the prefix then defaults to 0.
 //
 // Algorithm:
 //  1. Start all bubbles.
@@ -318,28 +368,18 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 //     or to complete (done channel).
 //  3. Once all active bubbles are idle, drain their outboxes to collect pending
 //     OpSend operations.
-//  4. If sends are available: deliver the next one, resume the target.
+//  4. If sends are available: deliver the next one (chosen by pick), resume target.
 //  5. If no sends but timers exist: advance global time, resume all idle bubbles.
 //  6. If neither: resume all (allowing bubbles to finish) and return.
 //  7. Repeat from step 2.
-func (o *Orchestrator) run(t *testing.T, deliveryTrace []GlobalStep) (RecordedRun, bool) {
+func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []GlobalDecision, bool) {
 	// Reset orchestrator run state.
 	o.trace = nil
 	o.schedulable = nil
 	o.globalTime = 0
 
 	n := len(o.nodes)
-
-	// Pre-filter delivery steps for O(1) indexed lookup during replay.
-	var deliveries []GlobalStep
-	deliveryIdx := 0
-	if deliveryTrace != nil {
-		for _, step := range deliveryTrace {
-			if step.Type == StepDeliver {
-				deliveries = append(deliveries, step)
-			}
-		}
-	}
+	var globalDecisions []GlobalDecision
 
 	// pendingIdle holds bubbles that sent an IdleState but have not yet
 	// received a Resume. They are frozen in their hook.
@@ -369,66 +409,29 @@ func (o *Orchestrator) run(t *testing.T, deliveryTrace []GlobalStep) (RecordedRu
 
 	for active > 0 {
 		// ── Step 2: collect idle states from all non-pending, non-done bubbles ──
-		//
-		// Build a reflect.Select over the Idle and done channels of every bubble
-		// that is neither already in pendingIdle nor already done. We loop until
-		// every active bubble is accounted for.
-		for {
-			// Count how many active bubbles still need to report.
-			needed := 0
-			for _, addr := range o.order {
-				if doneSet[addr] {
-					continue
-				}
-				if _, ok := pendingIdle[addr]; ok {
-					continue
-				}
-				needed++
+		needed := map[string]*nodeCtrl{}
+		for _, addr := range o.order {
+			if doneSet[addr] {
+				continue
 			}
-			if needed == 0 {
-				break
+			if _, ok := pendingIdle[addr]; ok {
+				continue
 			}
-
-			// Build select cases: [idle_0, done_0, idle_1, done_1, ...]
-			cases := make([]reflect.SelectCase, 0, needed*2)
-			addrs := make([]string, 0, needed*2)
-			isDone := make([]bool, 0, needed*2)
-
-			for _, addr := range o.order {
-				if doneSet[addr] {
-					continue
+			needed[addr] = o.nodes[addr]
+		}
+		if len(needed) > 0 {
+			events := o.collectEvents(needed)
+			for i := 0; i < len(needed); i++ {
+				ev := <-events
+				if ev.done {
+					doneSet[ev.addr] = true
+					delete(pendingIdle, ev.addr)
+					active--
+					o.trace = append(o.trace, GlobalStep{Type: StepDone, From: ev.addr})
+					t.Logf("orchestratorv2: node %q bubble done", ev.addr)
+				} else {
+					pendingIdle[ev.addr] = *ev.idle
 				}
-				if _, ok := pendingIdle[addr]; ok {
-					continue
-				}
-				ctrl := o.nodes[addr]
-				cases = append(cases, reflect.SelectCase{
-					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(ctrl.bubble.Idle),
-				})
-				addrs = append(addrs, addr)
-				isDone = append(isDone, false)
-
-				cases = append(cases, reflect.SelectCase{
-					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(ctrl.done),
-				})
-				addrs = append(addrs, addr)
-				isDone = append(isDone, true)
-			}
-
-			chosen, val, _ := reflect.Select(cases)
-			addr := addrs[chosen]
-
-			if isDone[chosen] {
-				doneSet[addr] = true
-				delete(pendingIdle, addr)
-				active--
-				o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-				t.Logf("orchestratorv2: node %q bubble done", addr)
-			} else {
-				idleState := val.Interface().(distributed.IdleState)
-				pendingIdle[addr] = idleState
 			}
 		}
 
@@ -457,31 +460,23 @@ func (o *Orchestrator) run(t *testing.T, deliveryTrace []GlobalStep) (RecordedRu
 		// ── Steps 4–6: make a scheduling decision ──
 
 		if len(o.schedulable) > 0 {
-			// Select which op to deliver: follow recorded order during replay,
-			// or take the first (FIFO) during a free run.
-			var op *PendingOp
-			if deliveries != nil && deliveryIdx < len(deliveries) {
-				want := deliveries[deliveryIdx]
-				idx := findDeliveryOp(o.schedulable, want)
-				if idx < 0 {
-					// The run has diverged from the recorded trace (e.g. due
-					// to application-level randomness like timer jitter). Log
-					// a warning and switch to FIFO for the remainder of the
-					// replay — the replay is best-effort.
-					t.Logf("orchestratorv2: replay diverged: no op matching %s→%s (%s); switching to FIFO",
-						want.From, want.To, want.OpType)
-					deliveries = nil // disable replay ordering for rest of run
-					op = o.schedulable[0]
-					o.schedulable = o.schedulable[1:]
-				} else {
-					op = o.schedulable[idx]
-					o.schedulable = append(o.schedulable[:idx], o.schedulable[idx+1:]...)
-					deliveryIdx++
-				}
-			} else {
-				op = o.schedulable[0]
-				o.schedulable = o.schedulable[1:]
+			// Index-based delivery selection via pick function.
+			step := len(globalDecisions)
+			chosenIdx := pick(o.schedulable, step)
+			if chosenIdx >= len(o.schedulable) {
+				chosenIdx = len(o.schedulable) - 1 // clamp on divergence
 			}
+			if chosenIdx < 0 {
+				chosenIdx = 0
+			}
+
+			globalDecisions = append(globalDecisions, GlobalDecision{
+				Index:     chosenIdx,
+				QueueSize: len(o.schedulable),
+			})
+
+			op := o.schedulable[chosenIdx]
+			o.schedulable = append(o.schedulable[:chosenIdx], o.schedulable[chosenIdx+1:]...)
 
 			// Execute delivers the message to the target node's mailbox.
 			// The target's bridge goroutine is frozen in ExternalWait on
@@ -586,249 +581,10 @@ func (o *Orchestrator) run(t *testing.T, deliveryTrace []GlobalStep) (RecordedRu
 	}
 
 	return RecordedRun{
-		GlobalTrace: o.trace,
-		LocalTraces: localTraces,
-	}, allPassed
-}
-
-// runWithGlobalPrefix is the core engine for Explore. It runs a single trace
-// following the given global delivery prefix and returns the full sequence of
-// GlobalDecisions recorded (one per delivery step). The first len(prefix) steps
-// follow the prefix; steps beyond that default to FIFO (index 0).
-//
-// Unlike run(), this method fully drains every node's outbox before making
-// each delivery decision, giving the richest branching view at each step.
-func (o *Orchestrator) runWithGlobalPrefix(t *testing.T, prefix []GlobalDecision) (RecordedRun, []GlobalDecision, bool) {
-	// Reset orchestrator run state.
-	o.trace = nil
-	o.schedulable = nil
-	o.globalTime = 0
-
-	n := len(o.nodes)
-	var globalDecisions []GlobalDecision
-
-	pendingIdle := make(map[string]distributed.IdleState)
-	doneSet := make(map[string]bool)
-	active := n
-
-	// Sequential startup (same as run()).
-	for _, addr := range o.order {
-		o.startBubble(t, o.nodes[addr])
-		ctrl := o.nodes[addr]
-		select {
-		case idle := <-ctrl.bubble.Idle:
-			pendingIdle[addr] = idle
-		case <-ctrl.done:
-			doneSet[addr] = true
-			active--
-			o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-			t.Logf("orchestratorv2: [explore] node %q done during init", addr)
-		}
-	}
-
-	for active > 0 {
-		// Collect idle states from all active, non-pending-idle bubbles.
-		for {
-			needed := 0
-			for _, addr := range o.order {
-				if doneSet[addr] {
-					continue
-				}
-				if _, ok := pendingIdle[addr]; ok {
-					continue
-				}
-				needed++
-			}
-			if needed == 0 {
-				break
-			}
-
-			cases := make([]reflect.SelectCase, 0, needed*2)
-			addrs := make([]string, 0, needed*2)
-			isDone := make([]bool, 0, needed*2)
-
-			for _, addr := range o.order {
-				if doneSet[addr] {
-					continue
-				}
-				if _, ok := pendingIdle[addr]; ok {
-					continue
-				}
-				ctrl := o.nodes[addr]
-				cases = append(cases, reflect.SelectCase{
-					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(ctrl.bubble.Idle),
-				})
-				addrs = append(addrs, addr)
-				isDone = append(isDone, false)
-
-				cases = append(cases, reflect.SelectCase{
-					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(ctrl.done),
-				})
-				addrs = append(addrs, addr)
-				isDone = append(isDone, true)
-			}
-
-			chosen, val, _ := reflect.Select(cases)
-			addr := addrs[chosen]
-
-			if isDone[chosen] {
-				doneSet[addr] = true
-				delete(pendingIdle, addr)
-				active--
-				o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-				t.Logf("orchestratorv2: [explore] node %q done", addr)
-			} else {
-				pendingIdle[addr] = val.Interface().(distributed.IdleState)
-			}
-		}
-
-		if active == 0 {
-			break
-		}
-
-		// Drain outboxes (one op per node, same as run()).
-		// Ops accumulate in o.schedulable across iterations, giving a growing
-		// branching factor as the run progresses.
-		for _, addr := range o.order {
-			if doneSet[addr] {
-				continue
-			}
-			ctrl := o.nodes[addr]
-			select {
-			case op := <-ctrl.transport.Outbox():
-				o.schedulable = append(o.schedulable, op)
-			default:
-			}
-		}
-
-		if len(o.schedulable) > 0 {
-			// Index-based delivery selection: follow prefix if available,
-			// otherwise default to FIFO (index 0).
-			step := len(globalDecisions)
-			chosenIdx := 0
-			if step < len(prefix) {
-				chosenIdx = prefix[step].Index
-				if chosenIdx >= len(o.schedulable) {
-					chosenIdx = len(o.schedulable) - 1 // clamp on divergence
-				}
-			}
-
-			globalDecisions = append(globalDecisions, GlobalDecision{
-				Index:     chosenIdx,
-				QueueSize: len(o.schedulable),
-			})
-
-			op := o.schedulable[chosenIdx]
-			o.schedulable = append(o.schedulable[:chosenIdx], o.schedulable[chosenIdx+1:]...)
-
-			op.Execute()
-			o.trace = append(o.trace, GlobalStep{
-				Type:   StepDeliver,
-				Dir:    op.Dir,
-				From:   op.From,
-				To:     op.To,
-				OpType: op.Type,
-				Time:   o.globalTime,
-			})
-			t.Logf("orchestratorv2: [explore] deliver %s %s→%s (%s)", dirName(op.Dir), op.From, op.To, op.Type)
-
-			if targetCtrl, ok := o.nodes[op.To]; ok {
-				if _, pending := pendingIdle[op.To]; pending {
-					targetCtrl.bubble.Resume <- distributed.Resume{}
-					delete(pendingIdle, op.To)
-				}
-			}
-
-		} else {
-			// No pending sends. Check for timers.
-			var earliest int64
-			for _, idleState := range pendingIdle {
-				if idleState.State.NextTimer > 0 {
-					if earliest == 0 || idleState.State.NextTimer < earliest {
-						earliest = idleState.State.NextTimer
-					}
-				}
-			}
-
-			if earliest > 0 {
-				o.globalTime = earliest
-				o.trace = append(o.trace, GlobalStep{Type: StepTimeAdvance, Time: earliest})
-				t.Logf("orchestratorv2: [explore] advance time to %d ns", earliest)
-
-				for _, addr := range o.order {
-					if _, idle := pendingIdle[addr]; !idle {
-						continue
-					}
-					delete(pendingIdle, addr)
-					ctrl := o.nodes[addr]
-					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
-					select {
-					case idleState := <-ctrl.bubble.Idle:
-						pendingIdle[addr] = idleState
-					case <-ctrl.done:
-						if !doneSet[addr] {
-							doneSet[addr] = true
-							active--
-							o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-							t.Logf("orchestratorv2: [explore] node %q done during time advance", addr)
-						}
-					}
-				}
-
-			} else {
-				t.Logf("orchestratorv2: [explore] no pending sends or timers — resuming all to drain")
-				for _, addr := range o.order {
-					if _, idle := pendingIdle[addr]; !idle {
-						continue
-					}
-					delete(pendingIdle, addr)
-					ctrl := o.nodes[addr]
-					ctrl.bubble.Resume <- distributed.Resume{}
-					select {
-					case idleState := <-ctrl.bubble.Idle:
-						pendingIdle[addr] = idleState
-					case <-ctrl.done:
-						if !doneSet[addr] {
-							doneSet[addr] = true
-							active--
-							o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-							t.Logf("orchestratorv2: [explore] node %q done during drain", addr)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Collect per-node results.
-	allPassed := true
-	localTraces := make(map[string][]synctest.Decision, len(o.nodes))
-	for _, addr := range o.order {
-		ctrl := o.nodes[addr]
-		localTraces[addr] = ctrl.localTrace
-		if !ctrl.passed {
-			allPassed = false
-		}
-	}
-
-	return RecordedRun{
-		GlobalTrace: o.trace,
-		LocalTraces: localTraces,
+		GlobalTrace:     o.trace,
+		GlobalDecisions: globalDecisions,
+		LocalTraces:     localTraces,
 	}, globalDecisions, allPassed
-}
-
-// findDeliveryOp returns the index in schedulable of the first op whose
-// From, To, and Type match those of the given GlobalStep.
-// Returns -1 if no match is found.
-func findDeliveryOp(schedulable []*PendingOp, want GlobalStep) int {
-	for i, op := range schedulable {
-		if op.From == want.From && op.To == want.To && op.Type == want.OpType {
-			return i
-		}
-	}
-	return -1
 }
 
 func dirName(d OpDir) string {

@@ -17,7 +17,10 @@
 // until the bubble goes idle again.
 package distributed
 
-import "testing/synctest"
+import (
+	"math/rand"
+	"testing/synctest"
+)
 
 // BubbleState is the state of a bubble at a hook invocation.
 type BubbleState = synctest.BubbleState
@@ -40,6 +43,12 @@ type Resume struct {
 	// AdvanceTimeTo advances the bubble's fake clock before returning
 	// from the hook. 0 means don't advance.
 	AdvanceTimeTo int64
+
+	// SelectCounter sets the bubble's select counter before returning.
+	// This controls the deterministic ordering of select statements.
+	// Different values explore different select interleavings.
+	// 0 means don't change.
+	SelectCounter uint64
 }
 
 // Bubble is the local orchestrator for one synctest bubble.
@@ -70,6 +79,10 @@ type Bubble struct {
 	// Optional: custom scheduling function for non-replay scenarios.
 	// If nil, uses FIFO (index 0) at the frontier.
 	scheduleFn func(BubbleState) int32
+
+	// Seed for the global rand source. Set at the start of Hook().
+	seed    int64
+	hasSeed bool
 }
 
 // Option configures a Bubble.
@@ -85,6 +98,17 @@ func WithPrefix(prefix []synctest.Decision) Option {
 // Called when the prefix is exhausted and the runq has choices.
 func WithScheduler(fn func(BubbleState) int32) Option {
 	return func(b *Bubble) { b.scheduleFn = fn }
+}
+
+// WithSeed sets the global rand seed at the start of the bubble.
+// This controls the P's fastrand, which determines:
+//   - select statement ordering (which case wins when multiple are ready)
+//   - raft election timeout jitter (randomTimeout)
+//
+// Different seeds explore different select interleavings within the bubble.
+// Requires GODEBUG=randseednop=0 to take effect (Go 1.24+).
+func WithSeed(seed int64) Option {
+	return func(b *Bubble) { b.seed = seed; b.hasSeed = true }
 }
 
 // NewBubble creates a local orchestrator for one node.
@@ -110,8 +134,16 @@ func NewBubble(name string, opts ...Option) *Bubble {
 //
 // For scheduling decisions (Idle == false): handled locally.
 // For idle (Idle == true): sends state to global orchestrator, waits for Resume.
+//
+// If WithSeed was set, the seed is applied on the first hook call
+// (inside the bubble, before any raft rand calls).
 func (b *Bubble) Hook() func(BubbleState) int32 {
+	seeded := false
 	return func(state BubbleState) int32 {
+		if !seeded && b.hasSeed {
+			rand.Seed(b.seed) //nolint:staticcheck
+			seeded = true
+		}
 		if !state.Idle {
 			return b.schedule(state)
 		}
@@ -120,6 +152,9 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 		r := <-b.resume
 		if r.AdvanceTimeTo > 0 {
 			synctest.SetTime(r.AdvanceTimeTo)
+		}
+		if r.SelectCounter > 0 {
+			synctest.SetSelectOffset(r.SelectCounter)
 		}
 		return 0
 	}

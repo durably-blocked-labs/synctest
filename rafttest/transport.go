@@ -173,12 +173,16 @@ func (t *RaftTransport) forwardResponse(req envelope, proxyRespCh <-chan raft.RP
 			To:   string(req.from),
 			Type: req.rpcType + "Response",
 			Execute: func() {
-				peer.mailbox <- envelope{
+				select {
+				case peer.mailbox <- envelope{
 					kind:  envelopeResponse,
 					reqID: req.reqID,
 					from:  t.localAddr,
 					to:    req.from,
 					resp:  resp,
+				}:
+				case <-peer.closeCh:
+					// Target transport closed — drop the response.
 				}
 			},
 		}:
@@ -200,6 +204,20 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 	peer, ok := t.peers[target]
 	if !ok {
 		return raft.RPCResponse{}, fmt.Errorf("rafttest: no peer for %q", target)
+	}
+
+	// Early exit if this transport or the peer is already closed.
+	// Checking peer.closeCh here avoids the expensive ExternalWait cycle
+	// for RPCs to peers that have already shut down.
+	select {
+	case <-t.closeCh:
+		return raft.RPCResponse{}, fmt.Errorf("rafttest: transport closed")
+	default:
+	}
+	select {
+	case <-peer.closeCh:
+		return raft.RPCResponse{}, fmt.Errorf("rafttest: peer %q closed", target)
+	default:
 	}
 
 	reqID := atomic.AddUint64(&t.nextReqID, 1)
@@ -225,7 +243,8 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 			To:   string(target),
 			Type: rpcType,
 			Execute: func() {
-				peer.mailbox <- envelope{
+				select {
+				case peer.mailbox <- envelope{
 					kind:    envelopeRequest,
 					reqID:   reqID,
 					from:    t.localAddr,
@@ -233,12 +252,58 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 					rpcType: rpcType,
 					command: cmd,
 					reader:  r,
+				}:
+				case <-peer.closeCh:
+					// Target closed. Route error through sender's mailbox with
+					// a blocking send so the pending respCh always receives a
+					// value (contract: every registered respCh gets exactly one).
+					t.mailbox <- envelope{
+						kind:  envelopeResponse,
+						reqID: reqID,
+						from:  target,
+						to:    t.localAddr,
+						resp:  raft.RPCResponse{Error: fmt.Errorf("rafttest: peer %q closed", target)},
+					}
 				}
 			},
 		}:
 		case <-t.closeCh:
 		}
 	})
+
+	// After Phase 1, check if the transport was closed during (or before) the
+	// ExternalWait. If Close() ran while the goroutine was detached, closeCh
+	// is now closed and the pending map has been swapped. Any respCh registered
+	// in the old map already received a close-error from Close(); any respCh
+	// registered in the new map will never receive data. Either way, proceeding
+	// to Phase 2 risks blocking forever. Return the error immediately.
+	select {
+	case <-t.closeCh:
+		return raft.RPCResponse{}, fmt.Errorf("rafttest: transport closed")
+	default:
+	}
+
+	// Check if the target peer's transport is already closed. When Execute()
+	// detects a closed peer, it tries to route an error through t.mailbox,
+	// but the mailbox may be full (dropping the error via the default case).
+	// If the peer is closed and respCh is still empty, Phase 2 would block
+	// forever. Drain any buffered response first; if empty, return an error.
+	select {
+	case <-peer.closeCh:
+		// Peer is closed. Try to collect any response that was already
+		// buffered (e.g. the bridge goroutine may have already delivered
+		// the error from Execute's mailbox routing).
+		select {
+		case resp := <-respCh:
+			if resp.Error != nil {
+				return resp, resp.Error
+			}
+			return resp, nil
+		default:
+			return raft.RPCResponse{}, fmt.Errorf("rafttest: peer %q closed", target)
+		}
+	default:
+	}
 
 	// Phase 2: wait for response delivered by orchestrator.
 	// respCh is created inside the bubble, so this must remain a durable
