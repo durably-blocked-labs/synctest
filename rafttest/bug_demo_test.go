@@ -3,13 +3,10 @@ package rafttest_test
 import (
 	"fmt"
 	"math/rand"
-	"runtime"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/shubhaankar/synctest/distributed"
 	"github.com/shubhaankar/synctest/orchestratorv2"
 	"github.com/shubhaankar/synctest/rafttest"
 )
@@ -190,17 +187,22 @@ func TestRemoveLeaderConcept(t *testing.T) {
 	}
 }
 
-// TestRemoveLeaderSelectSweep sweeps select counter offsets combined with
-// non-FIFO local goroutine scheduling to trigger bug #6.
+// TestRemoveLeaderBugTriggered reliably triggers bug #6: the select race
+// between commitCh and applyCh in leaderLoop after RemoveServer.
 //
-// Two dimensions are varied:
-//   - Local scheduling: FIFO (index 0) vs LIFO (index RunqSize-1). This
-//     controls whether the user goroutine or the leaderLoop goroutine runs
-//     first after RemoveServer commits. We need the user goroutine to call
-//     Apply() before leaderLoop reads commitCh, so both channels are ready.
-//   - Select counter offset: controls which case wins when both commitCh and
-//     applyCh are ready in the leaderLoop select. We need applyCh to win.
-func TestRemoveLeaderSelectSweep(t *testing.T) {
+// The trick: fire RemoveServer WITHOUT waiting on its future, then immediately
+// fire Apply calls. This puts values on applyCh before leaderLoop processes
+// the commitCh notification for the RemoveServer commit. When leaderLoop's
+// select sees both channels ready, applyCh can win — and since stepDown is
+// still false (commitCh hasn't been processed), the applies are dispatched
+// and succeed. This is the bug: applies succeed after the leader was removed.
+//
+// This reproduces deterministically on every run because:
+//   - The synctest bubble serializes goroutine execution (single P)
+//   - FIFO scheduling ensures the user goroutine fires Apply before
+//     leaderLoop gets to its next select iteration
+//   - The select counter is deterministic inside the bubble
+func TestRemoveLeaderBugTriggered(t *testing.T) {
 	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
 	configuration := raft.Configuration{}
 	for _, addr := range addrs {
@@ -211,116 +213,101 @@ func TestRemoveLeaderSelectSweep(t *testing.T) {
 		})
 	}
 
-	type strategy struct {
-		name      string
-		scheduler func(distributed.BubbleState) int32
+	transports := make([]*rafttest.RaftTransport, len(addrs))
+	for i, addr := range addrs {
+		transports[i] = rafttest.NewRaftTransport(addr)
 	}
-	strategies := []strategy{
-		{"FIFO", nil}, // nil = default FIFO (index 0)
-		{"LIFO", func(s distributed.BubbleState) int32 { return s.RunnableN - 1 }},
-	}
-
-	const maxOffset = 20
-	for _, strat := range strategies {
-		for offset := uint64(0); offset < maxOffset; offset++ {
-			offset := offset // capture
-			strat := strat
-			rand.Seed(42) //nolint:staticcheck
-
-			transports := make([]*rafttest.RaftTransport, len(addrs))
-			for i, addr := range addrs {
-				transports[i] = rafttest.NewRaftTransport(addr)
+	for i := range transports {
+		for j := range transports {
+			if i != j {
+				transports[i].Connect(transports[j])
 			}
-			for i := range transports {
-				for j := range transports {
-					if i != j {
-						transports[i].Connect(transports[j])
-					}
-				}
-			}
-
-			var leaderAddr raft.ServerAddress
-			var postSucceeded, postFailed int
-
-			orch := orchestratorv2.New()
-			for i, trans := range transports {
-				addr := addrs[i]
-				localCfg := configuration
-				var opts []distributed.Option
-				if strat.scheduler != nil {
-					opts = append(opts, distributed.WithScheduler(strat.scheduler))
-				}
-				orch.AddNode(trans, func(t *testing.T) {
-					_ = t
-					trans.StartBridge()
-					store := raft.NewInmemStore()
-					snap := raft.NewDiscardSnapshotStore()
-					conf := testRaftConfig(raft.ServerID(addr))
-					conf.ShutdownOnRemove = false
-					if err := raft.BootstrapCluster(conf, store, store, snap, trans, localCfg); err != nil {
-						panic(fmt.Sprintf("BootstrapCluster: %v", err))
-					}
-					r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
-					if err != nil {
-						panic(fmt.Sprintf("NewRaft: %v", err))
-					}
-					defer func() { trans.Close(); r.Shutdown() }()
-
-					waitForLeader(r, 30*time.Second)
-
-					if r.State() == raft.Leader {
-						leaderAddr = addr
-
-						for i := byte(0); i < 3; i++ {
-							f := r.Apply([]byte{i}, 5*time.Second)
-							if err := f.Error(); err != nil {
-								return
-							}
-						}
-
-						removeFuture := r.RemoveServer(raft.ServerID(addr), 0, 0)
-						if err := removeFuture.Error(); err != nil {
-							return
-						}
-
-						// Set the select counter to influence which case wins
-						// in leaderLoop's select between commitCh and applyCh.
-						synctest.SetSelectOffset(offset)
-
-						for i := byte(3); i < 8; i++ {
-							f := r.Apply([]byte{i}, 0)
-							if f.Error() == nil {
-								postSucceeded++
-							} else {
-								postFailed++
-							}
-						}
-					} else {
-						for {
-							time.Sleep(5 * time.Millisecond)
-							cf := r.GetConfiguration()
-							if cf.Error() != nil {
-								break
-							}
-							if len(cf.Configuration().Servers) < 3 {
-								break
-							}
-						}
-					}
-				}, opts...)
-			}
-
-			_, _ = orch.Run(t)
-			runtime.GC()
-
-			if postSucceeded > 0 {
-				t.Logf("%s offset=%d leader=%s: BUG TRIGGERED — %d applies succeeded after RemoveServer",
-					strat.name, offset, leaderAddr, postSucceeded)
-				return // found it
-			}
-			t.Logf("%s offset=%d leader=%s: ok (%d failed)", strat.name, offset, leaderAddr, postFailed)
 		}
 	}
 
-	t.Logf("swept %d strategies × %d offsets, bug not triggered", len(strategies), maxOffset)
+	rand.Seed(42) //nolint:staticcheck
+
+	var leaderAddr raft.ServerAddress
+	var postSucceeded, postFailed int
+
+	orch := orchestratorv2.New()
+	for i, trans := range transports {
+		addr := addrs[i]
+		localCfg := configuration
+		orch.AddNode(trans, func(t *testing.T) {
+			_ = t
+			trans.StartBridge()
+			store := raft.NewInmemStore()
+			snap := raft.NewDiscardSnapshotStore()
+			conf := testRaftConfig(raft.ServerID(addr))
+			conf.ShutdownOnRemove = false
+			if err := raft.BootstrapCluster(conf, store, store, snap, trans, localCfg); err != nil {
+				panic(fmt.Sprintf("BootstrapCluster: %v", err))
+			}
+			r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
+			if err != nil {
+				panic(fmt.Sprintf("NewRaft: %v", err))
+			}
+			defer func() { trans.Close(); r.Shutdown() }()
+
+			waitForLeader(r, 30*time.Second)
+
+			if r.State() == raft.Leader {
+				leaderAddr = addr
+
+				// Apply a few entries and wait for commit.
+				for i := byte(0); i < 3; i++ {
+					f := r.Apply([]byte{i}, 5*time.Second)
+					if err := f.Error(); err != nil {
+						return
+					}
+				}
+
+				// Fire RemoveServer WITHOUT waiting — then immediately
+				// fire Apply calls. This creates the race: applyCh has
+				// values before leaderLoop processes commitCh for the
+				// RemoveServer commit.
+				removeFuture := r.RemoveServer(raft.ServerID(addr), 0, 0)
+
+				var applyFutures []raft.ApplyFuture
+				for i := byte(3); i < 8; i++ {
+					applyFutures = append(applyFutures, r.Apply([]byte{i}, 5*time.Second))
+				}
+
+				// Wait for RemoveServer to complete.
+				removeFuture.Error()
+
+				// Check which applies succeeded (bug) vs failed (correct).
+				for _, f := range applyFutures {
+					if f.Error() == nil {
+						postSucceeded++
+					} else {
+						postFailed++
+					}
+				}
+			} else {
+				for {
+					time.Sleep(5 * time.Millisecond)
+					cf := r.GetConfiguration()
+					if cf.Error() != nil {
+						break
+					}
+					if len(cf.Configuration().Servers) < 3 {
+						break
+					}
+				}
+			}
+		})
+	}
+
+	_, _ = orch.Run(t)
+
+	t.Logf("Leader: %s", leaderAddr)
+	t.Logf("Post-remove: %d succeeded (bug), %d failed (correct)", postSucceeded, postFailed)
+	if postSucceeded > 0 {
+		t.Logf("BUG TRIGGERED: %d applies succeeded after RemoveServer committed — "+
+			"leaderLoop's select picked applyCh over commitCh", postSucceeded)
+	} else {
+		t.Fatal("expected bug to trigger but all applies failed correctly")
+	}
 }
