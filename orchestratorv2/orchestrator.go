@@ -331,6 +331,147 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 	return true
 }
 
+// ExploreAll enumerates both global message delivery orderings AND local
+// goroutine scheduling interleavings using DFS with a shared context bound.
+//
+// The shared bound limits total non-default decisions across all layers.
+// A bound of 2 means "at most 2 non-FIFO choices total" whether they are
+// global (delivery reordering) or local (goroutine scheduling).
+//
+// This is the combined explorer that can find bugs requiring both the right
+// message delivery order AND the right goroutine scheduling within a node.
+func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts ...ExploreOption) bool {
+	t.Helper()
+	cfg := &exploreConfig{bound: 2}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	type workItem struct {
+		globalPrefix []GlobalDecision
+		localPrefix  map[string][]synctest.Decision
+		nonFIFO      int
+	}
+
+	stack := []workItem{{
+		localPrefix: make(map[string][]synctest.Decision),
+	}}
+	runCount := 0
+
+	for len(stack) > 0 && (cfg.maxRuns == 0 || runCount < cfg.maxRuns) {
+		item := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		o.nodes = make(map[string]*nodeCtrl)
+		o.order = nil
+		setup(o)
+		o.initBubbles(item.localPrefix)
+		runtime.GC()
+
+		prefix := item.globalPrefix
+		pick := func(_ []*PendingOp, step int) int {
+			if step < len(prefix) {
+				return prefix[step].Index
+			}
+			return 0
+		}
+		rec, globalDecisions, passed := o.runOnce(t, pick)
+		runCount++
+
+		t.Logf("orchestratorv2: exploreAll: run %d (nonFIFO=%d, globalPrefix=%d, localPrefixes=%d)",
+			runCount, item.nonFIFO, len(item.globalPrefix), countLocalDecisions(item.localPrefix))
+
+		if !passed {
+			t.Logf("orchestratorv2: exploreAll: FAILED on run %d", runCount)
+			return false
+		}
+
+		// --- Enumerate global alternatives ---
+		for step := len(item.globalPrefix); step < len(globalDecisions); step++ {
+			d := globalDecisions[step]
+			if d.QueueSize <= 1 {
+				continue
+			}
+			for alt := 1; alt < d.QueueSize; alt++ {
+				newNonFIFO := item.nonFIFO + 1
+				if newNonFIFO > cfg.bound {
+					continue
+				}
+				newGlobal := make([]GlobalDecision, step+1)
+				copy(newGlobal, globalDecisions[:step])
+				newGlobal[step] = GlobalDecision{Index: alt, QueueSize: d.QueueSize}
+				stack = append(stack, workItem{
+					globalPrefix: newGlobal,
+					localPrefix:  copyLocalPrefix(item.localPrefix),
+					nonFIFO:      newNonFIFO,
+				})
+			}
+		}
+
+		// --- Enumerate local alternatives (per node) ---
+		for _, addr := range o.order {
+			localTrace := rec.LocalTraces[addr]
+			existingLen := len(item.localPrefix[addr])
+			for step := existingLen; step < len(localTrace); step++ {
+				d := localTrace[step]
+				if d.RunqSize <= 1 {
+					continue
+				}
+				for alt := int32(0); alt < d.RunqSize; alt++ {
+					if alt == d.Index {
+						continue // skip the choice we already made
+					}
+					newNonFIFO := item.nonFIFO
+					if alt != 0 {
+						newNonFIFO++ // non-FIFO local choice
+					}
+					if newNonFIFO > cfg.bound {
+						continue
+					}
+					newLocal := copyLocalPrefix(item.localPrefix)
+					// Copy the actual trace up to this step, then override.
+					newNodePrefix := make([]synctest.Decision, step+1)
+					copy(newNodePrefix, localTrace[:step+1])
+					newNodePrefix[step].Index = alt
+					newLocal[addr] = newNodePrefix
+					stack = append(stack, workItem{
+						globalPrefix: copyGlobalPrefix(item.globalPrefix),
+						localPrefix:  newLocal,
+						nonFIFO:      newNonFIFO,
+					})
+				}
+			}
+		}
+	}
+
+	t.Logf("orchestratorv2: exploreAll: explored %d interleavings, all passed", runCount)
+	return true
+}
+
+func copyLocalPrefix(m map[string][]synctest.Decision) map[string][]synctest.Decision {
+	out := make(map[string][]synctest.Decision, len(m))
+	for k, v := range m {
+		cp := make([]synctest.Decision, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+	return out
+}
+
+func copyGlobalPrefix(p []GlobalDecision) []GlobalDecision {
+	cp := make([]GlobalDecision, len(p))
+	copy(cp, p)
+	return cp
+}
+
+func countLocalDecisions(m map[string][]synctest.Decision) int {
+	n := 0
+	for _, v := range m {
+		n += len(v)
+	}
+	return n
+}
+
 // bubbleEvent is one event from a fan-in goroutine: either idle or done.
 type bubbleEvent struct {
 	addr string

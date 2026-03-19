@@ -311,3 +311,113 @@ func TestRemoveLeaderBugTriggered(t *testing.T) {
 		t.Fatal("expected bug to trigger but all applies failed correctly")
 	}
 }
+
+// TestRemoveLeaderExploreAll uses ExploreAll to automatically find the
+// RemoveLeader bug through combined global + local exploration.
+//
+// The test uses a realistic two-goroutine pattern: one goroutine calls
+// RemoveServer and waits for the future, another goroutine calls Apply
+// concurrently. The explorer varies both message delivery order (global)
+// and goroutine scheduling (local) to find the interleaving where applyCh
+// wins over commitCh in leaderLoop's select.
+func TestRemoveLeaderExploreAll(t *testing.T) {
+	addrs := []raft.ServerAddress{"node1", "node2", "node3"}
+	configuration := raft.Configuration{}
+	for _, addr := range addrs {
+		configuration.Servers = append(configuration.Servers, raft.Server{
+			Suffrage: raft.Voter,
+			ID:       raft.ServerID(addr),
+			Address:  addr,
+		})
+	}
+
+	orch := orchestratorv2.New()
+	allPassed := orch.ExploreAll(t, func(o *orchestratorv2.Orchestrator) {
+		rand.Seed(42) //nolint:staticcheck
+
+		transports := make([]*rafttest.RaftTransport, len(addrs))
+		for i, addr := range addrs {
+			transports[i] = rafttest.NewRaftTransport(addr)
+		}
+		for i := range transports {
+			for j := range transports {
+				if i != j {
+					transports[i].Connect(transports[j])
+				}
+			}
+		}
+
+		for i, trans := range transports {
+			addr := addrs[i]
+			localCfg := configuration
+			o.AddNode(trans, func(t *testing.T) {
+				_ = t
+				trans.StartBridge()
+				store := raft.NewInmemStore()
+				snap := raft.NewDiscardSnapshotStore()
+				conf := testRaftConfig(raft.ServerID(addr))
+				conf.ShutdownOnRemove = false
+				if err := raft.BootstrapCluster(conf, store, store, snap, trans, localCfg); err != nil {
+					panic(fmt.Sprintf("BootstrapCluster: %v", err))
+				}
+				r, err := raft.NewRaft(conf, &raft.MockFSM{}, store, store, snap, trans)
+				if err != nil {
+					panic(fmt.Sprintf("NewRaft: %v", err))
+				}
+				defer func() { trans.Close(); r.Shutdown() }()
+
+				waitForLeader(r, 30*time.Second)
+
+				if r.State() == raft.Leader {
+					// Apply a few entries first.
+					for i := byte(0); i < 3; i++ {
+						f := r.Apply([]byte{i}, 5*time.Second)
+						if err := f.Error(); err != nil {
+							return
+						}
+					}
+
+					// Two concurrent goroutines — realistic production pattern.
+					// The explorer varies goroutine scheduling to find the
+					// interleaving where Apply runs before leaderLoop reads commitCh.
+					done := make(chan error, 1)
+					go func() {
+						done <- r.RemoveServer(raft.ServerID(addr), 0, 0).Error()
+					}()
+
+					// Concurrent applies — these may land on applyCh before
+					// or after leaderLoop processes the RemoveServer commit.
+					var applyFutures []raft.ApplyFuture
+					for i := byte(3); i < 8; i++ {
+						applyFutures = append(applyFutures, r.Apply([]byte{i}, 5*time.Second))
+					}
+
+					<-done // wait for RemoveServer
+
+					for _, f := range applyFutures {
+						if f.Error() == nil {
+							t.Errorf("BUG: Apply succeeded after RemoveServer committed")
+						}
+					}
+				} else {
+					for {
+						time.Sleep(5 * time.Millisecond)
+						cf := r.GetConfiguration()
+						if cf.Error() != nil {
+							break
+						}
+						if len(cf.Configuration().Servers) < 3 {
+							break
+						}
+					}
+				}
+			})
+		}
+	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(50))
+
+	if !allPassed {
+		t.Log("ExploreAll found the RemoveLeader bug!")
+	} else {
+		t.Log("ExploreAll did not find the bug within the run limit")
+	}
+}
