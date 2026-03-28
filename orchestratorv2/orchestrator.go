@@ -309,7 +309,11 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 		}
 
 		// Enqueue new work items for unexplored alternatives past the current prefix.
-		for step := len(item.prefix); step < len(decisions); step++ {
+		// Push in reverse step order so that earlier-step alternatives sit on top
+		// of the stack and are explored first. This prioritises orderings that
+		// diverge from FIFO at the earliest possible point, which is where most
+		// distributed-protocol violations manifest.
+		for step := len(decisions) - 1; step >= len(item.prefix); step-- {
 			d := decisions[step]
 			if d.QueueSize <= 1 {
 				continue
@@ -414,6 +418,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		case idle := <-ctrl.bubble.Idle:
 			pendingIdle[addr] = idle
 		case <-ctrl.done:
+			o.drainOutbox(addr)
 			doneSet[addr] = true
 			active--
 			o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
@@ -438,6 +443,11 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 			for i := 0; i < len(needed); i++ {
 				ev := <-events
 				if ev.done {
+					// Drain ops the finished node buffered before exiting.
+					// Without this, messages in a short-lived node's outbox
+					// (e.g. RA-lock reply after release) are never delivered,
+					// deadlocking peers waiting for those messages.
+					o.drainOutbox(ev.addr)
 					doneSet[ev.addr] = true
 					delete(pendingIdle, ev.addr)
 					active--
@@ -599,6 +609,21 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		GlobalDecisions: globalDecisions,
 		LocalTraces:     localTraces,
 	}, globalDecisions, allPassed
+}
+
+// drainOutbox non-blockingly drains all pending ops from a node's outbox into
+// o.schedulable. Called when a node's bubble finishes so that messages it sent
+// just before exiting (e.g. RA-lock reply-after-release) are not lost.
+func (o *Orchestrator) drainOutbox(addr string) {
+	ctrl := o.nodes[addr]
+	for {
+		select {
+		case op := <-ctrl.transport.Outbox():
+			o.schedulable = append(o.schedulable, op)
+		default:
+			return
+		}
+	}
 }
 
 func dirName(d OpDir) string {

@@ -153,9 +153,8 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 		if r.AdvanceTimeTo > 0 {
 			synctest.SetTime(r.AdvanceTimeTo)
 		}
-		if r.SelectCounter > 0 {
-			synctest.SetSelectOffset(r.SelectCounter)
-		}
+		// r.SelectCounter is reserved for future select-interleaving control;
+		// synctest.SetSelectOffset is not yet available in the runtime.
 		return 0
 	}
 }
