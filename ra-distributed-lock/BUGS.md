@@ -88,63 +88,20 @@ so the node's timestamp is bumped before the REQUEST is processed.
 
 Actual trace found by Explore (run 7), with nodes A, B, C all having `reqTs=1`:
 
-```
-C → A : Request(ts=1)        A defers C  ["A" < "C"] ✓
-A → B : Request(ts=1)        B replies immediately  ["B" > "A"]
+| Step | Message | A's state | B's state | C's state |
+|------|---------|-----------|-----------|-----------|
+| 1 | C→A: Request(ts=1) | defers C (A\<C ✓) | — | — |
+| 2 | A→B: Request(ts=1) | — | replies immediately (B\>A) → generates B→A Reply | — |
+| 3 | ⚡ **NON-FIFO**: B→A Reply(ts=1) delivered before B→A Request | timestamp: 1→2, replies: 1/2 | — | — |
+| 4 | B→A: Request(ts=1) | 🐛 checks `2 < 1` = false → does NOT defer, sends premature Reply(ts=2) | — | — |
+| 5 | A→C: Request(ts=1) | — | — | replies immediately (C\>A) |
+| 6 | B→C: Request(ts=1) | — | — | replies immediately (C\>B) |
+| 7 | C→B: Request(ts=1) | — | defers C (B\<C ✓) | — |
+| 8 | C→A: Reply(ts=1) | replies: 2/2 → **HELD** | — | — |
+| 9 | A→B: Reply(ts=2) | — | replies: 1/2 | — |
+| 10 | C→B: Reply(ts=1) | — | replies: 2/2 → **HELD** 💥 | — |
 
-        ⚡ NON-FIFO: B→A Reply delivered before B→A Request
-
-B → A : Reply(ts=1)          A.timestamp: 1 → 2,  replies: 1/2,  still Wanted
-B → A : Request(ts=1)        🐛 BUG: shouldDefer = (Wanted && (2 < 1)) = false
-A → B : Reply(ts=2)          A prematurely replies to B
-
-A → C : Request(ts=1)        C replies immediately  ["C" > "A"]
-B → C : Request(ts=1)        C replies immediately  ["C" > "B"]
-C → B : Request(ts=1)        B defers C  ["B" < "C"] ✓
-
-A → B : Reply(ts=2)          B replies: 1/2  (A's premature reply arrives)
-C → A : Reply(ts=1)          A replies: 2/2  →  A ENTERS HELD
-C → B : Reply(ts=1)          B replies: 2/2  →  B ENTERS HELD  💥
-
-        ⚠️  MUTUAL EXCLUSION VIOLATED: A and B both in CS
-```
-
-```mermaid
-sequenceDiagram
-    participant A
-    participant B
-    participant C
-
-    Note over A,C: All Wanted · reqTs=1 · timestamp=1
-
-    C->>A: Request(ts=1)
-    Note over A: defer C ["A"<"C"] ✓
-
-    A->>B: Request(ts=1)
-    Note over B: "B">"A" → reply immediately
-
-    B-->>A: Reply(ts=1)
-    Note over A: NON-FIFO: Reply before Request<br/>timestamp 1→2 · replies 1/2
-
-    B->>A: Request(ts=1)
-    Note over A: shouldDefer = (Wanted && (2 < 1)) = false<br/>premature reply!
-    A-->>B: Reply(ts=2)
-
-    A->>C: Request(ts=1)
-    B->>C: Request(ts=1)
-    Note over C: "C" > all → replies to both
-
-    C->>B: Request(ts=1)
-    Note over B: defer C ["B"<"C"] ✓
-
-    C-->>A: Reply(ts=1)
-    Note over A: replies 2/2 → HELD
-
-    C-->>B: Reply(ts=1)
-    Note over B: replies 2/2 → HELD
-
-    Note over A,B: MUTUAL EXCLUSION VIOLATED
-```
+⚠️ **MUTUAL EXCLUSION VIOLATED: A and B both in CS**
 
 Under **FIFO**, B→A Request is delivered before B→A Reply (the Reply is generated
 later, in response to A's request). When A processes B's Request, `A.timestamp=1 =
