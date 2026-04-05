@@ -26,6 +26,7 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/shubhaankar/synctest/distributed"
 )
@@ -82,12 +83,20 @@ type GlobalDecision struct {
 	QueueSize int // number of schedulable ops at this step
 }
 
+// RunObserver is called once after each run inside Explore. It receives the
+// 1-indexed run number, the number of non-FIFO decisions in the prefix,
+// the wall-clock duration of the run, the full RecordedRun, and whether the
+// run passed. Useful for collecting per-run metrics (traces, timings, etc.)
+// without modifying Explore's control flow.
+type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rec RecordedRun, passed bool)
+
 // ExploreOption configures Explore behavior.
 type ExploreOption func(*exploreConfig)
 
 type exploreConfig struct {
-	bound   int // max non-FIFO delivery decisions per trace (default 2)
-	maxRuns int // hard cap on total runs (0 = unlimited)
+	bound    int         // max non-FIFO delivery decisions per trace (default 2)
+	maxRuns  int         // hard cap on total runs (0 = unlimited)
+	observer RunObserver // optional per-run callback (nil = disabled)
 }
 
 // GlobalBound sets the maximum number of non-FIFO delivery decisions per
@@ -97,6 +106,9 @@ func GlobalBound(k int) ExploreOption { return func(c *exploreConfig) { c.bound 
 // GlobalMaxRuns sets a hard cap on the total number of traces explored.
 // Defaults to 0 (unlimited).
 func GlobalMaxRuns(n int) ExploreOption { return func(c *exploreConfig) { c.maxRuns = n } }
+
+// WithObserver registers a callback invoked once after each run inside Explore.
+func WithObserver(fn RunObserver) ExploreOption { return func(c *exploreConfig) { c.observer = fn } }
 
 // RecordedRun captures a complete orchestrator run for deterministic replay.
 //
@@ -288,8 +300,12 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 			}
 			return 0
 		}
-		_, decisions, passed := o.runOnce(t, pick)
+		runStart := time.Now()
+		rec, decisions, passed := o.runOnce(t, pick)
 		runCount++
+		if cfg.observer != nil {
+			cfg.observer(runCount, item.nonFIFO, time.Since(runStart), rec, passed)
+		}
 
 		// Log a compact delivery sequence so different orderings are visible.
 		var sb strings.Builder

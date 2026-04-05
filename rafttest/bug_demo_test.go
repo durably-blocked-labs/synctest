@@ -57,7 +57,7 @@ func TestStaleTermBug(t *testing.T) {
 			store := raft.NewInmemStore()
 			snap := raft.NewDiscardSnapshotStore()
 			conf := testRaftConfig(raft.ServerID(addr))
-			conf.SkipTermCheck = true
+			// conf.SkipTermCheck = true
 			if err := raft.BootstrapCluster(conf, store, store, snap, trans, localCfg); err != nil {
 				panic(fmt.Sprintf("BootstrapCluster: %v", err))
 			}
