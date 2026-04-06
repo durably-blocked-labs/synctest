@@ -9,23 +9,28 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
 // RunRecord is the JSON-serializable snapshot of one exploration run.
 // Written to a JSONL file by NewJSONLObserver; read by charts/charts.py.
 type RunRecord struct {
-	RunNum              int             `json:"run_num"`
-	NonFIFO             int             `json:"non_fifo"`
-	ElapsedNs           int64           `json:"elapsed_ns"`
-	LogicalTimeNs       int64           `json:"logical_time_ns"`
-	Passed              bool            `json:"passed"`
-	GlobalDecisionCount int             `json:"global_decision_count"`
-	LocalDecisionTotal  int             `json:"local_decision_total"`
-	LocalDecisionByNode map[string]int  `json:"local_decision_by_node,omitempty"`
-	QueueSizes          []int           `json:"queue_sizes"`
-	TraceFingerprint    string          `json:"trace_fingerprint"`
-	DeliverSeq          []DeliverRecord `json:"deliver_seq"`
+	RunNum                int                              `json:"run_num"`
+	NonFIFO               int                              `json:"non_fifo"`
+	ElapsedNs             int64                            `json:"elapsed_ns"`
+	LogicalTimeNs         int64                            `json:"logical_time_ns"`
+	Passed                bool                             `json:"passed"`
+	GlobalDecisionCount   int                              `json:"global_decision_count"`
+	LocalDecisionTotal    int                              `json:"local_decision_total"`
+	LocalDecisionByNode   map[string]int                   `json:"local_decision_by_node,omitempty"`
+	LocalTraceTotal       int                              `json:"local_trace_total,omitempty"`
+	LocalTraceByNodeCount map[string]int                   `json:"local_trace_by_node_count,omitempty"`
+	LocalDecisionCapNode  map[string]bool                  `json:"local_decision_at_cap_by_node,omitempty"`
+	LocalTraceByNode      map[string][]LocalDecisionRecord `json:"local_trace_by_node,omitempty"`
+	QueueSizes            []int                            `json:"queue_sizes"`
+	TraceFingerprint      string                           `json:"trace_fingerprint"`
+	DeliverSeq            []DeliverRecord                  `json:"deliver_seq"`
 }
 
 // DeliverRecord captures one message delivery step in a run.
@@ -37,7 +42,19 @@ type DeliverRecord struct {
 	QueueSize int    `json:"queue_size"`
 }
 
+// LocalDecisionRecord is a compact JSON representation of one synctest
+// scheduler decision inside a node bubble.
+type LocalDecisionRecord struct {
+	Step       int32    `json:"step"`
+	Index      int32    `json:"index"`
+	ChosenBgid uint32   `json:"chosen_bgid"`
+	RunqSize   int32    `json:"runq_size"`
+	RunqBgids  []uint32 `json:"runq_bgids,omitempty"`
+	WaitReason uint8    `json:"wait_reason"`
+}
+
 const synctestBaseTimeNs = int64(946684800000000000)
+const localDecisionRecordLimit = 512
 
 // NewJSONLObserver returns a RunObserver that appends one JSON line per run to w.
 // Each line is a RunRecord containing timing, decision counts, queue-size
@@ -59,12 +76,51 @@ func NewJSONLObserver(w io.Writer) RunObserver {
 			GlobalDecisionCount: len(rec.GlobalDecisions),
 		}
 
-		// Per-node local decision counts.
+		// Per-node local decision counts. LocalDecision* intentionally counts
+		// only meaningful application-level scheduler choices: points where
+		// more than one non-root bubble goroutine was runnable. Bgid 0 is the
+		// synctest root/control-plane goroutine, not application work.
 		r.LocalDecisionByNode = make(map[string]int, len(rec.LocalTraces))
+		r.LocalTraceByNodeCount = make(map[string]int, len(rec.LocalTraces))
+		r.LocalDecisionCapNode = make(map[string]bool, len(rec.LocalTraces))
 		for addr, decisions := range rec.LocalTraces {
-			n := len(decisions)
-			r.LocalDecisionByNode[addr] = n
-			r.LocalDecisionTotal += n
+			traceLen := len(decisions)
+			meaningful := meaningfulLocalDecisionCount(decisions)
+			r.LocalTraceByNodeCount[addr] = traceLen
+			r.LocalTraceTotal += traceLen
+			r.LocalDecisionByNode[addr] = meaningful
+			r.LocalDecisionTotal += meaningful
+			if traceLen >= localDecisionRecordLimit {
+				r.LocalDecisionCapNode[addr] = true
+			}
+		}
+		if len(r.LocalDecisionCapNode) == 0 {
+			r.LocalDecisionCapNode = nil
+		}
+		if includeLocalTrace(passed) {
+			r.LocalTraceByNode = make(map[string][]LocalDecisionRecord, len(rec.LocalTraces))
+			for addr, decisions := range rec.LocalTraces {
+				trace := make([]LocalDecisionRecord, 0, len(decisions))
+				for _, d := range decisions {
+					n := int(d.RunqSize)
+					if n > len(d.RunqBgids) {
+						n = len(d.RunqBgids)
+					}
+					runqBgids := make([]uint32, 0, n)
+					for i := 0; i < n; i++ {
+						runqBgids = append(runqBgids, d.RunqBgids[i])
+					}
+					trace = append(trace, LocalDecisionRecord{
+						Step:       d.Step,
+						Index:      d.Index,
+						ChosenBgid: d.ChosenBgid,
+						RunqSize:   d.RunqSize,
+						RunqBgids:  runqBgids,
+						WaitReason: d.WaitReason,
+					})
+				}
+				r.LocalTraceByNode[addr] = trace
+			}
 		}
 
 		// Walk GlobalTrace to extract StepDeliver entries.
@@ -101,6 +157,37 @@ func NewJSONLObserver(w io.Writer) RunObserver {
 		r.TraceFingerprint = fp.String()
 
 		enc.Encode(r) //nolint:errcheck
+	}
+}
+
+func meaningfulLocalDecisionCount(decisions []synctest.Decision) int {
+	count := 0
+	for _, d := range decisions {
+		nonRootRunnable := 0
+		n := int(d.RunqSize)
+		if n > len(d.RunqBgids) {
+			n = len(d.RunqBgids)
+		}
+		for i := 0; i < n; i++ {
+			if d.RunqBgids[i] != 0 {
+				nonRootRunnable++
+			}
+		}
+		if nonRootRunnable > 1 {
+			count++
+		}
+	}
+	return count
+}
+
+func includeLocalTrace(passed bool) bool {
+	switch strings.ToLower(os.Getenv("METRICS_INCLUDE_LOCAL_TRACE")) {
+	case "1", "true", "yes", "all":
+		return true
+	case "fail", "failed", "failure":
+		return !passed
+	default:
+		return false
 	}
 }
 

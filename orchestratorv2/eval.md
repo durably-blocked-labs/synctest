@@ -175,9 +175,9 @@ Called once per `runOnce` invocation inside `Explore`, this unblocks the chart g
 **X-axis**: bug scenario and context bound for the run where the bug is found.
 **Y-axis**: scheduling decisions made in that specific failing run, plotted separately for global and local decisions.
 
-**What it shows**: how many scheduling choices were needed in the exact run that exposed the bug. Global decisions measure cross-node delivery choices; local decisions measure intra-bubble scheduling work. Plotting them separately is more informative than combining them: a bug may be primarily about message ordering, local goroutine ordering, or both.
+**What it shows**: how many scheduling choices were needed in the exact run that exposed the bug. Global decisions measure cross-node delivery choices. Local decisions count only meaningful intra-bubble choices: scheduler decision points where more than one non-root bubble goroutine was runnable. Bgid 0 is the synctest root/control-plane goroutine and is excluded from the local-choice definition. Plotting global and local decisions separately is more informative than combining them: a bug may be primarily about message ordering, local goroutine ordering, or both.
 
-**Data source**: `global_decision_count`, `local_decision_total`, `run_num`, and `passed` from the JSONL metrics records. For each scenario/k/mode, select the first row where `passed == false`.
+**Data source**: `global_decision_count`, `local_decision_total`, `run_num`, and `passed` from the JSONL metrics records. For each scenario/k/mode, select the first row where `passed == false`. For local decisions, `orchestratorv2/metrics.go` scans the synctest trace and counts a decision only when the recorded run queue contains at least two non-root goroutines.
 
 **Status: implemented in `charts/charts.py` as `fig3_decisions_at_bug.png`.**
 

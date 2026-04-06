@@ -151,6 +151,15 @@ def load_file(spec: str) -> pd.DataFrame:
     if "logical_time_ns" not in df.columns:
         df["logical_time_ns"] = 0
     df["logical_time_ms"] = df["logical_time_ns"] / 1e6
+    if "local_trace_by_node" in df.columns:
+        has_trace = df["local_trace_by_node"].apply(lambda traces: isinstance(traces, dict))
+        if has_trace.any():
+            df.loc[has_trace, "local_decision_by_node"] = df.loc[has_trace, "local_trace_by_node"].apply(
+                meaningful_local_counts
+            )
+            df.loc[has_trace, "local_decision_total"] = df.loc[has_trace, "local_decision_by_node"].apply(
+                lambda counts: sum(counts.values()) if isinstance(counts, dict) else 0
+            )
     df["total_decisions"] = df["global_decision_count"] + df["local_decision_total"]
 
     return df
@@ -196,6 +205,21 @@ def first_failure_run(df: pd.DataFrame) -> Optional[int]:
 def unique_fingerprints(df: pd.DataFrame) -> int:
     """Count distinct trace fingerprints in df."""
     return df["trace_fingerprint"].nunique()
+
+
+def meaningful_local_counts(traces: dict) -> Dict[str, int]:
+    """Count local choices where more than one non-root goroutine was runnable."""
+    counts = {}
+    for node, trace in traces.items():
+        count = 0
+        for d in trace:
+            bgids = d.get("runq_bgids", [])
+            runq_size = min(int(d.get("runq_size", len(bgids))), len(bgids))
+            non_root = sum(1 for bgid in bgids[:runq_size] if bgid != 0)
+            if non_root > 1:
+                count += 1
+        counts[node] = count
+    return counts
 
 
 def theoretical_interleavings(df: pd.DataFrame) -> int:
@@ -351,8 +375,14 @@ def fig3_decisions_at_bug(df: pd.DataFrame, outdir: str):
     fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.5), 4))
     x = np.arange(len(labels))
     width = 0.35
-    ax.bar(x - width/2, global_counts, width, label="global decisions", color=PALETTE[0], alpha=0.85)
-    ax.bar(x + width/2, local_counts, width, label="local decisions", color=PALETTE[1], alpha=0.85)
+    global_bars = ax.bar(x - width/2, global_counts, width, label="global decisions", color=PALETTE[0], alpha=0.85)
+    local_bars = ax.bar(x + width/2, local_counts, width, label="meaningful local decisions", color=PALETTE[1], alpha=0.85)
+    for bar, value in zip(global_bars, global_counts):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(value)}",
+                ha="center", va="bottom", fontsize=8)
+    for bar, value in zip(local_bars, local_counts):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(value)}",
+                ha="center", va="bottom", fontsize=8)
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=8)
