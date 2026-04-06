@@ -64,8 +64,8 @@ func setupKVCluster(addrs []string) (
 	for _, addr := range addrs {
 		tr := NewOrchestratorTransport(addr)
 		transports[addr] = tr
-		tr.Connect(kvTr)  // RA node → KV server
-		kvTr.Connect(tr)  // KV server → RA node (for replies)
+		tr.Connect(kvTr) // RA node → KV server
+		kvTr.Connect(tr) // KV server → RA node (for replies)
 	}
 	for _, tr := range transports {
 		for _, peer := range transports {
@@ -264,10 +264,12 @@ func TestStaleClockBug_ExploreFindsViolation(t *testing.T) {
 	ok := orch.Explore(t, func(o *orchestratorv2.Orchestrator) {
 		transports, kvTr := setupKVCluster(addrs)
 		rounds := singleRound(addrs)
-		addKVServer(o, kvTr, len(addrs), len(addrs))
 		var inCS atomic.Int32
 		addRANodes(o, addrs, transports, rounds, &inCS)
-	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(200))
+		addKVServer(o, kvTr, len(addrs), len(addrs))
+	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(200),
+		orchestratorv2.BoundFromEnv(), orchestratorv2.MaxRunsFromEnv(),
+		orchestratorv2.ObserverFromEnv(t))
 
 	if ok {
 		t.Fatal("Explore found no violation — bug was not triggered")

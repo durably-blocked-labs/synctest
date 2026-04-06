@@ -49,11 +49,10 @@ Auto-detection from filenames (no annotation needed):
 FIGURES GENERATED
 -----------------
   fig1_bug_discovery.png     — bugs found + interleavings explored vs k (needs k-sweep)
-  fig2_unique_interleavings.png — unique traces before first bug per scenario/k
-  fig3_time_vs_runs.png      — cumulative wall-clock time vs cumulative runs
-  fig4_decision_distribution.png — box plot: decisions per run grouped by k
-  fig5_decisions_at_bug.png  — CDF of decisions in failing runs
-  fig6_theoretical_vs_actual.png — actual DFS runs vs theoretical (log scale, needs k-sweep)
+  fig2_physical_vs_logical_time.png — physical time vs logical time advanced
+  fig3_decisions_at_bug.png — local/global decisions in the failing run
+  fig4_theoretical_vs_actual.png — actual DFS runs vs theoretical global deliveries
+  fig5_unique_interleavings_until_bug.png — unique delivery sequences until first bug
   fig_cdf_first_failure.png  — CDF of first-failure run (random baseline, needs rand files)
 """
 
@@ -149,6 +148,9 @@ def load_file(spec: str) -> pd.DataFrame:
 
     # Derived columns.
     df["elapsed_ms"] = df["elapsed_ns"] / 1e6
+    if "logical_time_ns" not in df.columns:
+        df["logical_time_ns"] = 0
+    df["logical_time_ms"] = df["logical_time_ns"] / 1e6
     df["total_decisions"] = df["global_decision_count"] + df["local_decision_total"]
 
     return df
@@ -175,6 +177,12 @@ def save(fig, outdir: str, name: str):
     fig.savefig(p, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {p}")
+
+
+def skip_existing(outdir: str, name: str):
+    p = os.path.join(outdir, name)
+    if os.path.exists(p):
+        os.remove(p)
 
 
 def first_failure_run(df: pd.DataFrame) -> Optional[int]:
@@ -260,187 +268,223 @@ def fig1_bug_discovery(df: pd.DataFrame, outdir: str):
 
 
 # ---------------------------------------------------------------------------
-# Figure 2 — Unique interleavings until bug found
+# Figure 2 — Physical time vs logical time
 # ---------------------------------------------------------------------------
 
-def fig2_unique_interleavings(df: pd.DataFrame, outdir: str):
+def fig2_physical_vs_logical_time(df: pd.DataFrame, outdir: str):
     """
-    Bar chart: unique delivery sequences explored before the first failing run,
-    grouped by scenario × k.
+    Cumulative physical wall-clock time vs cumulative logical time advanced
+    by the system under test.
     """
-    sys_df = df[df["mode"] == "sys"].copy()
-    groups = sys_df.groupby(["scenario", "k"])
-
-    labels, unique_counts, bar_colors = [], [], []
-    for (sc, k), gdf in sorted(groups, key=lambda x: (x[0][0], x[0][1])):
-        first_fail = first_failure_run(gdf)
-        subset = gdf if first_fail is None else gdf[gdf["run_num"] <= first_fail]
-        uc = unique_fingerprints(subset)
-        k_label = f"k={int(k)}" if k >= 0 else "rand"
-        labels.append(f"{sc}\n{k_label}")
-        unique_counts.append(uc)
-        bar_colors.append(PALETTE[int(k) % len(PALETTE)] if k >= 0 else "#888")
-
-    if not labels:
-        print("  fig2: skipped (no systematic data)")
+    # Ignore the synthetic 1ns startup barrier used by some tests. If that is
+    # the only fake-time movement in the dataset, this chart would be
+    # misleading because no protocol-level logical time advanced.
+    meaningful = df[df["logical_time_ns"] > 1]
+    if meaningful.empty:
+        print("  fig2: skipped (no meaningful logical time advancement)")
+        skip_existing(outdir, "fig2_physical_vs_logical_time.png")
+        skip_existing(outdir, "fig3_physical_vs_logical_time.png")
         return
 
-    fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.2), 4))
-    x = np.arange(len(labels))
-    bars = ax.bar(x, unique_counts, color=bar_colors, alpha=0.85)
-    ax.bar_label(bars, fmt="%d", padding=3, fontsize=8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=8)
-    ax.set_ylabel("Unique delivery sequences")
-    ax.set_title("Fig 2 — Unique interleavings until bug found")
-    ax.grid(True, axis="y", alpha=0.3)
-    save(fig, outdir, "fig2_unique_interleavings.png")
-
-
-# ---------------------------------------------------------------------------
-# Figure 3 — Physical time over logical time (cumulative)
-# ---------------------------------------------------------------------------
-
-def fig3_time_vs_runs(df: pd.DataFrame, outdir: str):
-    """
-    Cumulative wall-clock time vs. cumulative run number, one line per
-    (scenario, k, mode) group. Slope = time-per-run cost.
-    """
     fig, ax = plt.subplots(figsize=(7, 4))
     color_idx = 0
 
-    for (sc, k, mode), gdf in df.sort_values("run_num").groupby(["scenario", "k", "mode"]):
+    for (sc, k, mode), gdf in meaningful.sort_values("run_num").groupby(["scenario", "k", "mode"]):
         gdf = gdf.sort_values("run_num")
-        cum_runs = np.arange(1, len(gdf) + 1)
-        cum_ms = gdf["elapsed_ms"].cumsum().values
+        physical_ms = gdf["elapsed_ms"].cumsum().values
+        logical_ns = gdf["logical_time_ns"].cumsum().values
         k_label = f"k={int(k)}" if k >= 0 else "rand"
         label = f"{sc} {k_label} ({mode})"
-        ax.plot(cum_runs, cum_ms, color=PALETTE[color_idx % len(PALETTE)], label=label)
+        color = PALETTE[color_idx % len(PALETTE)]
+        ax.plot(physical_ms, logical_ns, color=color, marker="o", label=label)
         # Mark first failure
         first_fail_idx = gdf[~gdf["passed"]]["run_num"].min() if (~gdf["passed"]).any() else None
         if first_fail_idx is not None:
             row = gdf[gdf["run_num"] == first_fail_idx]
             if not row.empty:
-                fi = int(row.index[0] - gdf.index[0])
-                ax.axvline(fi + 1, color=PALETTE[color_idx % len(PALETTE)],
-                           linestyle=":", alpha=0.7, linewidth=1)
+                pos = np.flatnonzero(gdf["run_num"].to_numpy() == first_fail_idx)[0]
+                ax.scatter([physical_ms[pos]], [logical_ns[pos]], color=color,
+                           edgecolor="black", zorder=3, label=f"{sc} first failure")
         color_idx += 1
 
-    ax.set_xlabel("Cumulative runs explored")
-    ax.set_ylabel("Cumulative wall-clock time (ms)")
-    ax.set_title("Fig 3 — Physical time over logical time\n(dotted line = first failure)")
+    ax.set_xlabel("Cumulative physical time (ms)")
+    ax.set_ylabel("Cumulative logical time advanced (ns)")
+    ax.set_title("Fig 2 — Physical time vs. logical time")
     ax.legend(fontsize=7)
     ax.grid(True, alpha=0.3)
-    save(fig, outdir, "fig3_time_vs_runs.png")
+    save(fig, outdir, "fig2_physical_vs_logical_time.png")
+    skip_existing(outdir, "fig3_physical_vs_logical_time.png")
 
 
 # ---------------------------------------------------------------------------
-# Figure 4 — Decision count distribution per context bound
+# Figure 3 — Decisions at bug discovery
 # ---------------------------------------------------------------------------
 
-def fig4_decision_distribution(df: pd.DataFrame, outdir: str):
+def fig3_decisions_at_bug(df: pd.DataFrame, outdir: str):
     """
-    Box plot of total scheduling decisions per run, grouped by k.
-    Shows whether higher k leads to longer/more complex traces.
+    Global and local scheduling decisions in the run where the bug is found.
     """
     sys_df = df[df["mode"] == "sys"].copy()
-    ks = sorted(sys_df["k"].dropna().unique().astype(int))
-    if not ks:
-        print("  fig4: skipped (no systematic data)")
+    if sys_df.empty:
+        print("  fig3: skipped (no systematic data)")
+        skip_existing(outdir, "fig3_decisions_at_bug.png")
         return
 
-    fig, ax = plt.subplots(figsize=(max(5, len(ks) * 1.5), 4))
-    data_by_k = [sys_df[sys_df["k"] == k]["total_decisions"].dropna().values for k in ks]
-    bp = ax.boxplot(data_by_k, tick_labels=[f"k={k}" for k in ks], patch_artist=True)
-    for patch, color in zip(bp["boxes"], PALETTE):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.7)
+    labels, global_counts, local_counts = [], [], []
 
-    ax.set_xlabel("Context bound k")
-    ax.set_ylabel("Total scheduling decisions per run\n(global + local)")
-    ax.set_title("Fig 4 — Decision count distribution per context bound")
-    ax.grid(True, axis="y", alpha=0.3)
-    save(fig, outdir, "fig4_decision_distribution.png")
+    for (sc, k, mode), gdf in sys_df.sort_values("run_num").groupby(["scenario", "k", "mode"]):
+        gdf = gdf.sort_values("run_num")
+        first_fail = first_failure_run(gdf)
+        if first_fail is None:
+            continue
+        row = gdf[gdf["run_num"] == first_fail].iloc[0]
+        k_label = f"k={int(k)}" if k >= 0 else "rand"
+        labels.append(f"{sc}\n{k_label} run {first_fail}")
+        global_counts.append(row["global_decision_count"])
+        local_counts.append(row["local_decision_total"])
 
-
-# ---------------------------------------------------------------------------
-# Figure 5 — Scheduling decisions at bug discovery (CDF)
-# ---------------------------------------------------------------------------
-
-def fig5_decisions_at_bug(df: pd.DataFrame, outdir: str):
-    """
-    CDF of total scheduling decisions in failing runs, split by mode.
-    Shows whether bugs are shallow (low decision count) or deep.
-    """
-    failed = df[~df["passed"]].copy()
-    if failed.empty:
-        print("  fig5: skipped (no failing runs in data)")
+    if not labels:
+        print("  fig3: skipped (no failing runs in systematic data)")
+        skip_existing(outdir, "fig3_decisions_at_bug.png")
         return
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    color_idx = 0
+    fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.5), 4))
+    x = np.arange(len(labels))
+    width = 0.35
+    ax.bar(x - width/2, global_counts, width, label="global decisions", color=PALETTE[0], alpha=0.85)
+    ax.bar(x + width/2, local_counts, width, label="local decisions", color=PALETTE[1], alpha=0.85)
 
-    for (sc, mode), gdf in failed.groupby(["scenario", "mode"]):
-        decisions = np.sort(gdf["total_decisions"].values)
-        cdf = np.arange(1, len(decisions) + 1) / len(decisions)
-        label = f"{sc} ({mode})"
-        ax.step(decisions, cdf, color=PALETTE[color_idx % len(PALETTE)], label=label, where="post")
-        color_idx += 1
-
-    ax.set_xlabel("Total scheduling decisions in failing run")
-    ax.set_ylabel("Cumulative fraction of bugs found")
-    ax.set_title("Fig 5 — Scheduling decisions at bug discovery")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_ylabel("Scheduling decisions")
+    ax.set_title("Fig 3 — Decisions in the bug-discovery run")
     ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(0, 1.05)
-    save(fig, outdir, "fig5_decisions_at_bug.png")
+    ax.grid(True, axis="y", alpha=0.3)
+    save(fig, outdir, "fig3_decisions_at_bug.png")
+    skip_existing(outdir, "fig3_decisions_until_bug.png")
+    skip_existing(outdir, "fig4_decisions_until_bug.png")
 
 
 # ---------------------------------------------------------------------------
-# Figure 6 — Explored vs. theoretical search space
+# Figure 4 — Global delivery search space
 # ---------------------------------------------------------------------------
 
-def fig6_theoretical_vs_actual(df: pd.DataFrame, outdir: str):
+def fig4_theoretical_vs_actual(df: pd.DataFrame, outdir: str):
     """
-    Log-scale: actual DFS runs explored vs. theoretical exhaustive interleavings,
-    both as a function of k. The gap shows context bounding's pruning power.
+    Log-scale: actual DFS runs explored vs. theoretical exhaustive global
+    delivery orderings, grouped by scenario and k.
     """
     sys_df = df[df["mode"] == "sys"].copy()
     scenarios = sys_df["scenario"].unique()
     ks = sorted(sys_df["k"].dropna().unique().astype(int))
-    if len(ks) < 2:
-        print("  fig6: skipped (need k-sweep data)")
+    if not ks:
+        print("  fig4: skipped (no systematic data)")
+        skip_existing(outdir, "fig4_theoretical_vs_actual.png")
         return
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    color_idx = 0
-
-    for sc in scenarios:
-        sc_df = sys_df[sys_df["scenario"] == sc]
-        actual_runs, theory = [], []
-        for k in ks:
-            kd = sc_df[sc_df["k"] == k]
+    if len(ks) == 1:
+        labels, actual, theory = [], [], []
+        for sc in scenarios:
+            kd = sys_df[sys_df["scenario"] == sc]
             if kd.empty:
                 continue
-            actual_runs.append((k, len(kd)))
-            theory.append((k, theoretical_interleavings(kd)))
+            k = int(kd["k"].iloc[0])
+            labels.append(f"{sc}\nk={k}")
+            actual.append(len(kd))
+            theory.append(theoretical_interleavings(kd))
 
-        if not actual_runs:
-            continue
-        color = PALETTE[color_idx % len(PALETTE)]
-        kk, runs = zip(*actual_runs)
-        ax.plot(kk, runs, "o-", color=color, label=f"{sc} (actual)")
-        kk2, th = zip(*theory)
-        ax.plot(kk2, th, "s--", color=color, alpha=0.5, label=f"{sc} (theoretical)")
-        color_idx += 1
+        if not labels:
+            print("  fig4: skipped (no systematic data)")
+            skip_existing(outdir, "fig4_theoretical_vs_actual.png")
+            return
+
+        fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.4), 4))
+        x = np.arange(len(labels))
+        width = 0.35
+        ax.bar(x - width/2, actual, width, label="actual explored", color=PALETTE[0], alpha=0.85)
+        ax.bar(x + width/2, theory, width, label="theoretical global deliveries", color=PALETTE[1], alpha=0.85)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=8)
+    else:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        color_idx = 0
+
+        for sc in scenarios:
+            sc_df = sys_df[sys_df["scenario"] == sc]
+            actual_runs, theory = [], []
+            for k in ks:
+                kd = sc_df[sc_df["k"] == k]
+                if kd.empty:
+                    continue
+                actual_runs.append((k, len(kd)))
+                theory.append((k, theoretical_interleavings(kd)))
+
+            if not actual_runs:
+                continue
+            color = PALETTE[color_idx % len(PALETTE)]
+            kk, runs = zip(*actual_runs)
+            ax.plot(kk, runs, "o-", color=color, label=f"{sc} (actual explored)")
+            kk2, th = zip(*theory)
+            ax.plot(kk2, th, "s--", color=color, alpha=0.5, label=f"{sc} (theoretical global)")
+            color_idx += 1
+
+        ax.set_xlabel("Context bound k")
 
     ax.set_yscale("log")
-    ax.set_xlabel("Context bound k")
-    ax.set_ylabel("Interleavings (log scale)")
-    ax.set_title("Fig 6 — Explored vs. theoretical search space")
+    ax.set_ylabel("Global delivery orderings (log scale)")
+    ax.set_title("Fig 4 — Global delivery search space")
     ax.legend(fontsize=7)
     ax.grid(True, which="both", alpha=0.3)
-    save(fig, outdir, "fig6_theoretical_vs_actual.png")
+    save(fig, outdir, "fig4_theoretical_vs_actual.png")
+    skip_existing(outdir, "fig6_theoretical_vs_actual.png")
+
+
+# ---------------------------------------------------------------------------
+# Figure 5 — Unique interleavings until bug found
+# ---------------------------------------------------------------------------
+
+def fig5_unique_interleavings_until_bug(df: pd.DataFrame, outdir: str):
+    """
+    Unique delivery sequences explored up to and including the first failing run.
+    """
+    sys_df = df[df["mode"] == "sys"].copy()
+    if sys_df.empty:
+        print("  fig5: skipped (no systematic data)")
+        skip_existing(outdir, "fig5_unique_interleavings_until_bug.png")
+        return
+
+    labels, unique_counts, run_counts, colors = [], [], [], []
+    for (sc, k, mode), gdf in sys_df.sort_values("run_num").groupby(["scenario", "k", "mode"]):
+        gdf = gdf.sort_values("run_num")
+        first_fail = first_failure_run(gdf)
+        if first_fail is None:
+            continue
+        subset = gdf[gdf["run_num"] <= first_fail]
+        k_label = f"k={int(k)}" if k >= 0 else "rand"
+        labels.append(f"{sc}\n{k_label}")
+        unique_counts.append(unique_fingerprints(subset))
+        run_counts.append(len(subset))
+        colors.append(PALETTE[int(k) % len(PALETTE)] if k >= 0 else "#888888")
+
+    if not labels:
+        print("  fig5: skipped (no failing runs in systematic data)")
+        skip_existing(outdir, "fig5_unique_interleavings_until_bug.png")
+        return
+
+    fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.3), 4))
+    x = np.arange(len(labels))
+    bars = ax.bar(x, unique_counts, color=colors, alpha=0.85)
+    for bar, unique, runs in zip(bars, unique_counts, run_counts):
+        label = f"{unique}" if unique == runs else f"{unique}\n({runs} runs)"
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), label,
+                ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_ylabel("Unique delivery sequences")
+    ax.set_title("Fig 5 — Unique interleavings until first bug")
+    ax.grid(True, axis="y", alpha=0.3)
+    save(fig, outdir, "fig5_unique_interleavings_until_bug.png")
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +590,7 @@ def main():
     )
     parser.add_argument(
         "--figures", nargs="*",
-        choices=["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "cdf"],
+        choices=["fig1", "fig2", "fig3", "fig4", "fig5", "cdf"],
         help="Which figures to generate (default: all)",
     )
     args = parser.parse_args()
@@ -579,16 +623,15 @@ def main():
 
     print_summary(df)
 
-    want = set(args.figures) if args.figures else {"fig1","fig2","fig3","fig4","fig5","fig6","cdf"}
+    want = set(args.figures) if args.figures else {"fig1","fig2","fig3","fig4","fig5","cdf"}
     outdir = args.outdir
     print(f"Generating figures → {outdir}/")
 
     if "fig1" in want: fig1_bug_discovery(df, outdir)
-    if "fig2" in want: fig2_unique_interleavings(df, outdir)
-    if "fig3" in want: fig3_time_vs_runs(df, outdir)
-    if "fig4" in want: fig4_decision_distribution(df, outdir)
-    if "fig5" in want: fig5_decisions_at_bug(df, outdir)
-    if "fig6" in want: fig6_theoretical_vs_actual(df, outdir)
+    if "fig2" in want: fig2_physical_vs_logical_time(df, outdir)
+    if "fig3" in want: fig3_decisions_at_bug(df, outdir)
+    if "fig4" in want: fig4_theoretical_vs_actual(df, outdir)
+    if "fig5" in want: fig5_unique_interleavings_until_bug(df, outdir)
     if "cdf"  in want: fig_cdf_first_failure(df, outdir)
 
     print("Done.")

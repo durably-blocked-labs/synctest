@@ -126,9 +126,9 @@ For each case study, report:
 
 The following charts are intended for performance testing the orchestrator itself — measuring search efficiency, execution cost, and how bugs relate to trace complexity.
 
-### Required API change
+### Metrics export
 
-Most charts below require per-run data that `Explore` does not currently expose. Its signature returns only `bool`, discarding intermediate `RecordedRun`s and run counts. The minimal fix is an optional observation callback passed via a new `ExploreOption`:
+Most charts below require per-run data from `Explore`: the run number, elapsed wall-clock time, the recorded global/local traces, and whether that run passed. This is exposed through an optional observation callback:
 
 ```go
 type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rec RecordedRun, passed bool)
@@ -136,7 +136,13 @@ type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rec Record
 func WithObserver(obs RunObserver) ExploreOption
 ```
 
-Called once per `runOnce` invocation inside `Explore`, this unblocks Figures 2, 3, 4, 5, and 6 without changing the existing call sites. Figures that depend on this are marked **[needs observer]** below. Figure 1 and the paper tables are producible today without it.
+Called once per `runOnce` invocation inside `Explore`, this unblocks the chart generator without changing existing call sites. The JSONL metrics exporter writes these fields for offline plotting:
+
+- `elapsed_ns`: physical wall-clock time for the run
+- `logical_time_ns`: fake time advanced by the orchestrated system
+- `global_decision_count`: number of global message-delivery decisions
+- `local_decision_total`: total intra-bubble scheduling decisions across all nodes
+- `trace_fingerprint` and `deliver_seq`: the global delivery sequence explored by the run
 
 ---
 
@@ -148,68 +154,55 @@ Called once per `runOnce` invocation inside `Explore`, this unblocks Figures 2, 
 
 **Status: producible today.**
 
----
-
-
-### Figure 2 — Unique interleavings until bug found
-
-**X-axis**: bug scenario (one bar per injected bug, grouped by k value).
-**Y-axis**: number of unique delivery sequences explored before the first failing trace (unique = distinct `(From, To, OpType)` fingerprint from `GlobalTrace`).
-
-**What it shows**: how many structurally distinct executions the tool examines before hitting a bug. For systematic DFS this is exact and deterministic — always the same count for a given k. For the random baseline it is a distribution (mean ± stddev across seeds); because random exploration can revisit the same delivery sequence, its unique interleaving count may be lower than its run count, but it still offers no guarantee of finding the bug within a fixed budget. The gap between the two strategies is the core efficiency argument for systematic exploration.
-
-**Data source**: `rec.GlobalTrace` and `passed` from the observer callback; accumulate unique fingerprints per run, record the count at the first `runNum` where `passed == false`.
-
-**Status: needs observer.**
 
 ---
 
-### Figure 3 — Physical time over logical time
+### Figure 2 — Physical time vs. logical time
 
-**X-axis**: logical time — cumulative runs explored (or cumulative total scheduling decisions across all runs).
-**Y-axis**: cumulative wall-clock time.
+**X-axis**: cumulative physical wall-clock time.
+**Y-axis**: cumulative logical time advanced by the system under test.
 
-**What it shows**: execution efficiency. A straight line means constant per-run cost; increasing slope means later runs (with longer DFS prefixes) are more expensive. The slope (time-per-run) is the key metric — compare systematic vs. random to check whether the per-run overhead of prefix replay outweighs the reduction in runs needed to find a bug. A flat per-run cost validates that prefix replay does not add meaningful overhead.
+**What it shows**: how much simulated protocol time the explorer covers per unit of real execution time. This is useful for checking whether deeper or more constrained schedules require significantly more physical time to advance the same amount of logical time. A flattening curve means later explored runs are more expensive per unit of logical progress; a stable slope means the orchestrator's replay and scheduling overhead is roughly constant.
 
-**Data source**: `elapsed` and `runNum` from the observer callback, accumulated across runs.
+**Data source**: `elapsed_ns` and `logical_time_ns` from the JSONL metrics records, accumulated across runs.
 
-**Status: needs observer** (the `elapsed time.Duration` field in the observer carries per-run wall-clock cost).
-
----
-
-### Figure 4 — Decision count distribution per context bound
-
-**X-axis**: context bound k (0, 1, 2, 3, ...).
-**Y-axis**: total scheduling decisions per run (global + local combined) — shown as a box plot across all runs explored at that k.
-
-**What it shows**: whether higher k produces genuinely longer, more complex executions or just forces a different prefix onto traces of similar total depth. A non-FIFO delivery early in a trace can cause the protocol to terminate faster or slower than the default ordering, so the tail after the forced prefix is not fixed. Wide variance at a given k means delivery ordering significantly affects execution length; narrow variance means the protocol runs for roughly the same number of decisions regardless of ordering. This directly informs how expensive exploration becomes as k grows — if median decisions scale linearly with k the cost is manageable, but superlinear growth signals that non-FIFO choices open up substantially longer executions.
-
-**Data source**: `len(rec.GlobalDecisions)` and `sum(len(rec.LocalTraces[addr]))` from the observer, grouped by `nonFIFO` (which equals k for the run that first reaches that depth).
-
-**Status: needs observer.**
+**Status: implemented in `charts/charts.py` as `fig2_physical_vs_logical_time.png`. The chart is skipped when the data has no meaningful fake-time advancement; the 1ns startup barrier used by some tests does not count.**
 
 ---
 
-### Figure 5 — Scheduling decisions at bug discovery
+### Figure 3 — Decisions at bug discovery
 
-**X-axis**: total scheduling decisions in the run where a bug was found (global + local combined, or plotted separately).
-**Y-axis**: cumulative bugs found.
+**X-axis**: bug scenario and context bound for the run where the bug is found.
+**Y-axis**: scheduling decisions made in that specific failing run, plotted separately for global and local decisions.
 
-**What it shows**: whether bugs are shallow or deep in the decision space. If all bugs appear at low decision counts, it empirically validates context bounding — the tool finds bugs without needing long traces. Comparing global-only vs. global+local decision counts at bug discovery shows whether the bug required a specific cross-node delivery ordering, a specific intra-node goroutine schedule, or both.
+**What it shows**: how many scheduling choices were needed in the exact run that exposed the bug. Global decisions measure cross-node delivery choices; local decisions measure intra-bubble scheduling work. Plotting them separately is more informative than combining them: a bug may be primarily about message ordering, local goroutine ordering, or both.
 
-**Data source**: `rec.GlobalDecisions` and `rec.LocalTraces` from the observer when `passed == false`.
+**Data source**: `global_decision_count`, `local_decision_total`, `run_num`, and `passed` from the JSONL metrics records. For each scenario/k/mode, select the first row where `passed == false`.
 
-**Status: needs observer.**
+**Status: implemented in `charts/charts.py` as `fig3_decisions_at_bug.png`.**
 
 ---
 
-### Figure 6 — Explored vs. theoretical search space
+### Figure 4 — Global delivery search space
 
-**X-axis**: context bound k (0, 1, 2, 3, ...).
-**Y-axis** (log scale): two lines — (a) actual DFS runs explored at that k, (b) theoretical exhaustive interleavings, computed as the product of `QueueSize` at each delivery decision point.
+**X-axis**: context bound k (0, 1, 2, 3, ...) when k-sweep data is available; otherwise scenario × current k for a single-bound run.
+**Y-axis** (log scale): actual DFS runs explored at that k vs. theoretical exhaustive global delivery orderings, computed as the product of `QueueSize` at each delivery decision point.
 
-**What it shows**: the pruning power of context bounding. Theoretical interleavings grow exponentially with k; actual DFS runs grow much more slowly because the bound caps non-FIFO choices. The ratio between the two lines at each k quantifies how much of the search space context bounding discards while still finding all bugs of depth ≤ k. This is the core quantitative argument that context bounding is practical — without this chart the claim is asserted but not demonstrated.
+**What it shows**: the pruning power of context bounding for global message-delivery choices. The theoretical global delivery space grows quickly; actual DFS runs grow much more slowly because the bound caps non-FIFO choices. This chart intentionally excludes local goroutine scheduling interleavings inside each bubble. Local scheduling can interact with global delivery availability, so the total distributed schedule space is larger and not represented by this product.
 
 **Data source**: run count per k from the observer; theoretical total = `∏ QueueSize_i` computed from `GlobalDecisions` of the k=0 FIFO baseline run (from `Run()`), which serves as the fixed reference trace. Using the FIFO baseline is important: `QueueSize` values change across orderings, so a fixed reference is required for the theoretical bound to be well-defined.
 
-**Status: run count needs observer; theoretical baseline producible today from `Run()`.**
+**Status: implemented in `charts/charts.py` as `fig4_theoretical_vs_actual.png`. With one k value it produces a single-bound bar comparison; with a k-sweep it produces the scaling plot. The theoretical baseline is producible from `Run()`.**
+
+---
+
+### Figure 5 — Unique interleavings until bug found
+
+**X-axis**: bug scenario and context bound.
+**Y-axis**: number of unique delivery sequences explored up to and including the first failing run.
+
+**What it shows**: how many distinct global interleavings the explorer had to try before finding the bug. In systematic exploration, each call to `runOnce` attempts one global delivery ordering, so this often equals the number of runs to first bug. The chart still measures unique `trace_fingerprint` values rather than blindly using `run_num`, because replay divergence, duplicate traces, or random baselines can make run count and unique interleaving count differ.
+
+**Data source**: `trace_fingerprint`, `run_num`, and `passed` from the JSONL metrics records. For each scenario/k/mode, keep rows through the first `passed == false` run and count distinct `trace_fingerprint` values.
+
+**Status: implemented in `charts/charts.py` as `fig5_unique_interleavings_until_bug.png`.**

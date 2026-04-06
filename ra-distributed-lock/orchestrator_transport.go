@@ -1,6 +1,8 @@
 package lock
 
 import (
+	"runtime"
+	"sync/atomic"
 	"testing/synctest"
 
 	"github.com/shubhaankar/synctest/orchestratorv2"
@@ -70,13 +72,19 @@ func (t *OrchestratorTransport) StartBridge() {
 	// Created inside the bubble so RANode's goroutine blocking on it is durable.
 	t.internalMailbox = make(chan Message, 64)
 	t.bridgeDone = make(chan struct{})
+	var bridgeReady atomic.Bool
 
 	go func() {
 		defer close(t.bridgeDone)
+		ready := true
 		for {
 			var msg Message
 			var closed bool
 			synctest.ExternalWait(func() {
+				if ready {
+					bridgeReady.Store(true)
+					ready = false
+				}
 				select {
 				case msg = <-t.mailbox:
 				case <-t.closeCh:
@@ -89,6 +97,9 @@ func (t *OrchestratorTransport) StartBridge() {
 			t.internalMailbox <- msg
 		}
 	}()
+	for !bridgeReady.Load() {
+		runtime.Gosched()
+	}
 }
 
 // Send implements nodeTransport. Routes the message through the orchestrator

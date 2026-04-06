@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,15 +15,16 @@ import (
 // RunRecord is the JSON-serializable snapshot of one exploration run.
 // Written to a JSONL file by NewJSONLObserver; read by charts/charts.py.
 type RunRecord struct {
-	RunNum              int            `json:"run_num"`
-	NonFIFO             int            `json:"non_fifo"`
-	ElapsedNs           int64          `json:"elapsed_ns"`
-	Passed              bool           `json:"passed"`
-	GlobalDecisionCount int            `json:"global_decision_count"`
-	LocalDecisionTotal  int            `json:"local_decision_total"`
-	LocalDecisionByNode map[string]int `json:"local_decision_by_node,omitempty"`
-	QueueSizes          []int          `json:"queue_sizes"`
-	TraceFingerprint    string         `json:"trace_fingerprint"`
+	RunNum              int             `json:"run_num"`
+	NonFIFO             int             `json:"non_fifo"`
+	ElapsedNs           int64           `json:"elapsed_ns"`
+	LogicalTimeNs       int64           `json:"logical_time_ns"`
+	Passed              bool            `json:"passed"`
+	GlobalDecisionCount int             `json:"global_decision_count"`
+	LocalDecisionTotal  int             `json:"local_decision_total"`
+	LocalDecisionByNode map[string]int  `json:"local_decision_by_node,omitempty"`
+	QueueSizes          []int           `json:"queue_sizes"`
+	TraceFingerprint    string          `json:"trace_fingerprint"`
 	DeliverSeq          []DeliverRecord `json:"deliver_seq"`
 }
 
@@ -34,6 +36,8 @@ type DeliverRecord struct {
 	Index     int    `json:"index"`
 	QueueSize int    `json:"queue_size"`
 }
+
+const synctestBaseTimeNs = int64(946684800000000000)
 
 // NewJSONLObserver returns a RunObserver that appends one JSON line per run to w.
 // Each line is a RunRecord containing timing, decision counts, queue-size
@@ -68,6 +72,9 @@ func NewJSONLObserver(w io.Writer) RunObserver {
 		dIdx := 0
 		var fp strings.Builder
 		for _, step := range rec.GlobalTrace {
+			if step.Type == StepTimeAdvance && step.Time > synctestBaseTimeNs {
+				r.LogicalTimeNs = step.Time - synctestBaseTimeNs
+			}
 			if step.Type != StepDeliver {
 				continue
 			}
@@ -115,6 +122,12 @@ func ObserverFromEnv(t *testing.T) ExploreOption {
 	path := os.Getenv("METRICS_FILE")
 	if path == "" {
 		return func(*exploreConfig) {}
+	}
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Logf("metrics: failed to create directory %s: %v", dir, err)
+			return func(*exploreConfig) {}
+		}
 	}
 	f, err := os.Create(path)
 	if err != nil {

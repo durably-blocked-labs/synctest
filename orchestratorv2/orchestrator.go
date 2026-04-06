@@ -36,7 +36,7 @@ type OpDir int
 
 const (
 	OpSend OpDir = iota
-	OpRecv // retained for trace compatibility; no longer submitted by transports
+	OpRecv       // retained for trace compatibility; no longer submitted by transports
 )
 
 // PendingOp is the unit of work submitted by a transport to the orchestrator.
@@ -52,7 +52,7 @@ type PendingOp struct {
 
 // NodeTransport is the interface transport implementations must satisfy.
 type NodeTransport interface {
-	Addr()   string
+	Addr() string
 	Outbox() <-chan *PendingOp
 }
 
@@ -61,8 +61,8 @@ type GlobalStepType int
 
 const (
 	StepDeliver     GlobalStepType = iota // an op was executed
-	StepTimeAdvance                        // global virtual clock advanced
-	StepDone                               // a node's bubble completed
+	StepTimeAdvance                       // global virtual clock advanced
+	StepDone                              // a node's bubble completed
 )
 
 // GlobalStep records one orchestrator event.
@@ -202,9 +202,6 @@ func (o *Orchestrator) startBubble(t *testing.T, ctrl *nodeCtrl) {
 		}, nil)
 		ctrl.localTrace = trace
 		ctrl.passed = ok
-		if !ok {
-			t.Fail()
-		}
 		close(ctrl.done)
 	}()
 }
@@ -428,10 +425,13 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 	// fully deterministic replay. After startup all active bubbles are in
 	// pendingIdle and the delivery loop below takes over.
 	for _, addr := range o.order {
+		t.Logf("orchestratorv2: starting bubble %q", addr)
 		o.startBubble(t, o.nodes[addr])
 		ctrl := o.nodes[addr]
+		t.Logf("orchestratorv2: waiting for bubble %q to idle", addr)
 		select {
 		case idle := <-ctrl.bubble.Idle:
+			t.Logf("orchestratorv2: bubble %q idle (externalWait=%d, blocked=%d)", addr, idle.State.ExternalWait, idle.State.Blocked)
 			pendingIdle[addr] = idle
 		case <-ctrl.done:
 			o.drainOutbox(addr)
@@ -569,17 +569,24 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
-					select {
-					case idleState := <-ctrl.bubble.Idle:
-						pendingIdle[addr] = idleState
-					case <-ctrl.done:
-						if !doneSet[addr] {
-							doneSet[addr] = true
-							active--
-							o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-							t.Logf("orchestratorv2: node %q bubble done during time advance", addr)
+					for {
+						select {
+						case op := <-ctrl.transport.Outbox():
+							o.schedulable = append(o.schedulable, op)
+						case idleState := <-ctrl.bubble.Idle:
+							pendingIdle[addr] = idleState
+							goto resumed
+						case <-ctrl.done:
+							if !doneSet[addr] {
+								doneSet[addr] = true
+								active--
+								o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
+								t.Logf("orchestratorv2: node %q bubble done during time advance", addr)
+							}
+							goto resumed
 						}
 					}
+				resumed:
 				}
 
 			} else {
@@ -593,17 +600,24 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{}
-					select {
-					case idleState := <-ctrl.bubble.Idle:
-						pendingIdle[addr] = idleState
-					case <-ctrl.done:
-						if !doneSet[addr] {
-							doneSet[addr] = true
-							active--
-							o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
-							t.Logf("orchestratorv2: node %q bubble done during drain", addr)
+					for {
+						select {
+						case op := <-ctrl.transport.Outbox():
+							o.schedulable = append(o.schedulable, op)
+						case idleState := <-ctrl.bubble.Idle:
+							pendingIdle[addr] = idleState
+							goto drained
+						case <-ctrl.done:
+							if !doneSet[addr] {
+								doneSet[addr] = true
+								active--
+								o.trace = append(o.trace, GlobalStep{Type: StepDone, From: addr})
+								t.Logf("orchestratorv2: node %q bubble done during drain", addr)
+							}
+							goto drained
 						}
 					}
+				drained:
 				}
 			}
 		}
