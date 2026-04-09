@@ -1,6 +1,6 @@
 # Formal Model of the Global Orchestrator
 
-This document gives mathematical definitions for the global orchestrator in `orchestratorv2`. The goal is to make the invariants and correctness conditions precise.
+This document gives mathematical definitions for the global orchestrator in `orchestrator`. The goal is to make the invariants and correctness conditions precise.
 
 ---
 

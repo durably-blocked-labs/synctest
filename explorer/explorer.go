@@ -69,6 +69,9 @@ func MaxRuns(n int) Option {
 func RunWithHook(t *testing.T, f func(*testing.T), hook DecisionHook) ([]Decision, bool) {
 	wrapped := func(t *testing.T) {
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if state.Idle {
+				return -1
+			}
 			return hook(state)
 		})
 		f(t)

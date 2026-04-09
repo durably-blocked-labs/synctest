@@ -27,7 +27,7 @@ type BubbleState = synctest.BubbleState
 
 // IdleState is sent to the global orchestrator when the bubble goes idle.
 type IdleState struct {
-	Name  string     // which node
+	Name  string      // which node
 	State BubbleState // full state: timers, ExternalWait, blocked count, etc.
 }
 
@@ -43,6 +43,11 @@ type Resume struct {
 	// AdvanceTimeTo advances the bubble's fake clock before returning
 	// from the hook. 0 means don't advance.
 	AdvanceTimeTo int64
+
+	// DelegateIdle tells the bubble to hand control back to the local runtime
+	// idle/drain logic after returning from the hook instead of immediately
+	// re-entering the orchestrator handshake.
+	DelegateIdle bool
 
 	// SelectCounter sets the bubble's select counter before returning.
 	// This controls the deterministic ordering of select statements.
@@ -155,6 +160,9 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 		}
 		// r.SelectCounter is reserved for future select-interleaving control;
 		// synctest.SetSelectOffset is not yet available in the runtime.
+		if r.DelegateIdle {
+			return -1
+		}
 		return 0
 	}
 }

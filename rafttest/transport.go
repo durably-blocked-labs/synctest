@@ -1,5 +1,5 @@
 // Package rafttest provides a Raft transport that routes cross-node RPCs
-// through the orchestratorv2 Orchestrator, enabling controlled message
+// through the orchestrator Orchestrator, enabling controlled message
 // delivery ordering for deterministic distributed systems testing.
 package rafttest
 
@@ -11,7 +11,7 @@ import (
 	"testing/synctest"
 
 	"github.com/hashicorp/raft"
-	"github.com/shubhaankar/synctest/orchestratorv2"
+	"github.com/shubhaankar/synctest/orchestrator"
 )
 
 type envelopeKind int
@@ -36,7 +36,7 @@ type envelope struct {
 
 // RaftTransport implements raft.Transport (and raft.WithPreVote, raft.WithClose)
 // using an orchestrator-routed mailbox. All cross-node request and response
-// messages go through the orchestratorv2 outbox so delivery order is controlled.
+// messages go through the orchestrator outbox so delivery order is controlled.
 //
 // Bridge goroutines use ExternalWait to signal to the bubble that they are
 // waiting on orchestrator-controlled channels. When all goroutines in the
@@ -47,7 +47,7 @@ type envelope struct {
 // Raft goroutines blocking on it are durably blocked and the bubble can go idle.
 type RaftTransport struct {
 	localAddr        raft.ServerAddress
-	outbox           chan *orchestratorv2.PendingOp // unbuffered; to orchestrator
+	outbox           chan *orchestrator.PendingOp // unbuffered; to orchestrator
 	internalConsumer chan raft.RPC                  // created inside bubble by StartBridge; Raft reads this
 	mailbox          chan envelope                  // buffered; orchestrator writes here
 	peers            map[raft.ServerAddress]*RaftTransport
@@ -62,7 +62,7 @@ type RaftTransport struct {
 var _ raft.Transport = (*RaftTransport)(nil)
 var _ raft.WithPreVote = (*RaftTransport)(nil)
 var _ raft.WithClose = (*RaftTransport)(nil)
-var _ orchestratorv2.NodeTransport = (*RaftTransport)(nil)
+var _ orchestrator.NodeTransport = (*RaftTransport)(nil)
 
 // NewRaftTransport creates a transport for the given address.
 // internalConsumer is intentionally left nil here; it is created inside the
@@ -72,7 +72,7 @@ func NewRaftTransport(addr raft.ServerAddress) *RaftTransport {
 		localAddr: addr,
 		// Buffered to avoid deadlock when a bubble must report idle before the
 		// orchestrator starts draining outboxes.
-		outbox:  make(chan *orchestratorv2.PendingOp, 64),
+		outbox:  make(chan *orchestrator.PendingOp, 64),
 		mailbox: make(chan envelope, 16),
 		peers:   make(map[raft.ServerAddress]*RaftTransport),
 		closeCh: make(chan struct{}),
@@ -85,13 +85,13 @@ func (t *RaftTransport) Connect(peer *RaftTransport) {
 	t.peers[peer.localAddr] = peer
 }
 
-// Addr implements orchestratorv2.NodeTransport.
+// Addr implements orchestrator.NodeTransport.
 func (t *RaftTransport) Addr() string {
 	return string(t.localAddr)
 }
 
-// Outbox implements orchestratorv2.NodeTransport.
-func (t *RaftTransport) Outbox() <-chan *orchestratorv2.PendingOp {
+// Outbox implements orchestrator.NodeTransport.
+func (t *RaftTransport) Outbox() <-chan *orchestrator.PendingOp {
 	return t.outbox
 }
 
@@ -167,8 +167,8 @@ func (t *RaftTransport) forwardResponse(req envelope, proxyRespCh <-chan raft.RP
 
 	synctest.ExternalWait(func() {
 		select {
-		case t.outbox <- &orchestratorv2.PendingOp{
-			Dir:  orchestratorv2.OpSend,
+		case t.outbox <- &orchestrator.PendingOp{
+			Dir:  orchestrator.OpSend,
 			From: string(t.localAddr),
 			To:   string(req.from),
 			Type: req.rpcType + "Response",
@@ -237,8 +237,8 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 	// Phase 1: deliver request to target via orchestrator.
 	synctest.ExternalWait(func() {
 		select {
-		case t.outbox <- &orchestratorv2.PendingOp{
-			Dir:  orchestratorv2.OpSend,
+		case t.outbox <- &orchestrator.PendingOp{
+			Dir:  orchestrator.OpSend,
 			From: string(t.localAddr),
 			To:   string(target),
 			Type: rpcType,

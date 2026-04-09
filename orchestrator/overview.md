@@ -1,6 +1,6 @@
 # Package Overview
 
-## orchestratorv2
+## orchestrator
 
 Coordinates multiple synctest bubbles as distributed nodes. Each node runs in an isolated bubble; the orchestrator only acts when **all** bubbles are idle (every goroutine durably blocked). It then decides which message to deliver next, resumes the target bubble, and repeats until all nodes finish.
 

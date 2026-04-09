@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+	"time"
 )
 
 // TestFrontierSignaling verifies the g0↔root round-trip for live decisions.
@@ -24,6 +25,9 @@ func TestFrontierSignaling(t *testing.T) {
 		// Set hook from inside the bubble. It will be active for all
 		// subsequent frontier decision points.
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if state.Idle {
+				return -1
+			}
 			hookCalls.Add(1)
 			return 0 // FIFO — same as default
 		})
@@ -94,6 +98,9 @@ func TestExpandedHookState(t *testing.T) {
 
 	workload := func(t *testing.T) {
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if state.Idle {
+				return -1
+			}
 			states = append(states, state)
 			return 0
 		})
@@ -169,6 +176,9 @@ func TestGlobalGoroutine(t *testing.T) {
 
 	workload := func(t *testing.T) {
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if state.Idle {
+				return -1
+			}
 			states = append(states, state)
 			return 0
 		})
@@ -245,6 +255,9 @@ func TestRootInHook(t *testing.T) {
 
 	workload := func(t *testing.T) {
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if state.Idle {
+				return -1
+			}
 			hookCalls.Add(1)
 			return 0
 		})
@@ -285,6 +298,9 @@ func TestFrontierNonFIFO(t *testing.T) {
 	workload := func(t *testing.T) {
 		// Hook: pick index 1 when there's a real choice, else 0.
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if state.Idle {
+				return -1
+			}
 			if state.RunnableN > 1 {
 				return 1
 			}
@@ -349,4 +365,42 @@ func TestFrontierNonFIFO(t *testing.T) {
 		t.Fatal("non-FIFO hook produced identical trace to FIFO — hook not working")
 	}
 	t.Logf("PASS: non-FIFO hook produced different interleaving")
+}
+
+// TestIdleHookOwnsTime verifies that once a hook is installed, the hook sees
+// idle/timer states before time advances.
+func TestIdleHookOwnsTime(t *testing.T) {
+	runtime.GOMAXPROCS(1)
+
+	var idleCalls atomic.Int32
+
+	workload := func(t *testing.T) {
+		done := make(chan struct{})
+		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
+			if !state.Idle {
+				return 0
+			}
+			idleCalls.Add(1)
+			if state.NextTimer > 0 {
+				synctest.SetTime(state.NextTimer)
+				return 0
+			}
+			return -1
+		})
+
+		go func() {
+			time.Sleep(time.Nanosecond)
+			close(done)
+		}()
+
+		<-done
+	}
+
+	trace := synctest.Test(t, workload)
+	if len(trace) == 0 {
+		t.Fatal("no decisions recorded")
+	}
+	if idleCalls.Load() == 0 {
+		t.Fatal("idle hook never fired before timer advance")
+	}
 }

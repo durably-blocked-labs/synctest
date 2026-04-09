@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/shubhaankar/synctest/orchestratorv2"
+	"github.com/shubhaankar/synctest/orchestrator"
 	"github.com/shubhaankar/synctest/rafttest"
 )
 
@@ -77,7 +77,7 @@ func TestMain(m *testing.M) {
 // 	observations := make(map[raft.ServerAddress]nodeObs)
 
 // 	// Build orchestrator and register nodes.
-// 	orch := orchestratorv2.New()
+// 	orch := orchestrator.New()
 // 	for i, trans := range transports {
 // 		addr := addrs[i]
 // 		cfg := configuration // capture for closure
@@ -198,7 +198,7 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 		return transports, configuration, expectedServers
 	}
 
-	addNodes := func(orch *orchestratorv2.Orchestrator, transports []*rafttest.RaftTransport, cfg raft.Configuration, expectedServers map[raft.ServerID]raft.ServerAddress, obs map[raft.ServerAddress]nodeObs) {
+	addNodes := func(orch *orchestrator.Orchestrator, transports []*rafttest.RaftTransport, cfg raft.Configuration, expectedServers map[raft.ServerID]raft.ServerAddress, obs map[raft.ServerAddress]nodeObs) {
 		addrs := []raft.ServerAddress{"node1", "node2", "node3"}
 		for i, trans := range transports {
 			addr := addrs[i]
@@ -248,7 +248,7 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 	// First run: record.
 	rand.Seed(seed) //nolint:staticcheck // randseednop=0 set in TestMain makes this work
 	transports1, cfg, expectedServers := newCluster()
-	orch1 := orchestratorv2.New()
+	orch1 := orchestrator.New()
 	obs1 := make(map[raft.ServerAddress]nodeObs)
 	addNodes(orch1, transports1, cfg, expectedServers, obs1)
 	rec1, ok1 := orch1.Run(t)
@@ -263,7 +263,7 @@ func TestRaftThreeNodeElectionReplay(t *testing.T) {
 	// timer jitter sequence is identical to the record run.
 	rand.Seed(seed) //nolint:staticcheck
 	transports2, _, _ := newCluster()
-	orch2 := orchestratorv2.New()
+	orch2 := orchestrator.New()
 	obs2 := make(map[raft.ServerAddress]nodeObs)
 	addNodes(orch2, transports2, cfg, expectedServers, obs2)
 	rec2, ok2 := orch2.Replay(t, rec1)
@@ -322,8 +322,8 @@ func TestRaftThreeNodeElectionExplore(t *testing.T) {
 		})
 	}
 
-	orch := orchestratorv2.New()
-	allPassed := orch.Explore(t, func(o *orchestratorv2.Orchestrator) {
+	orch := orchestrator.New()
+	allPassed := orch.Explore(t, func(o *orchestrator.Orchestrator) {
 		rand.Seed(42) //nolint:staticcheck // randseednop=0 set in TestMain makes this work
 
 		transports := make([]*rafttest.RaftTransport, len(addrs))
@@ -368,7 +368,7 @@ func TestRaftThreeNodeElectionExplore(t *testing.T) {
 				verifyRaftNodeState(r, raft.ServerID(addr), localExpected)
 			})
 		}
-	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(20))
+	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(20))
 
 	if !allPassed {
 		t.Fatal("some delivery ordering produced a failing run")//
@@ -416,7 +416,7 @@ func TestRaftThreeNodeElectionExplore(t *testing.T) {
 // 	}
 
 // 	obs1 := make(map[raft.ServerAddress]nodeObs)
-// 	orch1 := orchestratorv2.New()
+// 	orch1 := orchestrator.New()
 // 	for i, trans := range transports1 {
 // 		addr := addrs[i]
 // 		cfg := configuration
@@ -512,7 +512,7 @@ func TestRaftThreeNodeElectionExplore(t *testing.T) {
 // 	}
 
 // 	obs2 := make(map[raft.ServerAddress]nodeObs)
-// 	orch2 := orchestratorv2.New()
+// 	orch2 := orchestrator.New()
 // 	for i, trans := range transports2 {
 // 		addr := addrs[i]
 // 		store := logStable[i]
@@ -616,14 +616,14 @@ func waitForLeader(r *raft.Raft, timeout time.Duration) {
 	}
 }
 
-func countTrace(trace []orchestratorv2.GlobalStep) (sendOps, doneSteps int) {
+func countTrace(trace []orchestrator.GlobalStep) (sendOps, doneSteps int) {
 	for _, step := range trace {
 		switch step.Type {
-		case orchestratorv2.StepDeliver:
-			if step.Dir == orchestratorv2.OpSend {
+		case orchestrator.StepDeliver:
+			if step.Dir == orchestrator.OpSend {
 				sendOps++
 			}
-		case orchestratorv2.StepDone:
+		case orchestrator.StepDone:
 			doneSteps++
 		}
 	}
@@ -680,18 +680,18 @@ func verifyRaftNodeState(r *raft.Raft, localID raft.ServerID, expected map[raft.
 
 // printRun logs the global step sequence and per-node local scheduling decisions
 // for a RecordedRun, useful for comparing record vs replay executions.
-func printRun(t *testing.T, label string, rec orchestratorv2.RecordedRun) {
+func printRun(t *testing.T, label string, rec orchestrator.RecordedRun) {
 	t.Helper()
 
 	t.Logf("=== %s: global trace (%d steps) ===", label, len(rec.GlobalTrace))
 	for i, step := range rec.GlobalTrace {
 		switch step.Type {
-		case orchestratorv2.StepDeliver:
+		case orchestrator.StepDeliver:
 			t.Logf("  [%2d] deliver %-4s %s → %s (%s) @ %dns",
 				i, dirStr(step.Dir), step.From, step.To, step.OpType, step.Time)
-		case orchestratorv2.StepTimeAdvance:
+		case orchestrator.StepTimeAdvance:
 			t.Logf("  [%2d] time-advance → %dns", i, step.Time)
-		case orchestratorv2.StepDone:
+		case orchestrator.StepDone:
 			t.Logf("  [%2d] done         node=%s", i, step.From)
 		}
 	}
@@ -713,8 +713,8 @@ func printRun(t *testing.T, label string, rec orchestratorv2.RecordedRun) {
 	}
 }
 
-func dirStr(d orchestratorv2.OpDir) string {
-	if d == orchestratorv2.OpSend {
+func dirStr(d orchestrator.OpDir) string {
+	if d == orchestrator.OpSend {
 		return "send"
 	}
 	return "recv"

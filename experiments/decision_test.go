@@ -219,6 +219,49 @@ func TestDivergentFollow(t *testing.T) {
 		divergeStep, baseline[divergeStep].ChosenBgid, diverged[divergeStep].ChosenBgid)
 }
 
+// TestReplayDivergenceFails verifies that an impossible replay prefix fails
+// loudly instead of silently falling back to normal scheduling.
+func TestReplayDivergenceFails(t *testing.T) {
+	runtime.GOMAXPROCS(1)
+
+	workload := func(t *testing.T) {
+		var wg sync.WaitGroup
+		for range 3 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runtime.Gosched()
+				runtime.Gosched()
+			}()
+		}
+		wg.Wait()
+	}
+
+	baseline := synctest.Test(t, workload)
+	if len(baseline) == 0 {
+		t.Fatal("no decisions recorded")
+	}
+
+	step := -1
+	for i, d := range baseline {
+		if d.RunqSize > 1 {
+			step = i
+			break
+		}
+	}
+	if step < 0 {
+		t.Fatal("no branching point found")
+	}
+
+	prefix := make([]synctest.Decision, step+1)
+	copy(prefix, baseline[:step+1])
+	prefix[step].Index = prefix[step].RunqSize + 1
+
+	if _, ok := synctest.Explore(t, workload, prefix); ok {
+		t.Fatal("expected replay divergence to fail")
+	}
+}
+
 // TestPPinning verifies that P pinning makes bubbles deterministic under GOMAXPROCS>1.
 //
 // Runs the same workload 20 times with GOMAXPROCS=4 and verifies all traces are identical.

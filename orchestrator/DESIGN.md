@@ -1,4 +1,4 @@
-# `orchestratorv2` & `rafttest` — Design Report
+# `orchestrator` & `rafttest` — Design Report
 
 ## Overview
 
@@ -6,7 +6,7 @@ These two packages together provide a **fully deterministic harness for testing 
 
 ---
 
-## `orchestratorv2` — Global Orchestrator
+## `orchestrator` — Global Orchestrator
 
 ### Key types
 

@@ -46,7 +46,7 @@ func newBubbleCtrl(name string) *bubbleCtrl {
 		req:    make(chan synctest.BubbleState, 1),
 		resp:   make(chan int32, 1),
 		done:   make(chan struct{}),
-		outbox: make(chan Request),    // unbuffered: node blocks until orch reads
+		outbox: make(chan Request),     // unbuffered: node blocks until orch reads
 		inbox:  make(chan Response, 1), // buffered 1: orch can pre-load response
 	}
 }
@@ -54,6 +54,9 @@ func newBubbleCtrl(name string) *bubbleCtrl {
 // makeHook returns a decision hook that forwards state to the auto-responder.
 func makeHook(ctrl *bubbleCtrl) func(synctest.BubbleState) int32 {
 	return func(state synctest.BubbleState) int32 {
+		if state.Idle {
+			return -1
+		}
 		ctrl.req <- state
 		return <-ctrl.resp
 	}

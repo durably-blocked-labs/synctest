@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shubhaankar/synctest/orchestratorv2"
+	"github.com/shubhaankar/synctest/orchestrator"
 )
 
 // makeOrchestratorCluster builds transports and wires them together.
@@ -29,7 +29,7 @@ func setupOrchestratorCluster(addrs []string) map[string]*OrchestratorTransport 
 // Each node's critical section does a read-modify-write on store.
 // inCS is optional: when non-nil, it is incremented on CS entry and
 // decremented on CS exit so callers can detect simultaneous entry.
-func addNodesToOrch(orch *orchestratorv2.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport, store *KVStore, inCS *atomic.Int32) {
+func addNodesToOrch(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport, store *KVStore, inCS *atomic.Int32) {
 	for i, addr := range addrs {
 		addr := addr
 		tr := transports[addr]
@@ -70,7 +70,7 @@ func TestOrchestratorMutualExclusion(t *testing.T) {
 	transports := setupOrchestratorCluster(addrs)
 	store := NewKVStore()
 
-	orch := orchestratorv2.New()
+	orch := orchestrator.New()
 	addNodesToOrch(orch, addrs, transports, store, nil)
 
 	_, ok := orch.Run(t)
@@ -88,12 +88,12 @@ func TestOrchestratorExplore(t *testing.T) {
 
 	var inCS atomic.Int32
 
-	orch := orchestratorv2.New()
-	ok := orch.Explore(t, func(o *orchestratorv2.Orchestrator) {
+	orch := orchestrator.New()
+	ok := orch.Explore(t, func(o *orchestrator.Orchestrator) {
 		transports := setupOrchestratorCluster(addrs)
 		store := NewKVStore()
 		addNodesToOrch(o, addrs, transports, store, &inCS)
-	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(50))
+	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(50))
 
 	if !ok {
 		t.Fatal("found mutual exclusion violation under message reordering")

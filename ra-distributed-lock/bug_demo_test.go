@@ -35,7 +35,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shubhaankar/synctest/orchestratorv2"
+	"github.com/shubhaankar/synctest/orchestrator"
 )
 
 // dispatchTransport wraps OrchestratorTransport and overrides Mailbox() to
@@ -64,8 +64,8 @@ func setupKVCluster(addrs []string) (
 	for _, addr := range addrs {
 		tr := NewOrchestratorTransport(addr)
 		transports[addr] = tr
-		tr.Connect(kvTr)  // RA node → KV server
-		kvTr.Connect(tr)  // KV server → RA node (for replies)
+		tr.Connect(kvTr) // RA node → KV server
+		kvTr.Connect(tr) // KV server → RA node (for replies)
 	}
 	for _, tr := range transports {
 		for _, peer := range transports {
@@ -82,7 +82,7 @@ func setupKVCluster(addrs []string) (
 // MsgKVReply responses back through the transport so the orchestrator
 // delivers them and resumes the target RA bubble.
 func addKVServer(
-	orch *orchestratorv2.Orchestrator,
+	orch *orchestrator.Orchestrator,
 	kvTr *OrchestratorTransport,
 	expectedCounter int,
 	totalDone int,
@@ -147,7 +147,7 @@ func csViaRPC(t *testing.T, addr string, tr *OrchestratorTransport, kvMailbox <-
 // rounds maps addr → number of acquisitions. inCS is an optional shared
 // atomic counter passed to csViaRPC for immediate mutual-exclusion detection.
 func addRANodes(
-	orch *orchestratorv2.Orchestrator,
+	orch *orchestrator.Orchestrator,
 	addrs []string,
 	transports map[string]*OrchestratorTransport,
 	rounds map[string]int,
@@ -246,7 +246,7 @@ func TestStaleClockBug_FIFOPassesBugLatent(t *testing.T) {
 	transports, kvTr := setupKVCluster(addrs)
 	rounds := singleRound(addrs)
 
-	orch := orchestratorv2.New()
+	orch := orchestrator.New()
 	addKVServer(orch, kvTr, len(addrs), len(addrs))
 	addRANodes(orch, addrs, transports, rounds, nil)
 
@@ -260,14 +260,16 @@ func TestStaleClockBug_FIFOPassesBugLatent(t *testing.T) {
 func TestStaleClockBug_ExploreFindsViolation(t *testing.T) {
 	addrs := []string{"A", "B", "C"}
 
-	orch := orchestratorv2.New()
-	ok := orch.Explore(t, func(o *orchestratorv2.Orchestrator) {
+	orch := orchestrator.New()
+	ok := orch.Explore(t, func(o *orchestrator.Orchestrator) {
 		transports, kvTr := setupKVCluster(addrs)
 		rounds := singleRound(addrs)
-		addKVServer(o, kvTr, len(addrs), len(addrs))
 		var inCS atomic.Int32
 		addRANodes(o, addrs, transports, rounds, &inCS)
-	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(200))
+		addKVServer(o, kvTr, len(addrs), len(addrs))
+	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(200),
+		orchestrator.BoundFromEnv(), orchestrator.MaxRunsFromEnv(),
+		orchestrator.ObserverFromEnv(t))
 
 	if ok {
 		t.Fatal("Explore found no violation — bug was not triggered")
@@ -303,7 +305,7 @@ func TestNoHeldCheckBug_FIFOPassesBugLatent(t *testing.T) {
 	transports, kvTr := setupKVCluster(addrs)
 	rounds := singleRound(addrs)
 
-	orch := orchestratorv2.New()
+	orch := orchestrator.New()
 	addKVServer(orch, kvTr, len(addrs), len(addrs))
 	addRANodes(orch, addrs, transports, rounds, nil)
 
@@ -317,14 +319,14 @@ func TestNoHeldCheckBug_FIFOPassesBugLatent(t *testing.T) {
 func TestNoHeldCheckBug_ExploreFindsViolation(t *testing.T) {
 	addrs := []string{"A", "B"}
 
-	orch := orchestratorv2.New()
-	ok := orch.Explore(t, func(o *orchestratorv2.Orchestrator) {
+	orch := orchestrator.New()
+	ok := orch.Explore(t, func(o *orchestrator.Orchestrator) {
 		transports, kvTr := setupKVCluster(addrs)
 		rounds := singleRound(addrs)
 		addKVServer(o, kvTr, len(addrs), len(addrs))
 		var inCS atomic.Int32
 		addRANodes(o, addrs, transports, rounds, &inCS)
-	}, orchestratorv2.GlobalBound(2), orchestratorv2.GlobalMaxRuns(100))
+	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(100))
 
 	if ok {
 		t.Fatal("Explore found no violation — bug was not triggered")

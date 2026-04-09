@@ -1,12 +1,14 @@
 package lock
 
 import (
+	"runtime"
+	"sync/atomic"
 	"testing/synctest"
 
-	"github.com/shubhaankar/synctest/orchestratorv2"
+	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-// OrchestratorTransport routes RA lock messages through the orchestratorv2
+// OrchestratorTransport routes RA lock messages through the orchestrator
 // global orchestrator, enabling controlled message delivery ordering for
 // deterministic distributed systems testing.
 //
@@ -25,8 +27,8 @@ import (
 // the message to the internal mailbox that RANode reads from.
 type OrchestratorTransport struct {
 	addr    string
-	outbox  chan *orchestratorv2.PendingOp // buffered; to orchestrator
-	mailbox chan Message                   // buffered external; orchestrator writes via Execute
+	outbox  chan *orchestrator.PendingOp // buffered; to orchestrator
+	mailbox chan Message                 // buffered external; orchestrator writes via Execute
 	closeCh chan struct{}
 	peers   map[string]*OrchestratorTransport
 
@@ -40,7 +42,7 @@ type OrchestratorTransport struct {
 func NewOrchestratorTransport(addr string) *OrchestratorTransport {
 	return &OrchestratorTransport{
 		addr:    addr,
-		outbox:  make(chan *orchestratorv2.PendingOp, 64),
+		outbox:  make(chan *orchestrator.PendingOp, 64),
 		mailbox: make(chan Message, 64),
 		closeCh: make(chan struct{}),
 		peers:   make(map[string]*OrchestratorTransport),
@@ -52,11 +54,11 @@ func (t *OrchestratorTransport) Connect(peer *OrchestratorTransport) {
 	t.peers[peer.addr] = peer
 }
 
-// Addr implements orchestratorv2.NodeTransport.
+// Addr implements orchestrator.NodeTransport.
 func (t *OrchestratorTransport) Addr() string { return t.addr }
 
-// Outbox implements orchestratorv2.NodeTransport.
-func (t *OrchestratorTransport) Outbox() <-chan *orchestratorv2.PendingOp { return t.outbox }
+// Outbox implements orchestrator.NodeTransport.
+func (t *OrchestratorTransport) Outbox() <-chan *orchestrator.PendingOp { return t.outbox }
 
 // Mailbox implements nodeTransport. Returns the internal (bubble) channel.
 // Panics if called before StartBridge.
@@ -70,13 +72,19 @@ func (t *OrchestratorTransport) StartBridge() {
 	// Created inside the bubble so RANode's goroutine blocking on it is durable.
 	t.internalMailbox = make(chan Message, 64)
 	t.bridgeDone = make(chan struct{})
+	var bridgeReady atomic.Bool
 
 	go func() {
 		defer close(t.bridgeDone)
+		ready := true
 		for {
 			var msg Message
 			var closed bool
 			synctest.ExternalWait(func() {
+				if ready {
+					bridgeReady.Store(true)
+					ready = false
+				}
 				select {
 				case msg = <-t.mailbox:
 				case <-t.closeCh:
@@ -86,9 +94,16 @@ func (t *OrchestratorTransport) StartBridge() {
 			if closed {
 				return
 			}
-			t.internalMailbox <- msg
+			select {
+			case t.internalMailbox <- msg:
+			case <-t.closeCh:
+				return
+			}
 		}
 	}()
+	for !bridgeReady.Load() {
+		runtime.Gosched()
+	}
 }
 
 // Send implements nodeTransport. Routes the message through the orchestrator
@@ -104,8 +119,8 @@ func (t *OrchestratorTransport) Send(to string, msg Message) {
 	}
 	synctest.ExternalWait(func() {
 		select {
-		case t.outbox <- &orchestratorv2.PendingOp{
-			Dir:  orchestratorv2.OpSend,
+		case t.outbox <- &orchestrator.PendingOp{
+			Dir:  orchestrator.OpSend,
 			From: t.addr,
 			To:   to,
 			Type: msgKindName(msg.Kind),

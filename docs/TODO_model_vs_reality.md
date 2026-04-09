@@ -47,7 +47,7 @@ current implementation. Each item needs a code change.
 
 **Note:** The orchestrator cleanup plan (REWRITE_PLAN.md) already describes this. Partially implemented by Allan's branch.
 
-**File:** `orchestratorv2/orchestrator.go`
+**File:** `orchestrator/orchestrator.go`
 
 ## 5. Done(node) not recorded as a global trace entry
 
@@ -57,4 +57,44 @@ current implementation. Each item needs a code change.
 
 **Fix:** Ensure replay checks Done entries to avoid waiting for a bubble that already exited.
 
-**File:** `orchestratorv2/orchestrator.go`
+**File:** `orchestrator/orchestrator.go`
+
+## 6. Complete trace should be round-based (flat sequence of rounds)
+
+**Model says:** The complete trace is a flat sequence of rounds. Each round = (which node ran, its local trace segment, the global decision that followed). See Definition 6.3 in model.md.
+
+**Reality:** `RecordedRun` has separate `GlobalTrace []GlobalStep` and `LocalTraces map[string][]Decision`. The local and global traces are disconnected — you can't tell which local decisions happened before which global decision. There's no round structure.
+
+**Fix:** `RecordedRun` should be a flat `[]Round` where each Round carries: node name, local segment ([]Decision), and global decision (deliver index / time advance / done).
+
+**File:** `orchestrator/orchestrator.go`
+
+## 7. Select should be a true yield point with hook
+
+**Model says:** Select with multiple ready cases should park the goroutine, fire the decision hook, and resume with the chosen case index — same mechanism as goroutine scheduling decisions.
+
+**Reality:** Select uses `selectCounter` (seed-based deterministic counter). The goroutine does not park. Select ordering is deterministic for a given seed but not independently controllable per-decision.
+
+**Fix:** In `selectgo`, when multiple cases are ready inside a bubble: park the goroutine, signal root, root calls hook with ready cases, hook returns chosen index, wake goroutine. Same pattern as `findRunnable` → root → hook for scheduling decisions.
+
+**File:** `go/src/runtime/select.go`
+
+## 8. Transport shutdown: makeRPC Phase 2 can hang
+
+**Model says:** Every `respCh` registered in pending receives exactly one value. `Close()` drains all pending. Phase 2 (`resp := <-respCh`) always completes.
+
+**Reality:** There are races between `Close()` draining and new `makeRPC` calls registering in pending. The TOCTOU checks between Phase 1 and Phase 2 are a workaround, not a fix. The pending-drain contract is not airtight.
+
+**Fix:** Ensure `makeRPC` registers `respCh` BEFORE Phase 1. `Close()` sets a closed flag, closes closeCh, then drains pending. Any `makeRPC` that registered before `Close()` gets the error via drain. Any `makeRPC` that starts after `Close()` sees the closed flag and returns immediately.
+
+**File:** `rafttest/transport.go`
+
+## 9. maybeWakeLocked should check onDecision, not externalWait
+
+**Model says:** The hook being set means an orchestrator exists. `maybeWakeLocked` should wake root when idle and hook set — regardless of `externalWait`.
+
+**Reality:** `maybeWakeLocked` checks `externalWait > 0 && onDecision != nil`. Should just check `onDecision != nil`.
+
+**Follows from:** Items 1-3 (same principle: hook set = orchestrator controls everything).
+
+**File:** `go/src/runtime/synctest.go` maybeWakeLocked

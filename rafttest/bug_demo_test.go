@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/shubhaankar/synctest/orchestratorv2"
+	"github.com/shubhaankar/synctest/orchestrator"
 	"github.com/shubhaankar/synctest/rafttest"
 )
 
@@ -47,7 +47,7 @@ func TestStaleTermBug(t *testing.T) {
 	}
 
 	obs := make(map[raft.ServerAddress]nodeObs)
-	orch := orchestratorv2.New()
+	orch := orchestrator.New()
 	for i, trans := range transports {
 		addr := addrs[i]
 		localCfg := configuration
@@ -126,7 +126,7 @@ func TestRemoveLeaderBug(t *testing.T) {
 	var leaderAddr raft.ServerAddress
 	var postSucceeded, postFailed int
 
-	orch := orchestratorv2.New()
+	orch := orchestrator.New()
 	for i, trans := range transports {
 		addr := addrs[i]
 		localCfg := configuration
