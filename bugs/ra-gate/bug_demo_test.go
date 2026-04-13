@@ -180,3 +180,43 @@ func TestGateBug_FindBug(t *testing.T) {
 		}
 	}
 }
+
+// TestGateBug_PCT uses combined G+L PCT to find the mutual exclusion bug.
+func TestGateBug_PCT(t *testing.T) {
+	runtime.GOMAXPROCS(4)
+	addrs := []string{"A", "B", "C"}
+
+	var inCS atomic.Int32
+	orch := orchestrator.New()
+	ok := orch.ExplorePCT(t, func(o *orchestrator.Orchestrator) {
+		transports := setupCluster(addrs)
+		store := NewKVStore()
+		addGateNodes(o, addrs, transports, store, &inCS)
+	}, orchestrator.PCTDepth(2), orchestrator.PCTMaxRuns(500), orchestrator.PCTSeed(1))
+
+	if ok {
+		t.Log("PCT: did not find bug within 500 runs")
+	} else {
+		t.Log("PCT: FOUND mutual exclusion violation")
+	}
+}
+
+// TestGateBug_Random uses combined G+L random scheduling to find the bug.
+func TestGateBug_Random(t *testing.T) {
+	runtime.GOMAXPROCS(4)
+	addrs := []string{"A", "B", "C"}
+
+	var inCS atomic.Int32
+	orch := orchestrator.New()
+	ok := orch.ExploreRandom(t, func(o *orchestrator.Orchestrator) {
+		transports := setupCluster(addrs)
+		store := NewKVStore()
+		addGateNodes(o, addrs, transports, store, &inCS)
+	}, orchestrator.RandomMaxRuns(500), orchestrator.RandomSeed(1))
+
+	if ok {
+		t.Log("Random: did not find bug within 500 runs")
+	} else {
+		t.Log("Random: FOUND mutual exclusion violation")
+	}
+}
