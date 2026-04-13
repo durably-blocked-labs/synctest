@@ -83,6 +83,15 @@ type GlobalDecision struct {
 	QueueSize int // number of schedulable ops at this step
 }
 
+// Step is one entry in the unified exploration trace. Global delivery
+// decisions have Node == ""; local scheduling decisions have Node set
+// to the node address. The same DFS branching logic handles both.
+type Step struct {
+	Node         string // "" = global delivery, non-empty = local scheduling
+	Index        int32  // chosen alternative (0 = FIFO)
+	Alternatives int32  // how many choices existed at this point
+}
+
 // RunObserver is called once after each run inside Explore.
 // Useful for exporting metrics without changing Explore's control flow.
 type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rec RecordedRun, passed bool)
@@ -118,6 +127,11 @@ type RecordedRun struct {
 	GlobalTrace     []GlobalStep
 	GlobalDecisions []GlobalDecision
 	LocalTraces     map[string][]synctest.Decision
+
+	// Trace is the unified chronological sequence of global delivery
+	// and local scheduling decisions, interleaved in the order they
+	// occurred. Used by ExploreAll for DFS branching.
+	Trace []Step
 }
 
 type replayDivergenceError struct {
@@ -398,65 +412,60 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 	return true
 }
 
-// exploreAllItem is one pending work item on the combined G+L DFS stack.
-type exploreAllItem struct {
-	globalPrefix  []GlobalDecision
-	localPrefixes map[string][]synctest.Decision // per-node local scheduling prefix
-	nonFIFO       int                            // shared budget across G and L
+// AllBound is an alias for GlobalBound for use with ExploreAll.
+func AllBound(k int) ExploreOption { return GlobalBound(k) }
+
+// AllMaxRuns is an alias for GlobalMaxRuns for use with ExploreAll.
+func AllMaxRuns(n int) ExploreOption { return GlobalMaxRuns(n) }
+
+// splitPrefix decomposes a unified trace into separate global and per-node
+// local prefixes suitable for initBubbles and the pick function.
+func splitPrefix(steps []Step) ([]GlobalDecision, map[string][]synctest.Decision) {
+	var global []GlobalDecision
+	local := map[string][]synctest.Decision{}
+	for _, s := range steps {
+		if s.Node == "" {
+			global = append(global, GlobalDecision{Index: int(s.Index), QueueSize: int(s.Alternatives)})
+		} else {
+			local[s.Node] = append(local[s.Node], synctest.Decision{Index: s.Index, RunqSize: s.Alternatives})
+		}
+	}
+	return global, local
 }
-
-// ExploreAllOption configures ExploreAll behavior.
-type ExploreAllOption func(*exploreAllConfig)
-
-type exploreAllConfig struct {
-	bound   int // max non-FIFO decisions (global + local combined) per trace (default 2)
-	maxRuns int // hard cap on total runs (0 = unlimited)
-}
-
-// AllBound sets the maximum number of non-FIFO decisions (global + local
-// combined) per explored trace. Defaults to 2.
-func AllBound(k int) ExploreAllOption { return func(c *exploreAllConfig) { c.bound = k } }
-
-// AllMaxRuns sets a hard cap on the total number of traces explored.
-// Defaults to 0 (unlimited).
-func AllMaxRuns(n int) ExploreAllOption { return func(c *exploreAllConfig) { c.maxRuns = n } }
 
 // ExploreAll enumerates different interleavings across both global message
 // delivery orderings AND per-node local goroutine scheduling using DFS with
 // a shared context bound.
 //
-// After each run, alternatives are enumerated from:
-//  1. Global decisions — delivery order alternatives (same as Explore).
-//  2. Local decisions — per-node scheduling alternatives at each decision
-//     point where RunqSize > 1 (multiple goroutines were runnable).
-//
-// The shared context bound limits the total number of non-FIFO decisions
-// (global + local) per trace. This is the key insight: most bugs need at
-// most 1-2 non-default decisions across the entire system.
+// Unlike Explore (global-only), ExploreAll uses a unified chronological
+// trace that interleaves global delivery and local scheduling decisions.
+// Branching at any step N truncates the trace — no stale local prefixes
+// are carried across global reorderings. This creates a proper exploration
+// tree suitable for CHESS-style algorithms.
 //
 // setup is called before each run to register fresh nodes. Options:
 //
-//	AllBound(k)   — max non-FIFO decisions per trace (default 2)
-//	AllMaxRuns(n) — hard cap on total traces (default unlimited)
+//	AllBound(k) / GlobalBound(k)   — max non-FIFO decisions per trace (default 2)
+//	AllMaxRuns(n) / GlobalMaxRuns(n) — hard cap on total traces (default unlimited)
 //
 // Returns true if all explored interleavings passed, false on the first failure.
-func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts ...ExploreAllOption) bool {
+func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts ...ExploreOption) bool {
 	t.Helper()
-	cfg := &exploreAllConfig{bound: 2}
+	cfg := &exploreConfig{bound: 2}
 	verbose := testing.Verbose()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	stack := []exploreAllItem{{
-		globalPrefix:  nil,
-		localPrefixes: nil,
-		nonFIFO:       0,
-	}}
+	type workItem struct {
+		prefix  []Step
+		nonFIFO int
+	}
+
+	stack := []workItem{{prefix: nil, nonFIFO: 0}}
 	runCount := 0
 
 	for len(stack) > 0 && (cfg.maxRuns == 0 || runCount < cfg.maxRuns) {
-		// Pop from stack (DFS: last in, first out).
 		item := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 
@@ -464,16 +473,19 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 		o.nodes = make(map[string]*nodeCtrl)
 		o.order = nil
 		setup(o)
-		o.initBubbles(item.localPrefixes)
+
+		// Decompose the unified prefix into global + per-node local prefixes
+		// for the runtime's two-layer interface.
+		globalPrefix, localPrefixes := splitPrefix(item.prefix)
+		o.initBubbles(localPrefixes)
 
 		// Force GC to flush mark workers from the previous bubble before
 		// creating a fresh set of distributed bubbles.
 		runtime.GC()
 
-		prefix := item.globalPrefix
 		pick := func(schedulable []*PendingOp, step int) int {
-			if step < len(prefix) {
-				d := prefix[step]
+			if step < len(globalPrefix) {
+				d := globalPrefix[step]
 				if d.QueueSize != len(schedulable) {
 					panic(replayDivergenceError{
 						Step:      step,
@@ -485,10 +497,10 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 			}
 			return 0
 		}
-		rec, decisions, passed, diverged := o.runOnceForExplore(t, pick)
+		rec, _, passed, diverged := o.runOnceForExplore(t, pick)
 		if diverged != nil {
 			if verbose {
-				t.Logf("orchestrator: exploreAll: pruned invalid gPrefix=%v (%v)", item.globalPrefix, *diverged)
+				t.Logf("orchestrator: exploreAll: pruned (prefix len %d, %v)", len(item.prefix), *diverged)
 			}
 			continue
 		}
@@ -505,8 +517,8 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 			}
 		}
 		if verbose {
-			t.Logf("orchestrator: exploreAll: run %d gPrefix=%v nonFIFO=%d\n\ttrace: %s",
-				runCount, item.globalPrefix, item.nonFIFO, sb.String())
+			t.Logf("orchestrator: exploreAll: run %d prefixLen=%d nonFIFO=%d\n\ttrace: %s",
+				runCount, len(item.prefix), item.nonFIFO, sb.String())
 		}
 
 		if !passed {
@@ -514,72 +526,40 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 			return false
 		}
 
-		// ── Enqueue global alternatives ──
-		// Push in reverse step order so earliest alternatives are explored first.
-		for step := len(decisions) - 1; step >= len(item.globalPrefix); step-- {
-			d := decisions[step]
-			if d.QueueSize <= 1 {
-				continue
-			}
-			for alt := 1; alt < d.QueueSize; alt++ {
-				newNonFIFO := item.nonFIFO + 1
-				if newNonFIFO > cfg.bound {
+		// Enumerate alternatives from the unified trace in two passes.
+		// Pass 1 (local) is pushed first → explored later (deeper in LIFO stack).
+		// Pass 2 (global) is pushed second → explored first (top of stack).
+		// This prioritises global delivery reorderings, which fundamentally
+		// alter protocol execution, over local goroutine scheduling variants.
+		pushAlternatives := func(globalOnly bool) {
+			for i := len(rec.Trace) - 1; i >= len(item.prefix); i-- {
+				s := rec.Trace[i]
+				isGlobal := s.Node == ""
+				if globalOnly != isGlobal {
 					continue
 				}
-				newGlobalPrefix := make([]GlobalDecision, step+1)
-				copy(newGlobalPrefix, decisions[:step])
-				newGlobalPrefix[step] = GlobalDecision{Index: alt, QueueSize: d.QueueSize}
-				stack = append(stack, exploreAllItem{
-					globalPrefix:  newGlobalPrefix,
-					localPrefixes: copyLocalPrefixes(rec.LocalTraces),
-					nonFIFO:       newNonFIFO,
-				})
-			}
-		}
-
-		// ── Enqueue local alternatives (per node) ──
-		// For each node, iterate its local trace. At each decision point where
-		// RunqSize > 1, create a work item with a modified local prefix for
-		// that node (all other prefixes replayed exactly).
-		for _, addr := range o.order {
-			localTrace := rec.LocalTraces[addr]
-			localPrefixLen := 0
-			if item.localPrefixes != nil {
-				localPrefixLen = len(item.localPrefixes[addr])
-			}
-
-			for step := len(localTrace) - 1; step >= localPrefixLen; step-- {
-				d := localTrace[step]
-				if d.RunqSize <= 1 {
+				if s.Alternatives <= 1 {
 					continue
 				}
-				for alt := int32(1); alt < d.RunqSize; alt++ {
-					if alt == d.Index {
+				for alt := int32(1); alt < s.Alternatives; alt++ {
+					if alt == s.Index {
 						continue // skip the choice already taken
 					}
 					newNonFIFO := item.nonFIFO + 1
 					if newNonFIFO > cfg.bound {
 						continue
 					}
-					// Build new local prefix for this node: replay up to step, then change.
-					newNodePrefix := make([]synctest.Decision, step+1)
-					copy(newNodePrefix, localTrace[:step])
-					modified := localTrace[step]
-					modified.Index = alt
-					newNodePrefix[step] = modified
-
-					// Copy all local traces as prefixes, replacing this node's.
-					newLocalPrefixes := copyLocalPrefixes(rec.LocalTraces)
-					newLocalPrefixes[addr] = newNodePrefix
-
-					stack = append(stack, exploreAllItem{
-						globalPrefix:  copyGlobalDecisions(decisions),
-						localPrefixes: newLocalPrefixes,
-						nonFIFO:       newNonFIFO,
-					})
+					// Truncate at step i and replace with the alternative.
+					// Everything after i is discarded — no stale prefixes.
+					newPrefix := make([]Step, i+1)
+					copy(newPrefix, rec.Trace[:i])
+					newPrefix[i] = Step{Node: s.Node, Index: alt, Alternatives: s.Alternatives}
+					stack = append(stack, workItem{prefix: newPrefix, nonFIFO: newNonFIFO})
 				}
 			}
 		}
+		pushAlternatives(false) // local alternatives (explored later)
+		pushAlternatives(true)  // global alternatives (explored first)
 	}
 
 	if verbose {
@@ -593,6 +573,7 @@ func (o *Orchestrator) runOnceForExplore(t *testing.T, pick pickFn) (rec Recorde
 		if r := recover(); r != nil {
 			if d, ok := r.(replayDivergenceError); ok {
 				diverged = &d
+				o.cleanupBubbles()
 				return
 			}
 			panic(r)
@@ -602,25 +583,44 @@ func (o *Orchestrator) runOnceForExplore(t *testing.T, pick pickFn) (rec Recorde
 	return rec, decisions, passed, nil
 }
 
-// copyLocalPrefixes deep-copies a local traces map.
-func copyLocalPrefixes(src map[string][]synctest.Decision) map[string][]synctest.Decision {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string][]synctest.Decision, len(src))
-	for k, v := range src {
-		cp := make([]synctest.Decision, len(v))
-		copy(cp, v)
-		dst[k] = cp
-	}
-	return dst
-}
 
-// copyGlobalDecisions deep-copies a global decisions slice.
-func copyGlobalDecisions(src []GlobalDecision) []GlobalDecision {
-	dst := make([]GlobalDecision, len(src))
-	copy(dst, src)
-	return dst
+
+// cleanupBubbles tears down orphaned bubbles after a divergence panic.
+// It signals transports to close (unblocking bridge goroutines in
+// ExternalWait), then sends DelegateIdle resumes to unblock roots
+// frozen in their hooks, and waits for each bubble to terminate.
+func (o *Orchestrator) cleanupBubbles() {
+	// Phase 1: signal transports to shut down (non-blocking).
+	// This closes closeCh, causing bridge goroutines to exit ExternalWait.
+	for _, addr := range o.order {
+		ctrl := o.nodes[addr]
+		type shutdowner interface{ Shutdown() }
+		if s, ok := ctrl.transport.(shutdowner); ok {
+			s.Shutdown()
+		}
+	}
+	// Phase 2: unblock roots from their hooks.
+	for _, addr := range o.order {
+		ctrl := o.nodes[addr]
+		if ctrl.bubble == nil {
+			continue
+		}
+		select {
+		case ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}:
+		default:
+		}
+	}
+	// Phase 3: wait for bubbles to finish.
+	for _, addr := range o.order {
+		ctrl := o.nodes[addr]
+		if ctrl.done == nil {
+			continue
+		}
+		select {
+		case <-ctrl.done:
+		case <-time.After(5 * time.Second):
+		}
+	}
 }
 
 // bubbleEvent is one event from a fan-in goroutine: either idle or done.
@@ -691,6 +691,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 
 	n := len(o.nodes)
 	var globalDecisions []GlobalDecision
+	var unified []Step // chronological unified trace (global + local interleaved)
 
 	// pendingIdle holds bubbles that sent an IdleState but have not yet
 	// received a Resume. They are frozen in their hook.
@@ -717,10 +718,23 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		}
 	}
 
+	// drainLocalSteps appends a node's new local scheduling decisions to
+	// the unified trace. Called when a bubble goes idle or done.
+	drainLocalSteps := func(addr string) {
+		ctrl := o.nodes[addr]
+		if ctrl.bubble == nil {
+			return
+		}
+		for _, d := range ctrl.bubble.DrainLocal() {
+			unified = append(unified, Step{Node: addr, Index: d.Index, Alternatives: d.Alternatives})
+		}
+	}
+
 	markDone := func(addr, reason string) {
 		if doneSet[addr] {
 			return
 		}
+		drainLocalSteps(addr)
 		o.drainOutbox(addr)
 		delete(pendingIdle, addr)
 		doneSet[addr] = true
@@ -737,6 +751,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		case <-ctrl.done:
 			markDone(addr, "after idle report")
 		default:
+			drainLocalSteps(addr)
 			pendingIdle[addr] = idle
 		}
 	}
@@ -863,6 +878,11 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 				Index:     chosenIdx,
 				QueueSize: len(o.schedulable),
 			})
+			unified = append(unified, Step{
+				Node:         "",
+				Index:        int32(chosenIdx),
+				Alternatives: int32(len(o.schedulable)),
+			})
 
 			op := o.schedulable[chosenIdx]
 			o.schedulable = append(o.schedulable[:chosenIdx], o.schedulable[chosenIdx+1:]...)
@@ -934,6 +954,8 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 			} else {
 				// No sends and no timers. Resume idle bubbles one at a time so
 				// they can finish any remaining internal work and exit.
+				// If a bubble doesn't respond (deadlocked test function with
+				// bridges in ExternalWait), shut down its transport to unblock.
 				if verbose {
 					t.Logf("orchestrator: no pending sends or timers — resuming all to drain")
 				}
@@ -944,7 +966,29 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}
-					ev := waitNodeEvent(addr)
+
+					// Wait for the bubble to respond. If it doesn't within
+					// 500ms, the test function is deadlocked with bridges in
+					// ExternalWait. Shut down its transport to free the bridges
+					// and let the runtime detect deadlock.
+					var ev bubbleEvent
+					timer := time.NewTimer(500 * time.Millisecond)
+					select {
+					case e := <-events:
+						timer.Stop()
+						if e.addr != addr {
+							pendingEvents[e.addr] = append(pendingEvents[e.addr], e)
+							ev = waitNodeEvent(addr)
+						} else {
+							ev = e
+						}
+					case <-timer.C:
+						type shutdowner interface{ Shutdown() }
+						if s, ok := ctrl.transport.(shutdowner); ok {
+							s.Shutdown()
+						}
+						ev = waitNodeEvent(addr)
+					}
 					switch {
 					case ev.idle != nil:
 						recordIdle(addr, *ev.idle)
@@ -971,6 +1015,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		GlobalTrace:     o.trace,
 		GlobalDecisions: globalDecisions,
 		LocalTraces:     localTraces,
+		Trace:           unified,
 	}, globalDecisions, allPassed
 }
 

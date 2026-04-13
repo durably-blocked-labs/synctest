@@ -1,4 +1,4 @@
-package radepth2
+package ragate
 
 import (
 	"testing/synctest"
@@ -6,35 +6,29 @@ import (
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-// MsgKind classifies RA lock protocol messages.
+// MsgKind classifies RA protocol messages.
 type MsgKind int
 
 const (
 	MsgRequest MsgKind = iota
 	MsgReply
-	MsgKVGet
-	MsgKVPut
-	MsgKVDone
-	MsgKVReply
 )
 
-// Message is the wire format for RA lock protocol messages.
+// Message is the wire format for RA protocol messages.
 type Message struct {
 	Kind      MsgKind
 	From      string
 	Timestamp int
-	Key       string // KV: key for Get/Put
-	Value     int    // KV: value for Put/Reply
 }
 
-// nodeTransport is the interface RANode uses to send and receive messages.
+// nodeTransport is the interface GateRANode uses to send and receive messages.
 type nodeTransport interface {
 	Send(to string, msg Message)
 	Mailbox() <-chan Message
 }
 
-// OrchestratorTransport routes messages through the orchestrator
-// global orchestrator, enabling controlled delivery ordering.
+// OrchestratorTransport routes messages through the global orchestrator,
+// enabling controlled delivery ordering for deterministic testing.
 type OrchestratorTransport struct {
 	addr    string
 	outbox  chan *orchestrator.PendingOp
@@ -64,6 +58,9 @@ func (t *OrchestratorTransport) Addr() string                           { return
 func (t *OrchestratorTransport) Outbox() <-chan *orchestrator.PendingOp { return t.outbox }
 func (t *OrchestratorTransport) Mailbox() <-chan Message                { return t.internalMailbox }
 
+// StartBridge creates the internal mailbox channel inside the bubble and
+// launches the bridge goroutine that forwards orchestrator-delivered messages
+// from the external mailbox to the internal one.
 func (t *OrchestratorTransport) StartBridge() {
 	t.internalMailbox = make(chan Message, 64)
 	t.bridgeDone = make(chan struct{})
@@ -92,6 +89,9 @@ func (t *OrchestratorTransport) StartBridge() {
 	}()
 }
 
+// Send routes a message through the orchestrator by submitting a PendingOp
+// to the outbox. The orchestrator calls Execute to write the message to the
+// target's external mailbox when it decides to deliver it.
 func (t *OrchestratorTransport) Send(to string, msg Message) {
 	peer, ok := t.peers[to]
 	if !ok {
@@ -116,6 +116,20 @@ func (t *OrchestratorTransport) Send(to string, msg Message) {
 	})
 }
 
+// Shutdown signals the bridge goroutine to stop by closing closeCh.
+// Unlike Close, it returns immediately without waiting for the bridge
+// to exit. Used by the orchestrator's cleanup path to unblock
+// ExternalWait goroutines before sending Resume to orphaned roots.
+func (t *OrchestratorTransport) Shutdown() {
+	select {
+	case <-t.closeCh:
+		return
+	default:
+		close(t.closeCh)
+	}
+}
+
+// Close shuts down the bridge goroutine and waits for it to exit.
 func (t *OrchestratorTransport) Close() {
 	select {
 	case <-t.closeCh:
@@ -134,14 +148,6 @@ func msgKindName(k MsgKind) string {
 		return "Request"
 	case MsgReply:
 		return "Reply"
-	case MsgKVGet:
-		return "KVGet"
-	case MsgKVPut:
-		return "KVPut"
-	case MsgKVDone:
-		return "KVDone"
-	case MsgKVReply:
-		return "KVReply"
 	default:
 		return "Unknown"
 	}

@@ -56,6 +56,13 @@ type Resume struct {
 	SelectCounter uint64
 }
 
+// LocalStep records one local scheduling decision made by the bubble's hook.
+// Used by the global orchestrator to build the chronological unified trace.
+type LocalStep struct {
+	Index        int32 // which goroutine was chosen (0 = FIFO)
+	Alternatives int32 // how many runnable goroutines existed (RunqSize)
+}
+
 // Bubble is the local orchestrator for one synctest bubble.
 //
 // Scheduling decisions are handled internally (FIFO by default, or
@@ -88,6 +95,12 @@ type Bubble struct {
 	// Seed for the global rand source. Set at the start of Hook().
 	seed    int64
 	hasSeed bool
+
+	// Local decision log for building the unified exploration trace.
+	// Appended by schedule(), drained by the orchestrator after each
+	// idle point via DrainLocal().
+	localLog    []LocalStep
+	lastDrained int
 }
 
 // Option configures a Bubble.
@@ -169,16 +182,28 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 
 // schedule handles a non-idle scheduling decision locally.
 func (b *Bubble) schedule(state BubbleState) int32 {
+	var idx int32
 	// Follow prefix if available.
 	if b.prefixStep < len(b.prefix) {
-		idx := b.prefix[b.prefixStep].Index
+		idx = b.prefix[b.prefixStep].Index
 		b.prefixStep++
-		return idx
+	} else if b.scheduleFn != nil {
+		// Custom scheduler if set.
+		idx = b.scheduleFn(state)
 	}
-	// Custom scheduler if set.
-	if b.scheduleFn != nil {
-		return b.scheduleFn(state)
-	}
-	// Default: FIFO.
-	return 0
+	// Record for the unified trace.
+	b.localLog = append(b.localLog, LocalStep{Index: idx, Alternatives: state.RunnableN})
+	return idx
+}
+
+// DrainLocal returns local scheduling decisions recorded since the last drain.
+// Called by the global orchestrator after each idle/done event to build the
+// chronological unified trace. Safe to call only when the bubble is frozen
+// in its hook (not concurrently with schedule).
+func (b *Bubble) DrainLocal() []LocalStep {
+	steps := b.localLog[b.lastDrained:]
+	b.lastDrained = len(b.localLog)
+	out := make([]LocalStep, len(steps))
+	copy(out, steps)
+	return out
 }

@@ -1,10 +1,10 @@
-package radepth2
+package ragate
 
 import "sync"
 
 // KVStore is a simple in-memory key-value store. Individual Get and Put
 // calls are safe for concurrent use, but read-modify-write sequences are
-// NOT atomic.
+// NOT atomic — the RA lock is supposed to protect them.
 type KVStore struct {
 	mu   sync.Mutex
 	data map[string]int

@@ -1,4 +1,4 @@
-// Package radepth2 demonstrates a depth-2 G+L bug in a Ricart-Agrawala
+// Package ragate demonstrates a depth-2 G+L bug in a Ricart-Agrawala
 // distributed lock variant that uses close(gate) to wake multiple goroutines.
 //
 // The close(gate) pattern: when all REPLY messages are collected, the handler
@@ -20,7 +20,7 @@
 // Neither decision alone triggers the bug: without (1) the deferred queue is
 // empty so the flusher is a no-op; without (2) the App sets state=Held before
 // the flusher runs. Only ExploreAll (combined G+L search) finds it.
-package radepth2
+package ragate
 
 import "sync"
 
@@ -117,7 +117,6 @@ func (n *GateRANode) AcquireLock() {
 	}
 
 	if len(n.peers) == 0 {
-		// No peers: enter CS immediately.
 		n.mu.Lock()
 		n.state = Held
 		n.mu.Unlock()
@@ -168,16 +167,7 @@ func (n *GateRANode) deferredFlusher() {
 	<-n.gate
 
 	n.mu.Lock()
-	// BUG: check state to decide whether to send deferred REPLYs.
-	// If App hasn't run yet, state is Released (not Held), so we
-	// think we're not in the CS and grant all deferred requests.
-	//
-	// Correct behavior: deferred requests should only be sent after
-	// ReleaseLock, not after gate opens. But we're checking state here
-	// as a "fast path" to send them early if we're not in CS.
 	if n.state == Held || n.state == Wanted {
-		// In CS or still collecting — don't flush yet.
-		// The deferred list stays for ReleaseLock to handle.
 		n.mu.Unlock()
 		return
 	}
@@ -214,14 +204,11 @@ func (n *GateRANode) handleMessage(msg Message) {
 		}
 		n.repliesReceived++
 		if n.repliesReceived == len(n.peers) {
-			// All REPLYs collected. Transition to Released (clearing Wanted)
-			// and close the gate. Both App and DeferredFlusher will wake.
 			n.state = Released
 			close(n.gate)
 		}
 
 	case MsgRequest:
-		// Standard RA: defer if we're in CS or have higher priority.
 		shouldDefer := n.state == Held ||
 			(n.state == Wanted && (n.reqClock < msg.Timestamp ||
 				(n.reqClock == msg.Timestamp && n.id < msg.From)))
@@ -229,15 +216,12 @@ func (n *GateRANode) handleMessage(msg Message) {
 			n.deferred = append(n.deferred, msg.From)
 		} else {
 			ts := n.clock
-			// Must unlock before Send (Send calls ExternalWait).
 			n.mu.Unlock()
 			n.transport.Send(msg.From, Message{
 				Kind:      MsgReply,
 				From:      n.id,
 				Timestamp: ts,
 			})
-			// Re-lock so defer Unlock is valid. Use a different pattern:
-			// we already unlocked, so lock again for the deferred unlock.
 			n.mu.Lock()
 		}
 	}

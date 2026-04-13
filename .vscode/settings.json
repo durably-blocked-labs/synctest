@@ -1,16 +1,16 @@
 {
-  "go.goroot": "/Users/allantan/Documents/Programming/research/synctest/go",
+  "go.goroot": "${workspaceFolder}/go",
   "go.alternateTools": {
-    "go": "/Users/allantan/Documents/Programming/research/synctest/go/bin/go",
+    "go": "${workspaceFolder}/go/bin/go",
   },
   "go.toolsEnvVars": {
     "GOTOOLCHAIN": "local",
-    "GOROOT": "/Users/allantan/Documents/Programming/research/synctest/go",
+    "GOROOT": "${workspaceFolder}/go",
   },
   "gopls": {
     "build.env": {
       "GOTOOLCHAIN": "local",
-      "GOROOT": "/Users/allantan/Documents/Programming/research/synctest/go",
+      "GOROOT": "${workspaceFolder}/go",
     },
   },
 }

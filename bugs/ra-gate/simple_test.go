@@ -1,4 +1,4 @@
-package radepth2
+package ragate
 
 import (
 	"runtime"
@@ -13,17 +13,7 @@ func TestSimpleGateRA(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 	addrs := []string{"A", "B", "C"}
 
-	transports := make(map[string]*OrchestratorTransport, len(addrs))
-	for _, addr := range addrs {
-		transports[addr] = NewOrchestratorTransport(addr)
-	}
-	for _, tr := range transports {
-		for _, peer := range transports {
-			if tr != peer {
-				tr.Connect(peer)
-			}
-		}
-	}
+	transports := setupCluster(addrs)
 
 	orch := orchestrator.New()
 	for i, addr := range addrs {
