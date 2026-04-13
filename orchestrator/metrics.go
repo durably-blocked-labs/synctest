@@ -15,14 +15,17 @@ import (
 // RunRecord is the JSON-serializable snapshot of one exploration run.
 // Written to a JSONL file by NewJSONLObserver; read by charts/charts.py.
 type RunRecord struct {
+	Policy                string                           `json:"policy"`
 	RunNum                int                              `json:"run_num"`
 	NonFIFO               int                              `json:"non_fifo"`
 	ElapsedNs             int64                            `json:"elapsed_ns"`
 	LogicalTimeNs         int64                            `json:"logical_time_ns"`
 	Passed                bool                             `json:"passed"`
+	TotalDecisions        int                              `json:"total_decisions"`
 	GlobalDecisionCount   int                              `json:"global_decision_count"`
 	LocalDecisionTotal    int                              `json:"local_decision_total"`
 	LocalDecisionByNode   map[string]int                   `json:"local_decision_by_node,omitempty"`
+	BranchPoints          int                              `json:"branch_points"`
 	LocalTraceTotal       int                              `json:"local_trace_total,omitempty"`
 	LocalTraceByNodeCount map[string]int                   `json:"local_trace_by_node_count,omitempty"`
 	LocalTraceByNode      map[string][]LocalDecisionRecord `json:"local_trace_by_node,omitempty"`
@@ -53,14 +56,17 @@ type LocalDecisionRecord struct {
 const synctestBaseTimeNs = int64(946684800000000000)
 
 // NewJSONLObserver returns a RunObserver that appends one JSON line per run to w.
-func NewJSONLObserver(w io.Writer) RunObserver {
+// policy tags each record (e.g. "chess", "pct", "random"). Pass "" to omit.
+func NewJSONLObserver(w io.Writer, policy string) RunObserver {
 	enc := json.NewEncoder(w)
 	return func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResult, passed bool) {
 		r := RunRecord{
-			RunNum:    runNum,
-			NonFIFO:   nonFIFO,
-			ElapsedNs: elapsed.Nanoseconds(),
-			Passed:    passed,
+			Policy:         policy,
+			RunNum:         runNum,
+			NonFIFO:        nonFIFO,
+			ElapsedNs:      elapsed.Nanoseconds(),
+			TotalDecisions: len(rr.Trace),
+			Passed:         passed,
 		}
 
 		// Count global/local decisions and build per-node breakdown from unified trace.
@@ -68,6 +74,9 @@ func NewJSONLObserver(w io.Writer) RunObserver {
 		r.LocalTraceByNodeCount = make(map[string]int)
 		localStepIdx := 0
 		for _, s := range rr.Trace {
+			if s.Alternatives > 1 {
+				r.BranchPoints++
+			}
 			if s.Kind == Global {
 				r.GlobalDecisionCount++
 			} else {
@@ -180,7 +189,7 @@ func ObserverFromEnv(t *testing.T) ExploreOption {
 		return func(*exploreConfig) {}
 	}
 	t.Cleanup(func() { f.Close() })
-	return WithObserver(NewJSONLObserver(f))
+	return WithObserver(NewJSONLObserver(f, ""))
 }
 
 // BoundFromEnv returns a GlobalBound option from the EXPLORE_K environment variable.
