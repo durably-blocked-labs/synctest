@@ -57,7 +57,7 @@ Reports timers, ExternalWait count, blocked goroutines.
 ### Deterministic Select (NEW)
 Inside a bubble, `selectgo` uses `bubble.selectCounter` instead of
 `cheaprandn`. Different counter values → different select outcomes.
-The orchestrator controls it via `Resume{SelectCounter: n}`.
+The orchestrator controls it via `WithSeed` at bubble creation.
 
 **File:** `go/src/runtime/select.go` line 191
 
@@ -76,7 +76,7 @@ synctest.SetDecisionHook(b.Hook())
 // Global orchestrator reads:
 idle := <-b.Idle
 // Global orchestrator responds:
-b.Resume <- distributed.Resume{AdvanceTimeTo: t, SelectCounter: n}
+b.Resume <- distributed.Resume{AdvanceTimeTo: t}
 ```
 
 **File:** `distributed/distributed.go`

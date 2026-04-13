@@ -48,12 +48,6 @@ type Resume struct {
 	// idle/drain logic after returning from the hook instead of immediately
 	// re-entering the orchestrator handshake.
 	DelegateIdle bool
-
-	// SelectCounter sets the bubble's select counter before returning.
-	// This controls the deterministic ordering of select statements.
-	// Different values explore different select interleavings.
-	// 0 means don't change.
-	SelectCounter uint64
 }
 
 // LocalStep records one local scheduling decision made by the bubble's hook.
@@ -171,8 +165,6 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 		if r.AdvanceTimeTo > 0 {
 			synctest.SetTime(r.AdvanceTimeTo)
 		}
-		// r.SelectCounter is reserved for future select-interleaving control;
-		// synctest.SetSelectOffset is not yet available in the runtime.
 		if r.DelegateIdle {
 			return -1
 		}

@@ -119,9 +119,9 @@ select via `selectCounter` in selectgo) is complete and working.
 In `go/src/runtime/select.go`, when a goroutine is in a bubble, `selectgo`
 uses `bubble.selectCounter` instead of `cheaprandn` for the pollorder shuffle.
 This makes select ordering deterministic and controllable. The orchestrator
-sets the counter via `Resume{SelectCounter: n}` through the distributed
-package. Different counter values produce different select interleavings —
-the orchestrator can explore them systematically.
+sets the counter via `WithSeed` through the distributed package. Different
+seed values produce different select interleavings — the orchestrator can
+explore them systematically.
 
 ---
 
@@ -156,7 +156,7 @@ uses a deterministic counter (`bubble.selectCounter`) instead of `cheaprandn`
 for the pollorder shuffle. This means:
 
 - Select ordering is **deterministic** within a bubble (same counter → same outcome)
-- The orchestrator controls it via `Resume{SelectCounter: n}`
+- The orchestrator controls it via `WithSeed` at bubble creation
 - Different counter values explore different select interleavings
 - The existing `cheaprandn` is preserved outside bubbles (no behavior change)
 
