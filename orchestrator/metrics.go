@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"testing/synctest"
 	"time"
 )
 
@@ -26,7 +25,6 @@ type RunRecord struct {
 	LocalDecisionByNode   map[string]int                   `json:"local_decision_by_node,omitempty"`
 	LocalTraceTotal       int                              `json:"local_trace_total,omitempty"`
 	LocalTraceByNodeCount map[string]int                   `json:"local_trace_by_node_count,omitempty"`
-	LocalDecisionCapNode  map[string]bool                  `json:"local_decision_at_cap_by_node,omitempty"`
 	LocalTraceByNode      map[string][]LocalDecisionRecord `json:"local_trace_by_node,omitempty"`
 	QueueSizes            []int                            `json:"queue_sizes"`
 	TraceFingerprint      string                           `json:"trace_fingerprint"`
@@ -42,92 +40,85 @@ type DeliverRecord struct {
 	QueueSize int    `json:"queue_size"`
 }
 
-// LocalDecisionRecord is a compact JSON representation of one synctest
-// scheduler decision inside a node bubble.
+// LocalDecisionRecord is a compact JSON representation of one local
+// scheduling decision.
 type LocalDecisionRecord struct {
-	Step       int32    `json:"step"`
+	Step       int      `json:"step"`
 	Index      int32    `json:"index"`
 	ChosenBgid uint32   `json:"chosen_bgid"`
 	RunqSize   int32    `json:"runq_size"`
 	RunqBgids  []uint32 `json:"runq_bgids,omitempty"`
-	WaitReason uint8    `json:"wait_reason"`
 }
 
 const synctestBaseTimeNs = int64(946684800000000000)
-const localDecisionRecordLimit = 512
 
 // NewJSONLObserver returns a RunObserver that appends one JSON line per run to w.
-// Each line is a RunRecord containing timing, decision counts, queue-size
-// history, and the trace fingerprint. Designed for offline chart generation.
-//
-// Example:
-//
-//	f, _ := os.Create("explore.jsonl")
-//	defer f.Close()
-//	orch.Explore(t, setup, GlobalBound(2), WithObserver(NewJSONLObserver(f)))
 func NewJSONLObserver(w io.Writer) RunObserver {
 	enc := json.NewEncoder(w)
-	return func(runNum int, nonFIFO int, elapsed time.Duration, rec RecordedRun, passed bool) {
+	return func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResult, passed bool) {
 		r := RunRecord{
-			RunNum:              runNum,
-			NonFIFO:             nonFIFO,
-			ElapsedNs:           elapsed.Nanoseconds(),
-			Passed:              passed,
-			GlobalDecisionCount: len(rec.GlobalDecisions),
+			RunNum:    runNum,
+			NonFIFO:   nonFIFO,
+			ElapsedNs: elapsed.Nanoseconds(),
+			Passed:    passed,
 		}
 
-		// Per-node local decision counts. LocalDecision* intentionally counts
-		// only meaningful application-level scheduler choices: points where
-		// more than one non-root bubble goroutine was runnable. Bgid 0 is the
-		// synctest root/control-plane goroutine, not application work.
-		r.LocalDecisionByNode = make(map[string]int, len(rec.LocalTraces))
-		r.LocalTraceByNodeCount = make(map[string]int, len(rec.LocalTraces))
-		r.LocalDecisionCapNode = make(map[string]bool, len(rec.LocalTraces))
-		for addr, decisions := range rec.LocalTraces {
-			traceLen := len(decisions)
-			meaningful := meaningfulLocalDecisionCount(decisions)
-			r.LocalTraceByNodeCount[addr] = traceLen
-			r.LocalTraceTotal += traceLen
-			r.LocalDecisionByNode[addr] = meaningful
-			r.LocalDecisionTotal += meaningful
-			if traceLen >= localDecisionRecordLimit {
-				r.LocalDecisionCapNode[addr] = true
-			}
-		}
-		if len(r.LocalDecisionCapNode) == 0 {
-			r.LocalDecisionCapNode = nil
-		}
-		if includeLocalTrace(passed) {
-			r.LocalTraceByNode = make(map[string][]LocalDecisionRecord, len(rec.LocalTraces))
-			for addr, decisions := range rec.LocalTraces {
-				trace := make([]LocalDecisionRecord, 0, len(decisions))
-				for _, d := range decisions {
-					n := int(d.RunqSize)
-					if n > len(d.RunqBgids) {
-						n = len(d.RunqBgids)
+		// Count global/local decisions and build per-node breakdown from unified trace.
+		r.LocalDecisionByNode = make(map[string]int)
+		r.LocalTraceByNodeCount = make(map[string]int)
+		localStepIdx := 0
+		for _, s := range rr.Trace {
+			if s.Kind == Global {
+				r.GlobalDecisionCount++
+			} else {
+				r.LocalTraceByNodeCount[s.Node]++
+				r.LocalTraceTotal++
+				// Count meaningful decisions: >1 non-root goroutine runnable.
+				nonRoot := 0
+				for _, bg := range s.RunqBGIDs {
+					if bg != 0 {
+						nonRoot++
 					}
-					runqBgids := make([]uint32, 0, n)
-					for i := 0; i < n; i++ {
-						runqBgids = append(runqBgids, d.RunqBgids[i])
-					}
-					trace = append(trace, LocalDecisionRecord{
-						Step:       d.Step,
-						Index:      d.Index,
-						ChosenBgid: d.ChosenBgid,
-						RunqSize:   d.RunqSize,
-						RunqBgids:  runqBgids,
-						WaitReason: d.WaitReason,
-					})
 				}
-				r.LocalTraceByNode[addr] = trace
+				if nonRoot > 1 {
+					r.LocalDecisionByNode[s.Node]++
+					r.LocalDecisionTotal++
+				}
+				localStepIdx++
 			}
 		}
 
-		// Walk GlobalTrace to extract StepDeliver entries.
-		// GlobalDecisions is parallel to StepDeliver entries (one record per delivery).
+		// Build local trace detail if requested.
+		if includeLocalTrace(passed) {
+			r.LocalTraceByNode = make(map[string][]LocalDecisionRecord)
+			localStep := 0
+			for _, s := range rr.Trace {
+				if s.Kind != Local {
+					continue
+				}
+				r.LocalTraceByNode[s.Node] = append(r.LocalTraceByNode[s.Node], LocalDecisionRecord{
+					Step:       localStep,
+					Index:      s.Index,
+					ChosenBgid: s.ChosenBGID,
+					RunqSize:   s.Alternatives,
+					RunqBgids:  s.RunqBGIDs,
+				})
+				localStep++
+			}
+		}
+
+		// Build global decisions list from trace for delivery indexing.
+		var globalDecisions []struct{ idx, qs int }
+		for _, s := range rr.Trace {
+			if s.Kind == Global {
+				globalDecisions = append(globalDecisions, struct{ idx, qs int }{int(s.Index), int(s.Alternatives)})
+			}
+		}
+
+		// Walk GlobalTrace to extract delivery events and fingerprint.
 		dIdx := 0
 		var fp strings.Builder
-		for _, step := range rec.GlobalTrace {
+		for _, step := range rr.GlobalTrace {
 			if step.Type == StepTimeAdvance && step.Time > synctestBaseTimeNs {
 				r.LogicalTimeNs = step.Time - synctestBaseTimeNs
 			}
@@ -135,10 +126,9 @@ func NewJSONLObserver(w io.Writer) RunObserver {
 				continue
 			}
 			var idx, qs int
-			if dIdx < len(rec.GlobalDecisions) {
-				d := rec.GlobalDecisions[dIdx]
-				idx = d.Index
-				qs = d.QueueSize
+			if dIdx < len(globalDecisions) {
+				idx = globalDecisions[dIdx].idx
+				qs = globalDecisions[dIdx].qs
 			}
 			r.QueueSizes = append(r.QueueSizes, qs)
 			r.DeliverSeq = append(r.DeliverSeq, DeliverRecord{
@@ -160,26 +150,6 @@ func NewJSONLObserver(w io.Writer) RunObserver {
 	}
 }
 
-func meaningfulLocalDecisionCount(decisions []synctest.Decision) int {
-	count := 0
-	for _, d := range decisions {
-		nonRootRunnable := 0
-		n := int(d.RunqSize)
-		if n > len(d.RunqBgids) {
-			n = len(d.RunqBgids)
-		}
-		for i := 0; i < n; i++ {
-			if d.RunqBgids[i] != 0 {
-				nonRootRunnable++
-			}
-		}
-		if nonRootRunnable > 1 {
-			count++
-		}
-	}
-	return count
-}
-
 func includeLocalTrace(passed bool) bool {
 	switch strings.ToLower(os.Getenv("METRICS_INCLUDE_LOCAL_TRACE")) {
 	case "1", "true", "yes", "all":
@@ -192,19 +162,7 @@ func includeLocalTrace(passed bool) bool {
 }
 
 // ObserverFromEnv returns a WithObserver option when the METRICS_FILE
-// environment variable is set, writing JSONL records to that path.
-// Returns a no-op option when METRICS_FILE is unset.
-//
-// Wire into any Explore call to enable metrics collection via env:
-//
-//	orch.Explore(t, setup,
-//	    GlobalBound(2),
-//	    orchestrator.ObserverFromEnv(t),
-//	)
-//
-// Then run the test with:
-//
-//	METRICS_FILE=charts/data/run.jsonl ./go/bin/go test -run TestName ./rafttest/...
+// environment variable is set.
 func ObserverFromEnv(t *testing.T) ExploreOption {
 	path := os.Getenv("METRICS_FILE")
 	if path == "" {
@@ -225,12 +183,7 @@ func ObserverFromEnv(t *testing.T) ExploreOption {
 	return WithObserver(NewJSONLObserver(f))
 }
 
-// BoundFromEnv returns a GlobalBound option when the EXPLORE_K environment
-// variable is set to a non-negative integer. Returns a no-op option otherwise.
-// Overrides the default bound (or any explicit GlobalBound) set before it.
-//
-//	orch.Explore(t, setup, GlobalBound(2), orchestrator.BoundFromEnv())
-//	# EXPLORE_K=1 drives exploration at k=1
+// BoundFromEnv returns a GlobalBound option from the EXPLORE_K environment variable.
 func BoundFromEnv() ExploreOption {
 	s := os.Getenv("EXPLORE_K")
 	if s == "" {
@@ -243,8 +196,7 @@ func BoundFromEnv() ExploreOption {
 	return GlobalBound(k)
 }
 
-// MaxRunsFromEnv returns a GlobalMaxRuns option when the EXPLORE_MAX_RUNS
-// environment variable is set to a positive integer.
+// MaxRunsFromEnv returns a GlobalMaxRuns option from EXPLORE_MAX_RUNS.
 func MaxRunsFromEnv() ExploreOption {
 	s := os.Getenv("EXPLORE_MAX_RUNS")
 	if s == "" {

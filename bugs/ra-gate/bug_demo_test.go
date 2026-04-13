@@ -122,18 +122,11 @@ func TestGateBug_ExploreAll(t *testing.T) {
 	}
 }
 
-// TestGateBug_FindBug uses Run() with a non-FIFO local scheduler and logs
-// decision details to understand why the bug does or doesn't trigger.
+// TestGateBug_FindBug uses RunWith() with a reverse-FIFO decide function
+// and logs decision details to understand why the bug does or doesn't trigger.
 func TestGateBug_FindBug(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 	addrs := []string{"A", "B", "C"}
-
-	reverseFIFO := orchestrator.WithScheduler(func(s orchestrator.BubbleState) int32 {
-		if s.RunnableN > 1 {
-			return s.RunnableN - 1
-		}
-		return 0
-	})
 
 	var inCS atomic.Int32
 	store := NewKVStore()
@@ -163,19 +156,27 @@ func TestGateBug_FindBug(t *testing.T) {
 
 			node.Stop()
 			tr.Close()
-		}, reverseFIFO)
+		})
 	}
 
-	rec, ok := orch.Run(t)
-	if !ok {
+	// Reverse-FIFO: always pick the last goroutine/message.
+	rr := orch.RunWith(t, func(dp orchestrator.DecisionPoint) int {
+		if dp.N() > 1 {
+			return dp.N() - 1
+		}
+		return 0
+	})
+	if !rr.Passed {
 		t.Log("BUG FOUND: mutual exclusion violation with reverse-FIFO scheduler!")
 	} else {
 		t.Log("No bug found with reverse-FIFO scheduler")
 	}
 
-	for i, d := range rec.LocalTraces["A"] {
-		t.Logf("  A step %d: RunqSize=%d Index=%d ChosenBgid=B%d bgids=%v",
-			i, d.RunqSize, d.Index, d.ChosenBgid, d.RunqBgids[:d.RunqSize])
+	// Log local decisions from the unified trace.
+	for i, s := range rr.Trace {
+		if s.Kind == orchestrator.Local && s.Node == "A" {
+			t.Logf("  A step %d: RunqSize=%d Index=%d ChosenBGID=B%d bgids=%v",
+				i, s.Alternatives, s.Index, s.ChosenBGID, s.RunqBGIDs)
+		}
 	}
-	_ = ok
 }

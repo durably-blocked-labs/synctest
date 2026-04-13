@@ -2,19 +2,14 @@
 // in distributed system tests.
 //
 // A Bubble wraps one synctest bubble. It handles scheduling decisions
-// internally (FIFO or prefix replay). It only contacts the global
-// orchestrator when the bubble goes IDLE — when all goroutines are
-// blocked and the bubble has nothing left to do on its own.
+// internally via a synchronous callback (scheduleFn). It only contacts
+// the global orchestrator when the bubble goes IDLE.
 //
-// When idle, the Bubble sends its state (timers, blocked goroutines,
-// ExternalWait count) on the Idle channel. The global orchestrator
-// reads this, decides to either deliver a network message or advance
-// time, does that, then sends a Resume to unblock the hook.
-//
-// The bubble then resumes automatically — the delivered message wakes
-// a goroutine, or the advanced time fires a timer. The local
-// orchestrator handles the resulting scheduling decisions internally
-// until the bubble goes idle again.
+// Local scheduling decisions MUST be synchronous (no channel hop) because
+// the hook runs during rootInHook on the bubble P. Blocking on a channel
+// would extend the rootInHook window, allowing cross-P goready to deposit
+// goroutines on the bubble P's runqueue — causing pidleput crashes on
+// bubble teardown.
 package distributed
 
 import (
@@ -27,72 +22,47 @@ type BubbleState = synctest.BubbleState
 
 // IdleState is sent to the global orchestrator when the bubble goes idle.
 type IdleState struct {
-	Name  string      // which node
-	State BubbleState // full state: timers, ExternalWait, blocked count, etc.
+	Name  string
+	State BubbleState
 }
 
 // Resume is the global orchestrator's instruction after receiving an IdleState.
-//
-// The orchestrator should do ONE of:
-//   - Deliver a network message (write to the transport's inbox channel),
-//     then send Resume{} — the bubble resumes when the woken goroutine runs.
-//   - Advance time: send Resume{AdvanceTimeTo: t} — the bubble fires timers
-//     whose deadline <= t and resumes if any goroutine wakes.
-//   - Both: deliver a message AND advance time.
 type Resume struct {
-	// AdvanceTimeTo advances the bubble's fake clock before returning
-	// from the hook. 0 means don't advance.
 	AdvanceTimeTo int64
-
-	// DelegateIdle tells the bubble to hand control back to the local runtime
-	// idle/drain logic after returning from the hook instead of immediately
-	// re-entering the orchestrator handshake.
-	DelegateIdle bool
+	DelegateIdle  bool
 }
 
-// LocalStep records one local scheduling decision made by the bubble's hook.
-// Used by the global orchestrator to build the chronological unified trace.
+// LocalStep records one local scheduling decision with enriched detail.
 type LocalStep struct {
-	Index        int32 // which goroutine was chosen (0 = FIFO)
-	Alternatives int32 // how many runnable goroutines existed (RunqSize)
+	Index        int32
+	Alternatives int32
+	ChosenBGID   uint32
+	RunqBGIDs    []uint32
 }
 
 // Bubble is the local orchestrator for one synctest bubble.
-//
-// Scheduling decisions are handled internally (FIFO by default, or
-// following a prefix for replay). The global orchestrator only sees
-// idle notifications.
 type Bubble struct {
 	Name string
 
 	// Idle is read by the global orchestrator.
-	// An IdleState appears here when the bubble has nothing left to do.
-	// The orchestrator must respond on Resume for each IdleState received.
 	Idle <-chan IdleState
 
 	// Resume is written by the global orchestrator.
-	// Send exactly one Resume for each IdleState received.
 	Resume chan<- Resume
 
 	// Internal.
 	idle   chan IdleState
 	resume chan Resume
 
-	// Scheduling: prefix for replay, step counter.
-	prefix     []synctest.Decision
-	prefixStep int
-
-	// Optional: custom scheduling function for non-replay scenarios.
-	// If nil, uses FIFO (index 0) at the frontier.
+	// scheduleFn is called synchronously in the hook for every local
+	// scheduling decision. Set by the orchestrator to wrap Algorithm.Decide.
+	// If nil, returns 0 (FIFO).
 	scheduleFn func(BubbleState) int32
 
-	// Seed for the global rand source. Set at the start of Hook().
 	seed    int64
 	hasSeed bool
 
-	// Local decision log for building the unified exploration trace.
-	// Appended by schedule(), drained by the orchestrator after each
-	// idle point via DrainLocal().
+	// Local decision log, drained by the orchestrator at idle/done points.
 	localLog    []LocalStep
 	lastDrained int
 }
@@ -100,31 +70,17 @@ type Bubble struct {
 // Option configures a Bubble.
 type Option func(*Bubble)
 
-// WithPrefix sets a scheduling prefix for replay. The hook follows
-// these decisions before defaulting to FIFO at the frontier.
-func WithPrefix(prefix []synctest.Decision) Option {
-	return func(b *Bubble) { b.prefix = prefix }
-}
-
-// WithScheduler sets a custom scheduling function for frontier decisions.
-// Called when the prefix is exhausted and the runq has choices.
+// WithScheduler sets a custom scheduling function for local decisions.
 func WithScheduler(fn func(BubbleState) int32) Option {
 	return func(b *Bubble) { b.scheduleFn = fn }
 }
 
 // WithSeed sets the global rand seed at the start of the bubble.
-// This controls the P's fastrand, which determines:
-//   - select statement ordering (which case wins when multiple are ready)
-//   - raft election timeout jitter (randomTimeout)
-//
-// Different seeds explore different select interleavings within the bubble.
-// Requires GODEBUG=randseednop=0 to take effect (Go 1.24+).
 func WithSeed(seed int64) Option {
 	return func(b *Bubble) { b.seed = seed; b.hasSeed = true }
 }
 
 // NewBubble creates a local orchestrator for one node.
-// Called outside the bubble by the global orchestrator.
 func NewBubble(name string, opts ...Option) *Bubble {
 	idle := make(chan IdleState, 1)
 	resume := make(chan Resume, 1)
@@ -141,14 +97,17 @@ func NewBubble(name string, opts ...Option) *Bubble {
 	return b
 }
 
+// SetScheduleFn replaces the scheduling callback. Called by the orchestrator
+// after NewBubble to wire up Algorithm.Decide for exploration.
+func (b *Bubble) SetScheduleFn(fn func(BubbleState) int32) {
+	b.scheduleFn = fn
+}
+
 // Hook returns the decision hook function for this bubble.
-// Pass it to synctest.SetDecisionHook inside the bubble.
 //
-// For scheduling decisions (Idle == false): handled locally.
+// For scheduling decisions (Idle == false): handled synchronously via
+// schedule() — no channel hop, no cross-M blocking.
 // For idle (Idle == true): sends state to global orchestrator, waits for Resume.
-//
-// If WithSeed was set, the seed is applied on the first hook call
-// (inside the bubble, before any raft rand calls).
 func (b *Bubble) Hook() func(BubbleState) int32 {
 	seeded := false
 	return func(state BubbleState) int32 {
@@ -172,26 +131,28 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 	}
 }
 
-// schedule handles a non-idle scheduling decision locally.
+// schedule handles a non-idle scheduling decision synchronously.
 func (b *Bubble) schedule(state BubbleState) int32 {
 	var idx int32
-	// Follow prefix if available.
-	if b.prefixStep < len(b.prefix) {
-		idx = b.prefix[b.prefixStep].Index
-		b.prefixStep++
-	} else if b.scheduleFn != nil {
-		// Custom scheduler if set.
+	if b.scheduleFn != nil {
 		idx = b.scheduleFn(state)
 	}
-	// Record for the unified trace.
-	b.localLog = append(b.localLog, LocalStep{Index: idx, Alternatives: state.RunnableN})
+	// Record enriched local step.
+	bgids := make([]uint32, state.RunnableN)
+	for i := int32(0); i < state.RunnableN; i++ {
+		bgids[i] = state.RunnableBgid[i]
+	}
+	b.localLog = append(b.localLog, LocalStep{
+		Index:        idx,
+		Alternatives: state.RunnableN,
+		ChosenBGID:   state.RunnableBgid[idx],
+		RunqBGIDs:    bgids,
+	})
 	return idx
 }
 
 // DrainLocal returns local scheduling decisions recorded since the last drain.
-// Called by the global orchestrator after each idle/done event to build the
-// chronological unified trace. Safe to call only when the bubble is frozen
-// in its hook (not concurrently with schedule).
+// Called by the orchestrator after each idle/done event to build the unified trace.
 func (b *Bubble) DrainLocal() []LocalStep {
 	steps := b.localLog[b.lastDrained:]
 	b.lastDrained = len(b.localLog)
