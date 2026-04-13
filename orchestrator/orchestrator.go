@@ -107,9 +107,9 @@ type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResu
 type ExploreOption func(*exploreConfig)
 
 type exploreConfig struct {
-	bound    int
-	maxRuns  int
-	observer RunObserver
+	bound     int
+	maxRuns   int
+	observers []RunObserver
 }
 
 // GlobalBound sets the maximum number of non-FIFO decisions per explored trace.
@@ -118,8 +118,10 @@ func GlobalBound(k int) ExploreOption { return func(c *exploreConfig) { c.bound 
 // GlobalMaxRuns sets a hard cap on the total number of traces explored.
 func GlobalMaxRuns(n int) ExploreOption { return func(c *exploreConfig) { c.maxRuns = n } }
 
-// WithObserver registers a callback invoked once after each run.
-func WithObserver(fn RunObserver) ExploreOption { return func(c *exploreConfig) { c.observer = fn } }
+// WithObserver registers a callback invoked once after each run. Multiple observers stack.
+func WithObserver(fn RunObserver) ExploreOption {
+	return func(c *exploreConfig) { c.observers = append(c.observers, fn) }
+}
 
 // ─── Core types ───
 
@@ -584,14 +586,16 @@ func (o *Orchestrator) ExploreWith(
 			}
 		}
 
-		if cfg.observer != nil {
+		if len(cfg.observers) > 0 {
 			nonFIFO := 0
 			for _, s := range rr.Trace {
 				if s.Index != 0 {
 					nonFIFO++
 				}
 			}
-			cfg.observer(result.Runs, nonFIFO, rr.Elapsed, rr, rr.Passed)
+			for _, obs := range cfg.observers {
+				obs(result.Runs, nonFIFO, rr.Elapsed, rr, rr.Passed)
+			}
 		}
 
 		algo.AfterRun(rr)

@@ -192,6 +192,62 @@ func ObserverFromEnv(t *testing.T) ExploreOption {
 	return WithObserver(NewJSONLObserver(f, ""))
 }
 
+// DetailedRunRecord is a full trace export for one run (for visualization).
+type DetailedRunRecord struct {
+	Policy    string          `json:"policy"`
+	RunNum    int             `json:"run_num"`
+	Passed    bool            `json:"passed"`
+	ElapsedNs int64           `json:"elapsed_ns"`
+	Steps     []StepRecord    `json:"steps"`
+}
+
+// StepRecord is one decision in a detailed trace export.
+type StepRecord struct {
+	Kind         string   `json:"kind"` // "global" or "local"
+	Node         string   `json:"node,omitempty"`
+	Index        int      `json:"index"`
+	Alternatives int      `json:"alternatives"`
+	ChosenID     string   `json:"chosen_id,omitempty"`
+	From         string   `json:"from,omitempty"`
+	To           string   `json:"to,omitempty"`
+	MsgType      string   `json:"msg_type,omitempty"`
+	ChosenBGID   uint32   `json:"chosen_bgid,omitempty"`
+	RunqBGIDs    []uint32 `json:"runq_bgids,omitempty"`
+}
+
+// NewDetailedObserver returns a RunObserver that writes full per-run traces as JSONL.
+func NewDetailedObserver(w io.Writer, policy string) RunObserver {
+	enc := json.NewEncoder(w)
+	return func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResult, passed bool) {
+		rec := DetailedRunRecord{
+			Policy:    policy,
+			RunNum:    runNum,
+			Passed:    passed,
+			ElapsedNs: elapsed.Nanoseconds(),
+			Steps:     make([]StepRecord, len(rr.Trace)),
+		}
+		for i, s := range rr.Trace {
+			kind := "local"
+			if s.Kind == Global {
+				kind = "global"
+			}
+			rec.Steps[i] = StepRecord{
+				Kind:         kind,
+				Node:         s.Node,
+				Index:        int(s.Index),
+				Alternatives: int(s.Alternatives),
+				ChosenID:     s.ChosenID,
+				From:         s.From,
+				To:           s.To,
+				MsgType:      s.MsgType,
+				ChosenBGID:   s.ChosenBGID,
+				RunqBGIDs:    s.RunqBGIDs,
+			}
+		}
+		enc.Encode(rec) //nolint:errcheck
+	}
+}
+
 // BoundFromEnv returns a GlobalBound option from the EXPLORE_K environment variable.
 func BoundFromEnv() ExploreOption {
 	s := os.Getenv("EXPLORE_K")
