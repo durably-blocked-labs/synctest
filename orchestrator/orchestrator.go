@@ -36,7 +36,6 @@ type OpDir int
 
 const (
 	OpSend OpDir = iota
-	OpRecv       // retained for trace compatibility; no longer submitted by transports
 )
 
 // PendingOp is the unit of work submitted by a transport to the orchestrator.
@@ -55,6 +54,10 @@ type NodeTransport interface {
 	Addr() string
 	Outbox() <-chan *PendingOp
 }
+
+// shutdowner is optionally implemented by transports to support graceful
+// shutdown during divergence recovery and drain.
+type shutdowner interface{ Shutdown() }
 
 // GlobalStepType classifies what happened in one orchestrator loop iteration.
 type GlobalStepType int
@@ -251,7 +254,7 @@ type pickFn func(schedulable []*PendingOp, step int) int
 func (o *Orchestrator) Run(t *testing.T) (RecordedRun, bool) {
 	t.Helper()
 	o.initBubbles(nil)
-	rec, _, ok := o.runOnce(t, func(_ []*PendingOp, _ int) int { return 0 })
+	rec, ok := o.runOnce(t, func(_ []*PendingOp, _ int) int { return 0 })
 	return rec, ok
 }
 
@@ -283,7 +286,7 @@ func (o *Orchestrator) Replay(t *testing.T, rec RecordedRun) (RecordedRun, bool)
 			QueueSize: 0,
 		})
 	}
-	rec2, _, ok := o.runOnce(t, pick)
+	rec2, ok := o.runOnce(t, pick)
 	return rec2, ok
 }
 
@@ -352,7 +355,7 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 			return 0
 		}
 		runStart := time.Now()
-		rec, decisions, passed, diverged := o.runOnceForExplore(t, pick)
+		rec, passed, diverged := o.runOnceForExplore(t, pick)
 		if diverged != nil {
 			if verbose {
 				t.Logf("orchestrator: explore: pruned invalid prefix %v (%v)", item.prefix, *diverged)
@@ -365,16 +368,16 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 		}
 
 		// Log a compact delivery sequence so different orderings are visible.
-		var sb strings.Builder
-		for _, step := range o.trace {
-			if step.Type == StepDeliver {
-				if sb.Len() > 0 {
-					sb.WriteByte(' ')
-				}
-				fmt.Fprintf(&sb, "%s→%s(%s)", step.From, step.To, step.OpType)
-			}
-		}
 		if verbose {
+			var sb strings.Builder
+			for _, step := range o.trace {
+				if step.Type == StepDeliver {
+					if sb.Len() > 0 {
+						sb.WriteByte(' ')
+					}
+					fmt.Fprintf(&sb, "%s→%s(%s)", step.From, step.To, step.OpType)
+				}
+			}
 			t.Logf("orchestrator: explore: run %d prefix=%v\n\ttrace: %s", runCount, item.prefix, sb.String())
 		}
 
@@ -388,8 +391,8 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 		// of the stack and are explored first. This prioritises orderings that
 		// diverge from FIFO at the earliest possible point, which is where most
 		// distributed-protocol violations manifest.
-		for step := len(decisions) - 1; step >= len(item.prefix); step-- {
-			d := decisions[step]
+		for step := len(rec.GlobalDecisions) - 1; step >= len(item.prefix); step-- {
+			d := rec.GlobalDecisions[step]
 			if d.QueueSize <= 1 {
 				continue
 			}
@@ -399,7 +402,7 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 					continue
 				}
 				newPrefix := make([]GlobalDecision, step+1)
-				copy(newPrefix, decisions[:step])
+				copy(newPrefix, rec.GlobalDecisions[:step])
 				newPrefix[step] = GlobalDecision{Index: alt, QueueSize: d.QueueSize}
 				stack = append(stack, exploreItem{prefix: newPrefix, nonFIFO: newNonFIFO})
 			}
@@ -412,11 +415,6 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 	return true
 }
 
-// AllBound is an alias for GlobalBound for use with ExploreAll.
-func AllBound(k int) ExploreOption { return GlobalBound(k) }
-
-// AllMaxRuns is an alias for GlobalMaxRuns for use with ExploreAll.
-func AllMaxRuns(n int) ExploreOption { return GlobalMaxRuns(n) }
 
 // splitPrefix decomposes a unified trace into separate global and per-node
 // local prefixes suitable for initBubbles and the pick function.
@@ -445,8 +443,8 @@ func splitPrefix(steps []Step) ([]GlobalDecision, map[string][]synctest.Decision
 //
 // setup is called before each run to register fresh nodes. Options:
 //
-//	AllBound(k) / GlobalBound(k)   — max non-FIFO decisions per trace (default 2)
-//	AllMaxRuns(n) / GlobalMaxRuns(n) — hard cap on total traces (default unlimited)
+//	GlobalBound(k)   — max non-FIFO decisions per trace (default 2)
+//	GlobalMaxRuns(n) — hard cap on total traces (default unlimited)
 //
 // Returns true if all explored interleavings passed, false on the first failure.
 func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts ...ExploreOption) bool {
@@ -497,7 +495,8 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 			}
 			return 0
 		}
-		rec, _, passed, diverged := o.runOnceForExplore(t, pick)
+		runStart := time.Now()
+		rec, passed, diverged := o.runOnceForExplore(t, pick)
 		if diverged != nil {
 			if verbose {
 				t.Logf("orchestrator: exploreAll: pruned (prefix len %d, %v)", len(item.prefix), *diverged)
@@ -505,18 +504,21 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 			continue
 		}
 		runCount++
+		if cfg.observer != nil {
+			cfg.observer(runCount, item.nonFIFO, time.Since(runStart), rec, passed)
+		}
 
 		// Log a compact delivery sequence.
-		var sb strings.Builder
-		for _, step := range o.trace {
-			if step.Type == StepDeliver {
-				if sb.Len() > 0 {
-					sb.WriteByte(' ')
-				}
-				fmt.Fprintf(&sb, "%s→%s(%s)", step.From, step.To, step.OpType)
-			}
-		}
 		if verbose {
+			var sb strings.Builder
+			for _, step := range o.trace {
+				if step.Type == StepDeliver {
+					if sb.Len() > 0 {
+						sb.WriteByte(' ')
+					}
+					fmt.Fprintf(&sb, "%s→%s(%s)", step.From, step.To, step.OpType)
+				}
+			}
 			t.Logf("orchestrator: exploreAll: run %d prefixLen=%d nonFIFO=%d\n\ttrace: %s",
 				runCount, len(item.prefix), item.nonFIFO, sb.String())
 		}
@@ -568,7 +570,7 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 	return true
 }
 
-func (o *Orchestrator) runOnceForExplore(t *testing.T, pick pickFn) (rec RecordedRun, decisions []GlobalDecision, passed bool, diverged *replayDivergenceError) {
+func (o *Orchestrator) runOnceForExplore(t *testing.T, pick pickFn) (rec RecordedRun, passed bool, diverged *replayDivergenceError) {
 	defer func() {
 		if r := recover(); r != nil {
 			if d, ok := r.(replayDivergenceError); ok {
@@ -579,8 +581,8 @@ func (o *Orchestrator) runOnceForExplore(t *testing.T, pick pickFn) (rec Recorde
 			panic(r)
 		}
 	}()
-	rec, decisions, passed = o.runOnce(t, pick)
-	return rec, decisions, passed, nil
+	rec, passed = o.runOnce(t, pick)
+	return rec, passed, nil
 }
 
 
@@ -595,7 +597,6 @@ func (o *Orchestrator) cleanupBubbles() {
 	// Closes closeCh, causing bridge goroutines to exit ExternalWait.
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
-		type shutdowner interface{ Shutdown() }
 		if s, ok := ctrl.transport.(shutdowner); ok {
 			s.Shutdown()
 		}
@@ -676,7 +677,7 @@ func waitNodeEvent(addr string, ctrl *nodeCtrl) bubbleEvent {
 //  5. If no sends but timers exist: advance global time, resume all idle bubbles.
 //  6. If neither: resume all (allowing bubbles to finish) and return.
 //  7. Repeat from step 2.
-func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []GlobalDecision, bool) {
+func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, bool) {
 	// Reset orchestrator run state.
 	o.trace = nil
 	o.schedulable = nil
@@ -752,6 +753,24 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		}
 	}
 
+	drainAllOutboxes := func() {
+		for _, addr := range o.order {
+			if doneSet[addr] {
+				continue
+			}
+			ctrl := o.nodes[addr]
+		drain:
+			for {
+				select {
+				case op := <-ctrl.transport.Outbox():
+					enqueueOp(op)
+				default:
+					break drain
+				}
+			}
+		}
+	}
+
 	// Start bubbles one at a time, waiting for each to reach its first idle
 	// point before starting the next. Sequential startup eliminates concurrent
 	// access to shared resources (e.g. a seeded *rand.Rand in the application
@@ -773,21 +792,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		reapPendingDone("while pending idle")
 
 		// Drain all currently visible sends before deciding whether we need to wait.
-		for _, addr := range o.order {
-			if doneSet[addr] {
-				continue
-			}
-			ctrl := o.nodes[addr]
-			for {
-				select {
-				case op := <-ctrl.transport.Outbox():
-					enqueueOp(op)
-				default:
-					goto nextNode
-				}
-			}
-		nextNode:
-		}
+		drainAllOutboxes()
 
 		// Wait until every active node is either pending idle or done.
 		// Collect events from all needed nodes first (order-agnostic — each
@@ -839,21 +844,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		// that became visible after the idle barrier above. Drain each node's
 		// outbox completely (loop, not single select) so the schedulable queue
 		// contains every pending op at the decision point.
-		for _, addr := range o.order {
-			if doneSet[addr] {
-				continue
-			}
-			ctrl := o.nodes[addr]
-			for {
-				select {
-				case op := <-ctrl.transport.Outbox():
-					enqueueOp(op)
-				default:
-					goto nextNodeDrain
-				}
-			}
-		nextNodeDrain:
-		}
+		drainAllOutboxes()
 
 		// ── Steps 4–6: make a scheduling decision ──
 
@@ -971,7 +962,6 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 					ctrl := o.nodes[addr]
 
 					if idleState.State.ExternalWait > 0 {
-						type shutdowner interface{ Shutdown() }
 						if s, ok := ctrl.transport.(shutdowner); ok {
 							s.Shutdown()
 						}
@@ -1006,7 +996,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		GlobalDecisions: globalDecisions,
 		LocalTraces:     localTraces,
 		Trace:           unified,
-	}, globalDecisions, allPassed
+	}, allPassed
 }
 
 // drainOutbox non-blockingly drains all pending ops from a node's outbox into
@@ -1025,8 +1015,5 @@ func (o *Orchestrator) drainOutbox(addr string) {
 }
 
 func dirName(d OpDir) string {
-	if d == OpSend {
-		return "send"
-	}
-	return "recv"
+	return "send"
 }

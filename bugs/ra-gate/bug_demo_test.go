@@ -113,7 +113,7 @@ func TestGateBug_ExploreAll(t *testing.T) {
 		transports := setupCluster(addrs)
 		store := NewKVStore()
 		addGateNodes(o, addrs, transports, store, &inCS)
-	}, orchestrator.AllBound(2), orchestrator.AllMaxRuns(500))
+	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(500))
 
 	if ok {
 		t.Log("ExploreAll: did not find bug within max runs")
