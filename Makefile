@@ -5,7 +5,7 @@ GO_BIN  := $(GO_ROOT)/bin/go
 export GOROOT := $(GO_ROOT)
 
 .PHONY: build-go test test-all test-det go-version clean help \
-        charts-collect charts-sweep charts-plot
+        charts-collect charts-sweep charts-plot benchmark-charts
 
 # Charts defaults (override on command line)
 TEST    ?= TestRaftThreeNodeElectionExplore
@@ -19,6 +19,7 @@ help:
 	@echo ""
 	@echo "  make test pkg=bugs/ra-gate               Run one package"
 	@echo "  make test-all                           Run all packages"
+	@echo "  make benchmark-charts pkg=bugs/ra-gate  Run TestBench_ and render package-local charts"
 	@echo "  make build-go                           Build Go from source"
 	@echo "  make go-version                         Show custom Go version"
 	@echo "  make clean                              Clean build artifacts"
@@ -86,3 +87,24 @@ charts-plot:
 	python3 charts/charts.py \
 		--input "$(OUTDIR)/*.jsonl" \
 		--outdir charts/figures
+
+ifdef pkg
+benchmark-charts:
+	@mkdir -p "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"
+	@rm -f "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data"/*.jsonl "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data"/*.json "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"/*
+	@python3 -c "import matplotlib,numpy" 2>/dev/null || \
+		pip3 install -q -r charts/requirements.txt
+	MPLBACKEND=Agg \
+	MPLCONFIGDIR=/tmp/matplotlib \
+	BENCH_DIR="$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" \
+	GODEBUG=asyncpreemptoff=1 \
+	$(GO_BIN) test -v -count=1 -run 'TestBench_' ./$(patsubst ./%,%,$(pkg))
+	MPLBACKEND=Agg \
+	MPLCONFIGDIR=/tmp/matplotlib \
+	python3 charts/charts.py \
+		--data "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" \
+		--out "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"
+else
+benchmark-charts:
+	@echo "usage: make benchmark-charts pkg=bugs/ra-gate"
+endif
