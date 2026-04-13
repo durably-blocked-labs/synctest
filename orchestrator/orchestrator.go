@@ -587,11 +587,12 @@ func (o *Orchestrator) runOnceForExplore(t *testing.T, pick pickFn) (rec Recorde
 
 // cleanupBubbles tears down orphaned bubbles after a divergence panic.
 // It signals transports to close (unblocking bridge goroutines in
-// ExternalWait), then sends DelegateIdle resumes to unblock roots
-// frozen in their hooks, and waits for each bubble to terminate.
+// ExternalWait), drains idle channels so hooks don't block on send,
+// sends DelegateIdle resumes to unblock roots frozen in their hooks,
+// and waits for each bubble to terminate.
 func (o *Orchestrator) cleanupBubbles() {
-	// Phase 1: signal transports to shut down (non-blocking).
-	// This closes closeCh, causing bridge goroutines to exit ExternalWait.
+	// Phase 1: shut down all transports (non-blocking).
+	// Closes closeCh, causing bridge goroutines to exit ExternalWait.
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
 		type shutdowner interface{ Shutdown() }
@@ -599,18 +600,34 @@ func (o *Orchestrator) cleanupBubbles() {
 			s.Shutdown()
 		}
 	}
-	// Phase 2: unblock roots from their hooks.
+	// Phase 2: drain idle channels and send DelegateIdle.
+	// The hook sends to b.idle BEFORE reading b.resume. If the idle
+	// channel is full (buffer=1, previous idle not consumed), the hook
+	// blocks on the send and never reads our Resume. Drain idle first
+	// to guarantee the hook can complete its send and read Resume.
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
 		if ctrl.bubble == nil {
 			continue
 		}
+		// Drain any buffered idle state.
+		select {
+		case <-ctrl.bubble.Idle:
+		default:
+		}
+		// Send DelegateIdle. The hook may not be blocked yet (bubble
+		// still running), so use non-blocking send — the buffered
+		// channel (cap=1) holds it until the hook reads.
 		select {
 		case ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}:
 		default:
 		}
 	}
 	// Phase 3: wait for bubbles to finish.
+	// With delegateIdle persistent (no longer cleared on generic wake)
+	// and transports shut down (externalWait → 0), bubbles should
+	// terminate via deadlock detection almost immediately. Use a short
+	// grace period for any remaining cleanup.
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
 		if ctrl.done == nil {
@@ -618,7 +635,7 @@ func (o *Orchestrator) cleanupBubbles() {
 		}
 		select {
 		case <-ctrl.done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(1 * time.Second):
 		}
 	}
 }
@@ -630,40 +647,17 @@ type bubbleEvent struct {
 	done bool
 }
 
-// waitForEvent blocks until one active node reports idle or completes.
-func (o *Orchestrator) waitForEvent(needed map[string]*nodeCtrl, pending map[string][]bubbleEvent, events <-chan bubbleEvent) bubbleEvent {
-	for _, addr := range o.order {
-		if _, ok := needed[addr]; !ok {
-			continue
-		}
-		if q := pending[addr]; len(q) > 0 {
-			ev := q[0]
-			pending[addr] = q[1:]
-			return ev
-		}
+// waitNodeEvent blocks until a specific node reports idle or completes.
+// Reading directly from per-node channels (no fan-in) guarantees
+// deterministic event processing in o.order.
+func waitNodeEvent(addr string, ctrl *nodeCtrl) bubbleEvent {
+	select {
+	case idle := <-ctrl.bubble.Idle:
+		idleCopy := idle
+		return bubbleEvent{addr: addr, idle: &idleCopy}
+	case <-ctrl.done:
+		return bubbleEvent{addr: addr, done: true}
 	}
-	for {
-		ev := <-events
-		if _, ok := needed[ev.addr]; ok {
-			return ev
-		}
-		pending[ev.addr] = append(pending[ev.addr], ev)
-	}
-}
-
-func startEventForwarder(addr string, ctrl *nodeCtrl, out chan<- bubbleEvent) {
-	go func() {
-		for {
-			select {
-			case idle := <-ctrl.bubble.Idle:
-				idleCopy := idle
-				out <- bubbleEvent{addr: addr, idle: &idleCopy}
-			case <-ctrl.done:
-				out <- bubbleEvent{addr: addr, done: true}
-				return
-			}
-		}
-	}()
 }
 
 // runOnce is the unified implementation for Run, Replay, and Explore.
@@ -698,25 +692,6 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 	pendingIdle := make(map[string]distributed.IdleState)
 	doneSet := make(map[string]bool)
 	active := n
-	events := make(chan bubbleEvent, len(o.nodes)*8)
-	pendingEvents := make(map[string][]bubbleEvent, len(o.nodes))
-	for _, addr := range o.order {
-		startEventForwarder(addr, o.nodes[addr], events)
-	}
-	waitNodeEvent := func(addr string) bubbleEvent {
-		if q := pendingEvents[addr]; len(q) > 0 {
-			ev := q[0]
-			pendingEvents[addr] = q[1:]
-			return ev
-		}
-		for {
-			ev := <-events
-			if ev.addr == addr {
-				return ev
-			}
-			pendingEvents[ev.addr] = append(pendingEvents[ev.addr], ev)
-		}
-	}
 
 	// drainLocalSteps appends a node's new local scheduling decisions to
 	// the unified trace. Called when a bubble goes idle or done.
@@ -785,7 +760,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 	// pendingIdle and the delivery loop below takes over.
 	for _, addr := range o.order {
 		o.startBubble(t, o.nodes[addr])
-		ev := waitNodeEvent(addr)
+		ev := waitNodeEvent(addr, o.nodes[addr])
 		switch {
 		case ev.idle != nil:
 			recordIdle(addr, *ev.idle)
@@ -814,10 +789,17 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		nextNode:
 		}
 
-		// Wait until every active node is either pending idle or done. While
-		// waiting, buffer any sends active nodes publish, but do not deliver them
-		// yet — cross-node choices are only made once the whole system is quiescent.
-		needed := map[string]*nodeCtrl{}
+		// Wait until every active node is either pending idle or done.
+		// Collect events from all needed nodes first (order-agnostic — each
+		// bubble's Idle channel is buffered so the send doesn't block), then
+		// process them in registration order. This enforces the synchronous-
+		// round invariant: drainLocalSteps and drainOutbox happen in o.order,
+		// making the unified trace and schedulable queue deterministic.
+		type neededAddr struct {
+			addr string
+			ctrl *nodeCtrl
+		}
+		var needed []neededAddr
 		for _, addr := range o.order {
 			if doneSet[addr] {
 				continue
@@ -825,17 +807,24 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 			if _, ok := pendingIdle[addr]; ok {
 				continue
 			}
-			needed[addr] = o.nodes[addr]
+			needed = append(needed, neededAddr{addr, o.nodes[addr]})
 		}
-		for len(needed) > 0 {
-			ev := o.waitForEvent(needed, pendingEvents, events)
+		// Phase 1: collect (blocks per-node, but Idle is buffered so safe).
+		collected := make(map[string]bubbleEvent, len(needed))
+		for _, n := range needed {
+			collected[n.addr] = waitNodeEvent(n.addr, n.ctrl)
+		}
+		// Phase 2: process in registration order.
+		for _, addr := range o.order {
+			ev, ok := collected[addr]
+			if !ok {
+				continue
+			}
 			switch {
 			case ev.done:
 				markDone(ev.addr, "after event wait")
-				delete(needed, ev.addr)
 			case ev.idle != nil:
 				recordIdle(ev.addr, *ev.idle)
-				delete(needed, ev.addr)
 			}
 		}
 
@@ -846,18 +835,24 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 		// ── Step 3: drain late-visible outboxes (non-blocking) ──
 		//
 		// Transports publish onto buffered outboxes, so draining here does not
-		// resume or otherwise perturb bubble state. It only snapshots any sends
-		// that became visible after the idle barrier above.
+		// resume or otherwise perturb bubble state. It snapshots any sends
+		// that became visible after the idle barrier above. Drain each node's
+		// outbox completely (loop, not single select) so the schedulable queue
+		// contains every pending op at the decision point.
 		for _, addr := range o.order {
 			if doneSet[addr] {
 				continue
 			}
 			ctrl := o.nodes[addr]
-			select {
-			case op := <-ctrl.transport.Outbox():
-				enqueueOp(op)
-			default:
+			for {
+				select {
+				case op := <-ctrl.transport.Outbox():
+					enqueueOp(op)
+				default:
+					goto nextNodeDrain
+				}
 			}
+		nextNodeDrain:
 		}
 
 		// ── Steps 4–6: make a scheduling decision ──
@@ -942,7 +937,7 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
 					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
-					ev := waitNodeEvent(addr)
+					ev := waitNodeEvent(addr, ctrl)
 					switch {
 					case ev.idle != nil:
 						recordIdle(addr, *ev.idle)
@@ -952,43 +947,38 @@ func (o *Orchestrator) runOnce(t *testing.T, pick pickFn) (RecordedRun, []Global
 				}
 
 			} else {
-				// No sends and no timers. Resume idle bubbles one at a time so
-				// they can finish any remaining internal work and exit.
-				// If a bubble doesn't respond (deadlocked test function with
-				// bridges in ExternalWait), shut down its transport to unblock.
+				// No sends and no timers — drain and terminate.
+				//
+				// DelegateIdle tells the runtime to handle idle locally. The
+				// bubble detects deadlock (all goroutines blocked, no timers,
+				// no external) and terminates. delegateIdle persists until a
+				// real scheduling event clears it, so the hook never re-fires
+				// into a dead channel.
+				//
+				// If a bubble has bridges in ExternalWait (ExternalWait > 0),
+				// the runtime won't break out of the event loop because
+				// externalWait > 0 suppresses termination. Shut down the
+				// transport first so bridges exit and externalWait drops to 0.
 				if verbose {
 					t.Logf("orchestrator: no pending sends or timers — resuming all to drain")
 				}
 				for _, addr := range o.order {
-					if _, idle := pendingIdle[addr]; !idle {
+					idleState, idle := pendingIdle[addr]
+					if !idle {
 						continue
 					}
 					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
-					ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}
 
-					// Wait for the bubble to respond. If it doesn't within
-					// 500ms, the test function is deadlocked with bridges in
-					// ExternalWait. Shut down its transport to free the bridges
-					// and let the runtime detect deadlock.
-					var ev bubbleEvent
-					timer := time.NewTimer(500 * time.Millisecond)
-					select {
-					case e := <-events:
-						timer.Stop()
-						if e.addr != addr {
-							pendingEvents[e.addr] = append(pendingEvents[e.addr], e)
-							ev = waitNodeEvent(addr)
-						} else {
-							ev = e
-						}
-					case <-timer.C:
+					if idleState.State.ExternalWait > 0 {
 						type shutdowner interface{ Shutdown() }
 						if s, ok := ctrl.transport.(shutdowner); ok {
 							s.Shutdown()
 						}
-						ev = waitNodeEvent(addr)
 					}
+
+					ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}
+					ev := waitNodeEvent(addr, ctrl)
 					switch {
 					case ev.idle != nil:
 						recordIdle(addr, *ev.idle)
