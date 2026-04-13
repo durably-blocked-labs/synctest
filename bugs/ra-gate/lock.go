@@ -76,7 +76,10 @@ func (n *GateRANode) Start() {
 		defer close(n.done)
 		for {
 			select {
-			case msg := <-n.transport.Mailbox():
+			case msg, ok := <-n.transport.Mailbox():
+				if !ok {
+					return // channel closed — transport shut down
+				}
 				n.handleMessage(msg)
 			case <-n.stopCh:
 				return

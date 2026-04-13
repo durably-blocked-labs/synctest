@@ -67,6 +67,7 @@ func (t *OrchestratorTransport) StartBridge() {
 
 	go func() {
 		defer close(t.bridgeDone)
+		defer close(t.internalMailbox) // handler sees closed channel and exits
 		for {
 			var msg Message
 			var closed bool

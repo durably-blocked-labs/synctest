@@ -35,9 +35,6 @@ func TestSimpleGateRA(t *testing.T) {
 			t.Logf("%s: acquired lock", addr)
 			node.ReleaseLock()
 			t.Logf("%s: released lock", addr)
-
-			node.Stop()
-			tr.Close()
 		})
 	}
 

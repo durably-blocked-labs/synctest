@@ -52,8 +52,10 @@ func addGateNodes(orch *orchestrator.Orchestrator, addrs []string, transports ma
 			}
 			node.ReleaseLock()
 
-			node.Stop()
-			tr.Close()
+			// Don't Stop() or Close() here. The handler must stay alive to
+			// reply to late-arriving requests from peers that haven't acquired
+			// the lock yet. The orchestrator's drain logic shuts down transports
+			// when all nodes are idle and no messages are pending.
 		})
 	}
 }
