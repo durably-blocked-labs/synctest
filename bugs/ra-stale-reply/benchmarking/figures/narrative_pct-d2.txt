@@ -1,0 +1,45 @@
+======================================================================
+Bug-Finding Trace: pct-d2, Run 12
+Total decisions: 28
+======================================================================
+
+Step   0: [LOCAL  A]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   1: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step   2: [LOCAL  B]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   3: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step   4: [LOCAL  C]     Run B1  from [B1, B3, B4]  [chose 0 of 3]
+Step   5: [LOCAL  C]     Run B4  from [B3, B4]  [chose 1 of 2] ** NON-FIFO **
+Step   6: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step   7: [GLOBAL #1]  Deliver A→B(Request)  [chose 0 of 2]
+Step   8: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step   9: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  10: [GLOBAL #2]  Deliver B→A(Reply)  [chose 1 of 3] ** NON-FIFO **
+Step  11: [GLOBAL #3]  Deliver B→A(Reply)  [chose 1 of 2] ** NON-FIFO **
+Step  12: [GLOBAL #4]  Deliver A→C(Request)  [chose 0 of 1]
+Step  13: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  14: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  15: [GLOBAL #5]  Deliver C→A(Reply)  [chose 0 of 1]
+Step  16: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
+Step  17: [GLOBAL #6]  Deliver B→A(Request)  [chose 0 of 2]
+Step  18: [GLOBAL #7]  Deliver B→C(Request)  [chose 0 of 1]
+Step  19: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  20: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  21: [GLOBAL #8]  Deliver C→B(Reply)  [chose 0 of 1]
+Step  22: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  23: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  24: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  25: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  26: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  27: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+
+======================================================================
+RESULT: BUG FOUND on run 12
+  Global decisions: 8
+  Local decisions:  20
+  Non-FIFO choices: 3
+
+Key non-FIFO decisions:
+  Step 5: LOCAL   node=C  B4 from [B3, B4]  [index 1 of 2]
+  Step 10: GLOBAL  Deliver B→A(Reply)  [index 1 of 3]
+  Step 11: GLOBAL  Deliver B→A(Reply)  [index 1 of 2]
+======================================================================

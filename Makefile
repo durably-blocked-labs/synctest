@@ -13,13 +13,14 @@ PKG     ?= ./rafttest/...
 K       ?= 2
 KMAX    ?= 3
 OUTDIR  ?= charts/data
+BENCH_TIMEOUT ?= 45s
 
 help:
 	@echo "Synctest Development"
 	@echo ""
 	@echo "  make test pkg=bugs/ra-gate               Run one package"
 	@echo "  make test-all                           Run all packages"
-	@echo "  make benchmark-charts pkg=bugs/ra-gate  Run TestBench_ and render package-local charts"
+	@echo "  make benchmark-charts pkg=bugs/ra-gate  Run bench_test.go and render package-local charts"
 	@echo "  make build-go                           Build Go from source"
 	@echo "  make go-version                         Show custom Go version"
 	@echo "  make clean                              Clean build artifacts"
@@ -90,30 +91,47 @@ charts-plot:
 
 ifdef pkg
 benchmark-charts:
-	@mkdir -p "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"
-	@rm -f "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data"/*.jsonl "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data"/*.json "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"/*
+	@pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
+	mkdir -p "$$pkgdir/benchmarking/data" "$$pkgdir/benchmarking/figures"; \
+	rm -f "$$pkgdir/benchmarking/data"/*.jsonl "$$pkgdir/benchmarking/data"/*.json "$$pkgdir/benchmarking/figures"/*
 	@python3 -c "import matplotlib,numpy" 2>/dev/null || \
 		pip3 install -q -r charts/requirements.txt
 	@set +e; \
-	MPLBACKEND=Agg \
-	MPLCONFIGDIR=/tmp/matplotlib \
-	BENCH_DIR="$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" \
-	GODEBUG=asyncpreemptoff=1 \
-	$(GO_BIN) test -v -count=1 -run 'TestBench_' ./$(patsubst ./%,%,$(pkg)); \
-	status=$$?; \
+	pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
+	testfile="$$pkgdir/bench_test.go"; \
+	pkgpath="./$(patsubst ./%,%,$(pkg))"; \
+	if [ ! -f "$$testfile" ]; then \
+		echo "missing $$testfile"; \
+		exit 1; \
+	fi; \
+	status=0; \
+	for testname in $$($(GO_BIN) test -list '^TestBench_' "$$pkgpath" | grep '^TestBench_'); do \
+		echo "==> $$testname"; \
+		MPLBACKEND=Agg \
+		MPLCONFIGDIR=/tmp/matplotlib \
+		BENCH_DIR="$$pkgdir/benchmarking/data" \
+		GODEBUG=asyncpreemptoff=1 \
+		$(GO_BIN) test -count=1 -v -timeout=$(BENCH_TIMEOUT) -run "^$$testname$$" "$$pkgpath"; \
+		test_status=$$?; \
+		echo "<== $$testname (status=$$test_status)"; \
+		if [ $$test_status -ne 0 ] && [ $$status -eq 0 ]; then \
+			status=$$test_status; \
+		fi; \
+	done; \
 	set -e; \
 	if [ $$status -ne 0 ]; then \
 		echo "benchmark run exited with status $$status; continuing because bug-finding failures are expected"; \
 	fi; \
-	if ! find "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" -maxdepth 1 \( -name '*.jsonl' -o -name '*.json' \) | grep -q .; then \
+	if ! find "$$pkgdir/benchmarking/data" -maxdepth 1 \( -name '*.jsonl' -o -name '*.json' \) | grep -q .; then \
 		echo "benchmark run produced no data files"; \
 		exit $$status; \
 	fi
+	@pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
 	MPLBACKEND=Agg \
 	MPLCONFIGDIR=/tmp/matplotlib \
 	python3 charts/charts.py \
-		--data "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" \
-		--out "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"
+		--data "$$pkgdir/benchmarking/data" \
+		--out "$$pkgdir/benchmarking/figures"
 else
 benchmark-charts:
 	@echo "usage: make benchmark-charts pkg=bugs/ra-gate"

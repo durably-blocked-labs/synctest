@@ -985,6 +985,267 @@ def fig_summary_table(summaries, traces, out_dir):
     print("  summary_table.png")
 
 
+# ── Figure 12: Cumulative unique traces over runs ──
+
+def fig_cumulative_unique_traces(summaries, out_dir):
+    """Show how quickly each algorithm accumulates distinct delivery traces."""
+    algo_order = ["chess-gl", "chess-global", "pct-d2", "pct-d3", "random"]
+    present = [p for p in algo_order if p in summaries]
+    if not present:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+    colors_list = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
+
+    max_runs = 0
+    max_unique = 0
+    for i, policy in enumerate(present):
+        records = sorted(summaries[policy], key=lambda r: r["run_num"])
+        seen = set()
+        runs = []
+        cumulative_unique = []
+        for record in records:
+            fingerprint = record.get("trace_fingerprint")
+            if fingerprint:
+                seen.add(fingerprint)
+            runs.append(record["run_num"])
+            cumulative_unique.append(len(seen))
+
+        if not runs:
+            continue
+        max_runs = max(max_runs, runs[-1])
+        max_unique = max(max_unique, cumulative_unique[-1])
+
+        c = colors_list[i % len(colors_list)]
+        ax.plot(
+            runs,
+            cumulative_unique,
+            label=algo_label(policy).replace('\n', ' '),
+            linewidth=1.8,
+            color=c,
+        )
+
+        bug = find_bug_run(records)
+        if bug:
+            bug_idx = next((j for j, r in enumerate(records) if r["run_num"] == bug["run_num"]), None)
+            if bug_idx is not None:
+                ax.scatter(
+                    [runs[bug_idx]],
+                    [cumulative_unique[bug_idx]],
+                    color=c,
+                    s=55,
+                    zorder=5,
+                    edgecolors='#333',
+                    linewidth=0.5,
+                )
+
+    if max_runs == 0:
+        plt.close(fig)
+        return
+
+    ax.plot([1, max_runs], [1, max_runs], linestyle='--', linewidth=1,
+            color="#BDBDBD", label="Ideal no-repetition")
+    ax.set_xlim(1, max_runs)
+    ax.set_ylim(0, max(max_unique, 1) * 1.08)
+    ax.set_xlabel("Run", fontsize=10)
+    ax.set_ylabel("Cumulative unique delivery traces", fontsize=10)
+    ax.set_title("Exploration Diversity Over Runs", fontsize=12, fontweight='bold', pad=10)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.legend(fontsize=8, loc='lower right')
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "cumulative_unique_traces.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print("  cumulative_unique_traces.png")
+
+
+# ── Figure 13: Queue pressure in the bug-finding run ──
+
+def fig_queue_pressure_profile(summaries, out_dir):
+    """Compare how much global delivery choice remains over the failing run."""
+    algo_order = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+    series = []
+
+    for policy in algo_order:
+        records = summaries.get(policy, [])
+        bug = find_bug_run(records)
+        if bug is None:
+            continue
+        queue_sizes = list(bug.get("queue_sizes") or [])
+        if not queue_sizes:
+            continue
+        series.append((policy, queue_sizes))
+
+    if not series:
+        return
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    colors_list = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
+
+    for i, (policy, queue_sizes) in enumerate(series):
+        x = np.arange(1, len(queue_sizes) + 1)
+        y = np.array(queue_sizes)
+        c = colors_list[i % len(colors_list)]
+        ax.plot(x, y, linewidth=1.8, color=c, label=algo_label(policy).replace('\n', ' '))
+        ax.scatter(x, y, s=20, color=c, edgecolors='#333', linewidth=0.3, zorder=4)
+
+    ax.set_xlabel("Global decision index in failing run", fontsize=10)
+    ax.set_ylabel("Runnable messages in global queue", fontsize=10)
+    ax.set_title("Queue Pressure Profile of the Failing Interleaving",
+                 fontsize=12, fontweight='bold', pad=10)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.legend(fontsize=8, loc='upper right')
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "queue_pressure_profile.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print("  queue_pressure_profile.png")
+
+
+# ── Figure 14: Per-node local decision burden ──
+
+def fig_local_decision_burden(summaries, out_dir):
+    """Heatmap of where local scheduling choices concentrate across nodes."""
+    algo_order = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+    rows = []
+    policies = []
+    all_nodes = sorted({
+        node
+        for records in summaries.values()
+        for record in records
+        for node in (record.get("local_decision_by_node") or {}).keys()
+    })
+    if not all_nodes:
+        return
+
+    for policy in algo_order:
+        records = summaries.get(policy, [])
+        bug = find_bug_run(records)
+        if bug is None:
+            continue
+        counts = bug.get("local_decision_by_node") or {}
+        rows.append([counts.get(node, 0) for node in all_nodes])
+        policies.append(policy)
+
+    if not rows:
+        return
+
+    matrix = np.array(rows, dtype=float)
+    fig_w = max(6.5, len(all_nodes) * 1.2 + 2.5)
+    fig_h = max(3.5, len(policies) * 0.7 + 2.0)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    im = ax.imshow(matrix, cmap="Blues", aspect="auto")
+
+    ax.set_xticks(np.arange(len(all_nodes)))
+    ax.set_xticklabels([f"Node {node}" for node in all_nodes], fontsize=9)
+    ax.set_yticks(np.arange(len(policies)))
+    ax.set_yticklabels([algo_label(policy).replace('\n', ' ') for policy in policies], fontsize=9)
+    ax.set_title("Local Scheduling Burden by Node in the Failing Run",
+                 fontsize=12, fontweight='bold', pad=10)
+
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            value = int(matrix[i, j])
+            text_color = "white" if matrix[i, j] > matrix.max() * 0.55 else "#222"
+            ax.text(j, i, str(value), ha='center', va='center', fontsize=9, color=text_color)
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.9)
+    cbar.set_label("Local decisions", fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "local_decision_burden.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print("  local_decision_burden.png")
+
+
+# ── Figure 15: Non-FIFO positions inside the failing trace ──
+
+def fig_nonfifo_position_profile(traces, out_dir):
+    """Show where the divergence from FIFO happens within each failing trace."""
+    algo_order = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+    rows = []
+
+    for policy in algo_order:
+        records = traces.get(policy, [])
+        bug = find_bug_run(records)
+        if bug is None:
+            continue
+        steps = bug.get("steps", [])
+        if not steps:
+            continue
+
+        total_steps = len(steps)
+        local_positions = [
+            (idx + 1) / total_steps
+            for idx, step in enumerate(steps)
+            if step["kind"] == "local" and step["index"] != 0
+        ]
+        global_positions = [
+            (idx + 1) / total_steps
+            for idx, step in enumerate(steps)
+            if step["kind"] == "global" and step["index"] != 0
+        ]
+        rows.append((policy, local_positions, global_positions, total_steps))
+
+    if not rows:
+        return
+
+    fig_h = max(3.8, len(rows) * 0.75 + 1.6)
+    fig, ax = plt.subplots(figsize=(10, fig_h))
+
+    local_labeled = False
+    global_labeled = False
+    for y, (policy, local_positions, global_positions, total_steps) in enumerate(rows):
+        ax.hlines(y, 0, 1, color="#E6E6E6", linewidth=1, zorder=0)
+        if local_positions:
+            ax.scatter(
+                local_positions,
+                [y] * len(local_positions),
+                marker='o',
+                s=46,
+                color=COLORS["local_fifo"],
+                edgecolors="#333",
+                linewidth=0.4,
+                label="Local non-FIFO" if not local_labeled else None,
+                zorder=3,
+            )
+            local_labeled = True
+        if global_positions:
+            ax.scatter(
+                global_positions,
+                [y] * len(global_positions),
+                marker='D',
+                s=42,
+                color=COLORS["global_fifo"],
+                edgecolors="#333",
+                linewidth=0.4,
+                label="Global non-FIFO" if not global_labeled else None,
+                zorder=4,
+            )
+            global_labeled = True
+        ax.text(1.01, y, f"{total_steps} steps", va='center', ha='left', fontsize=8, color="#666")
+
+    ax.set_yticks(np.arange(len(rows)))
+    ax.set_yticklabels([algo_label(policy).replace('\n', ' ') for policy, _, _, _ in rows], fontsize=9)
+    ax.set_xlim(0, 1.08)
+    ax.set_xticks(np.linspace(0, 1, 6))
+    ax.set_xticklabels([f"{int(x * 100)}%" for x in np.linspace(0, 1, 6)], fontsize=9)
+    ax.set_xlabel("Position within failing trace", fontsize=10)
+    ax.set_title("Where Non-FIFO Decisions Occur in the Failing Trace",
+                 fontsize=12, fontweight='bold', pad=10)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    if local_labeled or global_labeled:
+        ax.legend(fontsize=8, loc='upper right')
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "nonfifo_position_profile.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print("  nonfifo_position_profile.png")
+
+
 # ── Main ──
 
 def main():
@@ -1032,6 +1293,18 @@ def main():
 
     print("\nFigure 11: Summary table")
     fig_summary_table(summaries, traces, args.out)
+
+    print("\nFigure 12: Cumulative unique traces")
+    fig_cumulative_unique_traces(summaries, args.out)
+
+    print("\nFigure 13: Queue pressure profile")
+    fig_queue_pressure_profile(summaries, args.out)
+
+    print("\nFigure 14: Local decision burden")
+    fig_local_decision_burden(summaries, args.out)
+
+    print("\nFigure 15: Non-FIFO position profile")
+    fig_nonfifo_position_profile(traces, args.out)
 
     print(f"\nDone. Figures in {args.out}/")
 

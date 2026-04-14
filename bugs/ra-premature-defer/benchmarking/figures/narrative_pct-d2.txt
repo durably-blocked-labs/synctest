@@ -1,0 +1,43 @@
+======================================================================
+Bug-Finding Trace: pct-d2, Run 326
+Total decisions: 25
+======================================================================
+
+Step   0: [LOCAL  A]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   1: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step   2: [LOCAL  B]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   3: [LOCAL  C]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   4: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step   5: [GLOBAL #1]  Deliver A→B(Request)  [chose 0 of 2]
+Step   6: [GLOBAL #2]  Deliver A→C(Request)  [chose 0 of 1]
+Step   7: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step   8: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step   9: [GLOBAL #3]  Deliver C→A(Reply)  [chose 0 of 3]
+Step  10: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  11: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  12: [GLOBAL #4]  Deliver C→A(Start)  [chose 1 of 2] ** NON-FIFO **
+Step  13: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  14: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  15: [GLOBAL #5]  Deliver C→A(Arm)  [chose 0 of 1]
+Step  16: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  17: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  18: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  19: [LOCAL  C]     Run B1  from [B1]  [chose 0 of 1]
+Step  20: [GLOBAL #6]  Deliver C→B(Start)  [chose 0 of 1]
+Step  21: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  22: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  23: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  24: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+
+======================================================================
+RESULT: BUG FOUND on run 326
+  Global decisions: 6
+  Local decisions:  19
+  Non-FIFO choices: 4
+
+Key non-FIFO decisions:
+  Step 0: LOCAL   node=A  B3 from [B4, B3]  [index 1 of 2]
+  Step 2: LOCAL   node=B  B3 from [B4, B3]  [index 1 of 2]
+  Step 3: LOCAL   node=C  B3 from [B4, B3]  [index 1 of 2]
+  Step 12: GLOBAL  Deliver C→A(Start)  [index 1 of 2]
+======================================================================

@@ -1,0 +1,34 @@
+======================================================================
+Bug-Finding Trace: pct-d3, Run 64
+Total decisions: 22
+======================================================================
+
+Step   0: [LOCAL  A]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   1: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step   2: [LOCAL  B]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   3: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step   4: [LOCAL  C]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   5: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step   6: [GLOBAL #1]  Deliver A→B(Request)  [chose 0 of 2]
+Step   7: [GLOBAL #2]  Deliver A→C(Request)  [chose 0 of 1]
+Step   8: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step   9: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  10: [GLOBAL #3]  Deliver C→A(Reply)  [chose 0 of 1]
+Step  11: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  12: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  13: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  14: [GLOBAL #4]  Deliver C→A(Request)  [chose 0 of 2]
+Step  15: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  16: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  17: [GLOBAL #5]  Deliver C→B(Request)  [chose 0 of 1]
+Step  18: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  19: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  20: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  21: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+
+======================================================================
+RESULT: BUG FOUND on run 64
+  Global decisions: 5
+  Local decisions:  17
+  Non-FIFO choices: 0
+======================================================================

@@ -1,0 +1,25 @@
+======================================================================
+Bug-Finding Trace: random, Run 180
+Total decisions: 8
+======================================================================
+
+Step   0: [LOCAL  A]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   1: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step   2: [LOCAL  B]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   3: [LOCAL  C]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   4: [GLOBAL #1]  Deliver A→B(Request)  [chose 0 of 2]
+Step   5: [GLOBAL #2]  Deliver A→C(Request)  [chose 0 of 1]
+Step   6: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step   7: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+
+======================================================================
+RESULT: BUG FOUND on run 180
+  Global decisions: 2
+  Local decisions:  6
+  Non-FIFO choices: 3
+
+Key non-FIFO decisions:
+  Step 0: LOCAL   node=A  B3 from [B4, B3]  [index 1 of 2]
+  Step 2: LOCAL   node=B  B3 from [B4, B3]  [index 1 of 2]
+  Step 3: LOCAL   node=C  B3 from [B4, B3]  [index 1 of 2]
+======================================================================
