@@ -160,3 +160,9 @@ func (b *Bubble) DrainLocal() []LocalStep {
 	copy(out, steps)
 	return out
 }
+
+// HasNewLocal returns true if local scheduling decisions have been recorded
+// since the last drain. Used to detect spurious idle signals.
+func (b *Bubble) HasNewLocal() bool {
+	return len(b.localLog) > b.lastDrained
+}

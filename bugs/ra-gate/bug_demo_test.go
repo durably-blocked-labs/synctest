@@ -23,7 +23,7 @@ func setupCluster(addrs []string) map[string]*OrchestratorTransport {
 	return transports
 }
 
-func addGateNodes(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport, store *KVStore, inCS *atomic.Int32) {
+func addGateNodes(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport, store *KVStore, inCS *atomic.Int32, violated *atomic.Bool) {
 	for i, addr := range addrs {
 		addr := addr
 		tr := transports[addr]
@@ -38,6 +38,12 @@ func addGateNodes(orch *orchestrator.Orchestrator, addrs []string, transports ma
 		orch.AddNode(tr, func(t *testing.T) {
 			tr.StartBridge()
 			node := NewGateRANode(addr, tr, peers)
+			node.OnViolation = func(msg string) {
+				if violated != nil {
+					violated.Store(true)
+				}
+				t.Errorf("protocol violation: %s", msg)
+			}
 			node.Start()
 
 			node.AcquireLock()
@@ -67,8 +73,9 @@ func TestGateBug_FIFOPasses(t *testing.T) {
 	transports := setupCluster(addrs)
 	store := NewKVStore()
 
+	var violated atomic.Bool
 	orch := orchestrator.New()
-	addGateNodes(orch, addrs, transports, store, nil)
+	addGateNodes(orch, addrs, transports, store, nil, &violated)
 
 	_, ok := orch.Run(t)
 	if !ok {
@@ -89,11 +96,12 @@ func TestGateBug_ExploreGlobalOnly(t *testing.T) {
 	addrs := []string{"A", "B", "C"}
 
 	var inCS atomic.Int32
+	var violated atomic.Bool
 	orch := orchestrator.New()
 	ok := orch.Explore(t, func(o *orchestrator.Orchestrator) {
 		transports := setupCluster(addrs)
 		store := NewKVStore()
-		addGateNodes(o, addrs, transports, store, &inCS)
+		addGateNodes(o, addrs, transports, store, &inCS, &violated)
 	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(200))
 
 	if ok {
@@ -110,11 +118,12 @@ func TestGateBug_ExploreAll(t *testing.T) {
 	addrs := []string{"A", "B", "C"}
 
 	var inCS atomic.Int32
+	var violated atomic.Bool
 	orch := orchestrator.New()
 	ok := orch.ExploreAll(t, func(o *orchestrator.Orchestrator) {
 		transports := setupCluster(addrs)
 		store := NewKVStore()
-		addGateNodes(o, addrs, transports, store, &inCS)
+		addGateNodes(o, addrs, transports, store, &inCS, &violated)
 	}, orchestrator.GlobalBound(2), orchestrator.GlobalMaxRuns(500))
 
 	if ok {
@@ -189,11 +198,12 @@ func TestGateBug_PCT(t *testing.T) {
 	addrs := []string{"A", "B", "C"}
 
 	var inCS atomic.Int32
+	var violated atomic.Bool
 	orch := orchestrator.New()
 	ok := orch.ExplorePCT(t, func(o *orchestrator.Orchestrator) {
 		transports := setupCluster(addrs)
 		store := NewKVStore()
-		addGateNodes(o, addrs, transports, store, &inCS)
+		addGateNodes(o, addrs, transports, store, &inCS, &violated)
 	}, orchestrator.PCTDepth(2), orchestrator.PCTMaxRuns(500), orchestrator.PCTSeed(1))
 
 	if ok {
@@ -209,11 +219,12 @@ func TestGateBug_Random(t *testing.T) {
 	addrs := []string{"A", "B", "C"}
 
 	var inCS atomic.Int32
+	var violated atomic.Bool
 	orch := orchestrator.New()
 	ok := orch.ExploreRandom(t, func(o *orchestrator.Orchestrator) {
 		transports := setupCluster(addrs)
 		store := NewKVStore()
-		addGateNodes(o, addrs, transports, store, &inCS)
+		addGateNodes(o, addrs, transports, store, &inCS, &violated)
 	}, orchestrator.RandomMaxRuns(500), orchestrator.RandomSeed(1))
 
 	if ok {

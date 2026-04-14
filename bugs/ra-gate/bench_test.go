@@ -14,9 +14,10 @@ const benchMaxRuns = 500
 func benchSetup(o *orchestrator.Orchestrator) {
 	addrs := []string{"A", "B", "C"}
 	var inCS atomic.Int32
+	var violated atomic.Bool
 	transports := setupCluster(addrs)
 	store := NewKVStore()
-	addGateNodes(o, addrs, transports, store, &inCS)
+	addGateNodes(o, addrs, transports, store, &inCS, &violated)
 }
 
 func benchDir() string {

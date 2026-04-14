@@ -464,8 +464,35 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 
 			if targetCtrl, ok := o.nodes[op.To]; ok {
 				if _, pending := pendingIdle[op.To]; pending {
-					targetCtrl.bubble.Resume <- distributed.Resume{}
+					// Resume the target bubble so it processes the delivered message.
+					// Race: the bridge goroutine (in ExternalWait) may not have
+					// reattached yet, causing a spurious idle. We retry until
+					// HasNewLocal() confirms the message was processed, with a
+					// wall-clock timeout that treats stuck bridges as divergences.
 					delete(pendingIdle, op.To)
+					deadline := time.Now().Add(1 * time.Millisecond)
+					for {
+						targetCtrl.bubble.Resume <- distributed.Resume{}
+						ev := waitNodeEvent(op.To, targetCtrl)
+						if ev.done {
+							markDone(op.To, "after delivery")
+							break
+						}
+						if ev.idle != nil {
+							if targetCtrl.bubble.HasNewLocal() {
+								recordIdle(op.To, *ev.idle)
+								break
+							}
+							// Spurious idle: bridge hasn't reattached yet.
+							if time.Now().After(deadline) {
+								// Infrastructure failure — treat as divergence.
+								panic(replayDivergenceError{
+									Step: traceStep, Index: chosenIdx,
+									QueueSize: len(dp.Alts),
+								})
+							}
+						}
+					}
 				}
 			}
 
@@ -533,15 +560,24 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 	}
 
 	allPassed := true
+	userFailed := false
 	for _, addr := range o.order {
-		if !o.nodes[addr].passed {
+		ctrl := o.nodes[addr]
+		if !ctrl.passed {
 			allPassed = false
+			// Distinguish assertion failure from deadlock:
+			// synctest.Explore returns (nil, false) on deadlock/panic,
+			// (trace, false) when t.Errorf was called.
+			if ctrl.localTrace != nil {
+				userFailed = true
+			}
 		}
 	}
 
 	return RunResult{
 		Trace:          unified,
 		Passed:         allPassed,
+		UserFailed:     userFailed,
 		DivergenceStep: -1,
 		GlobalTrace:    o.trace,
 	}
@@ -579,14 +615,18 @@ func (o *Orchestrator) ExploreWith(
 
 		rr.Elapsed = time.Since(runStart)
 		result.Runs++
-		if !rr.Passed {
+
+		// Divergences are NOT bugs — the prefix didn't match, so the run
+		// should be discarded. Only count non-divergent failures as bugs.
+		isBug := !rr.Passed && !rr.Diverged && rr.UserFailed
+		if isBug {
 			result.Failed++
 			if result.FirstBug == -1 {
 				result.FirstBug = result.Runs
 			}
 		}
 
-		if len(cfg.observers) > 0 {
+		if len(cfg.observers) > 0 && !rr.Diverged {
 			nonFIFO := 0
 			for _, s := range rr.Trace {
 				if s.Index != 0 {
@@ -600,7 +640,7 @@ func (o *Orchestrator) ExploreWith(
 
 		algo.AfterRun(rr)
 
-		if !rr.Passed {
+		if isBug {
 			break
 		}
 	}

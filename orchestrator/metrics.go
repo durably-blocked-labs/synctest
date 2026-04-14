@@ -21,6 +21,7 @@ type RunRecord struct {
 	ElapsedNs             int64                            `json:"elapsed_ns"`
 	LogicalTimeNs         int64                            `json:"logical_time_ns"`
 	Passed                bool                             `json:"passed"`
+	UserFailed            bool                             `json:"user_failed"`
 	TotalDecisions        int                              `json:"total_decisions"`
 	GlobalDecisionCount   int                              `json:"global_decision_count"`
 	LocalDecisionTotal    int                              `json:"local_decision_total"`
@@ -67,6 +68,7 @@ func NewJSONLObserver(w io.Writer, policy string) RunObserver {
 			ElapsedNs:      elapsed.Nanoseconds(),
 			TotalDecisions: len(rr.Trace),
 			Passed:         passed,
+			UserFailed:     rr.UserFailed,
 		}
 
 		// Count global/local decisions and build per-node breakdown from unified trace.
@@ -197,6 +199,7 @@ type DetailedRunRecord struct {
 	Policy    string          `json:"policy"`
 	RunNum    int             `json:"run_num"`
 	Passed    bool            `json:"passed"`
+	UserFailed bool           `json:"user_failed"`
 	ElapsedNs int64           `json:"elapsed_ns"`
 	Steps     []StepRecord    `json:"steps"`
 }
@@ -223,6 +226,7 @@ func NewDetailedObserver(w io.Writer, policy string) RunObserver {
 			Policy:    policy,
 			RunNum:    runNum,
 			Passed:    passed,
+			UserFailed: rr.UserFailed,
 			ElapsedNs: elapsed.Nanoseconds(),
 			Steps:     make([]StepRecord, len(rr.Trace)),
 		}

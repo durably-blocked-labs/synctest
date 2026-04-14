@@ -21,7 +21,7 @@
     "BranchStep": 1,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 59
+    "TraceLen": 60
   },
   {
     "Run": 4,
@@ -277,7 +277,7 @@
     "BranchStep": 2,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 36,
@@ -381,7 +381,7 @@
     "BranchStep": 6,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 49,
@@ -709,7 +709,7 @@
     "BranchStep": 2,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 90,
@@ -1053,7 +1053,7 @@
     "BranchStep": 7,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 59
+    "TraceLen": 60
   },
   {
     "Run": 133,
@@ -1741,7 +1741,7 @@
     "BranchStep": 5,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 219,
@@ -1749,7 +1749,7 @@
     "BranchStep": 5,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 220,
@@ -1773,7 +1773,7 @@
     "BranchStep": 7,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 59
+    "TraceLen": 60
   },
   {
     "Run": 223,
@@ -1789,7 +1789,7 @@
     "BranchStep": 10,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 225,
@@ -1813,7 +1813,7 @@
     "BranchStep": 2,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 228,
@@ -1916,8 +1916,8 @@
     "Parent": 224,
     "BranchStep": 5,
     "NonFIFO": 2,
-    "Passed": true,
-    "TraceLen": 60
+    "Passed": false,
+    "TraceLen": 30
   },
   {
     "Run": 241,
@@ -2221,7 +2221,7 @@
     "BranchStep": 6,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 279,
@@ -2277,7 +2277,7 @@
     "BranchStep": 3,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 286,
@@ -2837,7 +2837,7 @@
     "BranchStep": 4,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 356,
@@ -2941,7 +2941,7 @@
     "BranchStep": 4,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 369,
@@ -2989,7 +2989,7 @@
     "BranchStep": 6,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 375,
@@ -3157,7 +3157,7 @@
     "BranchStep": 4,
     "NonFIFO": 1,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 396,
@@ -3445,7 +3445,7 @@
     "BranchStep": 6,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 432,
@@ -3645,7 +3645,7 @@
     "BranchStep": 8,
     "NonFIFO": 2,
     "Passed": true,
-    "TraceLen": 60
+    "TraceLen": 59
   },
   {
     "Run": 457,
@@ -3669,7 +3669,7 @@
     "BranchStep": 6,
     "NonFIFO": 1,
     "Passed": true,
-    "TraceLen": 59
+    "TraceLen": 60
   },
   {
     "Run": 460,

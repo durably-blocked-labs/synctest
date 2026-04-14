@@ -67,6 +67,7 @@ type RunResult struct {
 	Trace          Trace
 	Passed         bool
 	Diverged       bool
+	UserFailed     bool          // true when t.Errorf/t.Fatalf was called (not just deadlock)
 	DivergenceStep int           // -1 if no divergence
 	Elapsed        time.Duration // wall clock for this run
 

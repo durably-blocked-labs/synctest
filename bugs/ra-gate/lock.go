@@ -22,7 +22,10 @@
 // the flusher runs. Only ExploreAll (combined G+L search) finds it.
 package ragate
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type nodeState int
 
@@ -58,6 +61,11 @@ type GateRANode struct {
 
 	stopCh chan struct{}
 	done   chan struct{}
+
+	// OnViolation is called when the DeferredFlusher detects a protocol violation:
+	// it sees state=Released after gate close, meaning it ran before the App
+	// goroutine set state=Held. This allows premature replies to be sent.
+	OnViolation func(msg string)
 }
 
 func NewGateRANode(addr string, transport nodeTransport, peers []string) *GateRANode {
@@ -174,7 +182,11 @@ func (n *GateRANode) deferredFlusher() {
 		n.mu.Unlock()
 		return
 	}
-	// state == Released: we think we're done. Flush deferred REPLYs.
+	// state == Released: DeferredFlusher ran before App set state=Held.
+	// This is the protocol violation — report it.
+	if n.OnViolation != nil && len(n.deferred) > 0 {
+		n.OnViolation(fmt.Sprintf("node %s: deferredFlusher saw state=Released, sending %d premature replies", n.id, len(n.deferred)))
+	}
 	deferred := n.deferred
 	n.deferred = nil
 	ts := n.clock
