@@ -11,8 +11,6 @@ import (
 )
 
 const benchMaxRuns = 500
-const benchMaxRunsCHESSGlobal = 150
-const benchMaxRunsCHESSGL = 375
 
 func benchSetup(o *orchestrator.Orchestrator) {
 	addrs := scenarioAddrs
@@ -62,10 +60,7 @@ func TestBench_CHESS_GlobalOnly(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 	logBenchStart(t, "CHESS(G-only,k=4)")
 	algo := &orchestrator.CHESS{Bound: 4, GlobalOnly: true}
-	// This staged workload hits a non-converging prefix shortly after 150
-	// global-only runs; cap earlier so package-local benchmark generation
-	// completes instead of stalling on that tail.
-	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRunsCHESSGlobal)}, observers(t, "chess-global")...)
+	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "chess-global")...)
 	orch := orchestrator.New()
 	r := orch.ExploreWith(t, benchSetup, algo, opts...)
 	logBenchDone(t, "CHESS(G-only,k=4)", r.Runs, r.FirstBug, r.Elapsed)
@@ -81,9 +76,7 @@ func TestBench_CHESS_GL(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 	logBenchStart(t, "CHESS(G+L,k=4)")
 	algo := &orchestrator.CHESS{Bound: 4}
-	// This workload also hits a non-converging CHESS(G+L) suffix late in the
-	// run; cap before that point so benchmark-charts completes.
-	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRunsCHESSGL)}, observers(t, "chess-gl")...)
+	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "chess-gl")...)
 	orch := orchestrator.New()
 	r := orch.ExploreWith(t, benchSetup, algo, opts...)
 	logBenchDone(t, "CHESS(G+L,k=4)", r.Runs, r.FirstBug, r.Elapsed)

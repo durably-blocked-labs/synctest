@@ -639,10 +639,13 @@ func (o *Orchestrator) ExploreWith(
 		}
 
 		algo.AfterRun(rr)
-		
+
+		// Every run allocates fresh transports and starts bridge goroutines in the
+		// case-study harnesses. Clean them up even after successful runs so
+		// multi-run exploration does not leak state across iterations.
+		o.cleanupBubbles()
 
 		if isBug {
-			o.cleanupBubbles()
 			break
 		}
 	}
