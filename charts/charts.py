@@ -109,6 +109,54 @@ def find_bug_run(records):
     return None
 
 
+def bug_trace_metrics(policy, summaries, traces):
+    """Return paired summary/trace metrics for a bug-finding run, if present."""
+    summary_bug = find_bug_run(summaries.get(policy, []))
+    trace_bug = find_bug_run(traces.get(policy, []))
+    if trace_bug is None:
+        return None
+
+    steps = trace_bug.get("steps", [])
+    local_steps = [s for s in steps if s["kind"] == "local"]
+    global_steps = [s for s in steps if s["kind"] == "global"]
+
+    local_sizes = [len(s.get("runq_bgids", [])) or s.get("alternatives", 0)
+                   for s in local_steps]
+    if summary_bug and summary_bug.get("queue_sizes"):
+        global_sizes = list(summary_bug["queue_sizes"])
+    else:
+        global_sizes = [s.get("alternatives", 0) for s in global_steps]
+
+    explored_runs = summary_bug["run_num"] if summary_bug else len(summaries.get(policy, []))
+
+    return {
+        "summary_bug": summary_bug,
+        "trace_bug": trace_bug,
+        "steps": steps,
+        "local_steps": local_steps,
+        "global_steps": global_steps,
+        "local_sizes": local_sizes,
+        "global_sizes": global_sizes,
+        "explored_runs": explored_runs,
+    }
+
+
+def search_space_upper_bound(local_sizes, global_sizes):
+    """Approximate interleaving upper bound from local runqs and global queues."""
+    total = 1
+    for size in local_sizes + global_sizes:
+        total *= max(1, size)
+    return total
+
+
+def human_large_int(n):
+    if n < 1000:
+        return str(n)
+    exp = int(np.floor(np.log10(n)))
+    mantissa = n / (10 ** exp)
+    return f"{mantissa:.1f}e{exp}"
+
+
 # ── Figure 1: Runs to first bug (bar chart) ──
 
 def fig_runs_to_bug(summaries, out_dir):
@@ -583,7 +631,131 @@ def fig_nonfifo_over_runs(summaries, out_dir):
     print("  nonfifo_over_runs.png")
 
 
-# ── Figure 7: Detailed trace with RPC labels (fixed) ──
+# ── Figure 7: Theoretical vs explored search space ──
+
+def fig_search_space_vs_explored(summaries, traces, out_dir):
+    """Approximate theoretical interleavings versus runs actually explored."""
+    algo_order = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+    policies = []
+    theoretical = []
+    explored = []
+
+    for policy in algo_order:
+        metrics = bug_trace_metrics(policy, summaries, traces)
+        if metrics is None:
+            continue
+        policies.append(policy)
+        theoretical.append(search_space_upper_bound(metrics["local_sizes"], metrics["global_sizes"]))
+        explored.append(metrics["explored_runs"])
+
+    if not policies:
+        return
+
+    labels = [algo_label(p) for p in policies]
+    x = np.arange(len(policies))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    bars_theoretical = ax.bar(
+        x - width / 2, theoretical, width,
+        label="Theoretical interleavings",
+        color="#D9E8F7", edgecolor="#333", linewidth=0.5
+    )
+    bars_explored = ax.bar(
+        x + width / 2, explored, width,
+        label="Runs explored",
+        color=COLORS["found"], edgecolor="#333", linewidth=0.5
+    )
+
+    for bar, val in zip(bars_theoretical, theoretical):
+        ax.text(bar.get_x() + bar.get_width() / 2, val * 1.12, human_large_int(val),
+                ha='center', va='bottom', fontsize=8, rotation=90, color="#555")
+    for bar, val in zip(bars_explored, explored):
+        ax.text(bar.get_x() + bar.get_width() / 2, val * 1.12, str(val),
+                ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_yscale("log")
+    ax.set_ylabel("Count (log scale)", fontsize=10)
+    ax.set_title("Search Space: Theoretical vs Explored", fontsize=12, fontweight='bold', pad=12)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.legend(fontsize=9)
+
+    # Clarify that this is an upper bound, not an exact trace count.
+    ax.text(0.01, 0.01,
+            "Upper bound from per-step local runq sizes and global queue sizes in the bug-finding trace.",
+            transform=ax.transAxes, fontsize=8, color="#666", va='bottom')
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "search_space_vs_explored.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print("  search_space_vs_explored.png")
+
+
+# ── Figure 8: Local vs global decisions in bug trace ──
+
+def fig_bug_trace_decision_mix(summaries, traces, out_dir):
+    """Break down the bug-finding interleaving into local and global decisions."""
+    algo_order = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+    policies = []
+    local_counts = []
+    global_counts = []
+
+    for policy in algo_order:
+        metrics = bug_trace_metrics(policy, summaries, traces)
+        if metrics is None:
+            continue
+        policies.append(policy)
+        local_counts.append(len(metrics["local_steps"]))
+        global_counts.append(len(metrics["global_steps"]))
+
+    if not policies:
+        return
+
+    labels = [algo_label(p) for p in policies]
+    x = np.arange(len(policies))
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.5))
+    bars_local = ax.bar(
+        x, local_counts, width=0.55,
+        label="Local decisions",
+        color=COLORS["local_fifo"], edgecolor="#333", linewidth=0.5
+    )
+    bars_global = ax.bar(
+        x, global_counts, width=0.55, bottom=local_counts,
+        label="Global decisions",
+        color=COLORS["global_fifo"], edgecolor="#333", linewidth=0.5
+    )
+
+    for i, (local_n, global_n) in enumerate(zip(local_counts, global_counts)):
+        total = local_n + global_n
+        ax.text(i, total + 0.7, str(total), ha='center', va='bottom',
+                fontsize=10, fontweight='bold')
+        ax.text(i, local_n / 2, str(local_n), ha='center', va='center',
+                fontsize=8, color='#333')
+        ax.text(i, local_n + global_n / 2, str(global_n), ha='center', va='center',
+                fontsize=8, color='white' if global_n >= 3 else '#333',
+                fontweight='bold' if global_n >= 3 else 'normal')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylabel("Decisions", fontsize=10)
+    ax.set_title("Bug-Finding Interleaving: Local vs Global Decisions",
+                 fontsize=12, fontweight='bold', pad=12)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, max(l + g for l, g in zip(local_counts, global_counts)) * 1.18)
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "bug_trace_decision_mix.png"), dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print("  bug_trace_decision_mix.png")
+
+
+# ── Figure 9: Detailed trace with RPC labels (fixed) ──
 
 def fig_detailed_trace(traces, out_dir):
     """Per-node timeline with proper label placement. No overlap with title."""
@@ -688,7 +860,7 @@ def fig_detailed_trace(traces, out_dir):
         print(f"  detailed_{policy}.png")
 
 
-# ── Figure 8: Narrative trace (text) ──
+# ── Figure 10: Narrative trace (text) ──
 
 def fig_narrative_trace(traces, out_dir):
     """Human-readable narrative of each algorithm's bug-finding run."""
@@ -762,7 +934,7 @@ def fig_narrative_trace(traces, out_dir):
         print(f"  narrative_{policy}.txt")
 
 
-# ── Figure 9: Algorithm comparison summary table ──
+# ── Figure 11: Algorithm comparison summary table ──
 
 def fig_summary_table(summaries, traces, out_dir):
     """Table comparing algorithms on key metrics."""
@@ -846,13 +1018,19 @@ def main():
     print("\nFigure 6: Non-FIFO over runs")
     fig_nonfifo_over_runs(summaries, args.out)
 
-    print("\nFigure 7: Detailed trace")
+    print("\nFigure 7: Search space vs explored")
+    fig_search_space_vs_explored(summaries, traces, args.out)
+
+    print("\nFigure 8: Bug trace decision mix")
+    fig_bug_trace_decision_mix(summaries, traces, args.out)
+
+    print("\nFigure 9: Detailed trace")
     fig_detailed_trace(traces, args.out)
 
-    print("\nFigure 8: Narrative trace (text)")
+    print("\nFigure 10: Narrative trace (text)")
     fig_narrative_trace(traces, args.out)
 
-    print("\nFigure 9: Summary table")
+    print("\nFigure 11: Summary table")
     fig_summary_table(summaries, traces, args.out)
 
     print(f"\nDone. Figures in {args.out}/")

@@ -639,8 +639,10 @@ func (o *Orchestrator) ExploreWith(
 		}
 
 		algo.AfterRun(rr)
+		
 
 		if isBug {
+			o.cleanupBubbles()
 			break
 		}
 	}

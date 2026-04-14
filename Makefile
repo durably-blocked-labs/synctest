@@ -94,11 +94,21 @@ benchmark-charts:
 	@rm -f "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data"/*.jsonl "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data"/*.json "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/figures"/*
 	@python3 -c "import matplotlib,numpy" 2>/dev/null || \
 		pip3 install -q -r charts/requirements.txt
+	@set +e; \
 	MPLBACKEND=Agg \
 	MPLCONFIGDIR=/tmp/matplotlib \
 	BENCH_DIR="$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" \
 	GODEBUG=asyncpreemptoff=1 \
-	$(GO_BIN) test -v -count=1 -run 'TestBench_' ./$(patsubst ./%,%,$(pkg))
+	$(GO_BIN) test -v -count=1 -run 'TestBench_' ./$(patsubst ./%,%,$(pkg)); \
+	status=$$?; \
+	set -e; \
+	if [ $$status -ne 0 ]; then \
+		echo "benchmark run exited with status $$status; continuing because bug-finding failures are expected"; \
+	fi; \
+	if ! find "$(CURDIR)/$(patsubst ./%,%,$(pkg))/benchmarking/data" -maxdepth 1 \( -name '*.jsonl' -o -name '*.json' \) | grep -q .; then \
+		echo "benchmark run produced no data files"; \
+		exit $$status; \
+	fi
 	MPLBACKEND=Agg \
 	MPLCONFIGDIR=/tmp/matplotlib \
 	python3 charts/charts.py \
