@@ -1,5 +1,5 @@
 ======================================================================
-Bug-Finding Trace: pct-d2, Run 222
+Bug-Finding Trace: pct-d2, Run 131 (attempt 10)
 Total decisions: 32
 ======================================================================
 
@@ -11,12 +11,12 @@ Step   4: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
 Step   5: [GLOBAL #1]  Deliver A→C(Request)  [chose 1 of 2] ** NON-FIFO **
 Step   6: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
 Step   7: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
-Step   8: [GLOBAL #2]  Deliver C→A(Start)  [chose 3 of 4] ** NON-FIFO **
-Step   9: [GLOBAL #3]  Deliver C→A(Reply)  [chose 1 of 3] ** NON-FIFO **
-Step  10: [GLOBAL #4]  Deliver A→B(Request)  [chose 0 of 2]
-Step  11: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
-Step  12: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
-Step  13: [GLOBAL #5]  Deliver C→A(Arm)  [chose 0 of 2]
+Step   8: [GLOBAL #2]  Deliver C→A(Arm)  [chose 2 of 4] ** NON-FIFO **
+Step   9: [GLOBAL #3]  Deliver C→A(Start)  [chose 2 of 3] ** NON-FIFO **
+Step  10: [GLOBAL #4]  Deliver C→A(Reply)  [chose 1 of 2] ** NON-FIFO **
+Step  11: [GLOBAL #5]  Deliver A→B(Request)  [chose 0 of 1]
+Step  12: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  13: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
 Step  14: [GLOBAL #6]  Deliver B→A(Reply)  [chose 0 of 1]
 Step  15: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
 Step  16: [LOCAL  C]     Run B1  from [B1]  [chose 0 of 1]
@@ -37,16 +37,17 @@ Step  30: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
 Step  31: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
 
 ======================================================================
-RESULT: BUG FOUND on run 222
+RESULT: BUG FOUND on run 131
   Global decisions: 10
   Local decisions:  22
-  Non-FIFO choices: 6
+  Non-FIFO choices: 7
 
 Key non-FIFO decisions:
   Step 0: LOCAL   node=A  B3 from [B4, B3]  [index 1 of 2]
   Step 1: LOCAL   node=B  B3 from [B4, B3]  [index 1 of 2]
   Step 3: LOCAL   node=C  B3 from [B4, B3]  [index 1 of 2]
   Step 5: GLOBAL  Deliver A→C(Request)  [index 1 of 2]
-  Step 8: GLOBAL  Deliver C→A(Start)  [index 3 of 4]
-  Step 9: GLOBAL  Deliver C→A(Reply)  [index 1 of 3]
+  Step 8: GLOBAL  Deliver C→A(Arm)  [index 2 of 4]
+  Step 9: GLOBAL  Deliver C→A(Start)  [index 2 of 3]
+  Step 10: GLOBAL  Deliver C→A(Reply)  [index 1 of 2]
 ======================================================================

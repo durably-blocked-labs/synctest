@@ -16,6 +16,7 @@ import (
 // Written to a JSONL file by NewJSONLObserver; read by charts/charts.py.
 type RunRecord struct {
 	Policy                string                           `json:"policy"`
+	Attempt               int                              `json:"attempt"`
 	RunNum                int                              `json:"run_num"`
 	NonFIFO               int                              `json:"non_fifo"`
 	ElapsedNs             int64                            `json:"elapsed_ns"`
@@ -56,6 +57,18 @@ type LocalDecisionRecord struct {
 
 const synctestBaseTimeNs = int64(946684800000000000)
 
+func attemptFromEnv() int {
+	s := os.Getenv("BENCH_ATTEMPT")
+	if s == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 1
+	}
+	return n
+}
+
 // NewJSONLObserver returns a RunObserver that appends one JSON line per run to w.
 // policy tags each record (e.g. "chess", "pct", "random"). Pass "" to omit.
 func NewJSONLObserver(w io.Writer, policy string) RunObserver {
@@ -63,6 +76,7 @@ func NewJSONLObserver(w io.Writer, policy string) RunObserver {
 	return func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResult, passed bool) {
 		r := RunRecord{
 			Policy:         policy,
+			Attempt:        attemptFromEnv(),
 			RunNum:         runNum,
 			NonFIFO:        nonFIFO,
 			ElapsedNs:      elapsed.Nanoseconds(),
@@ -196,12 +210,13 @@ func ObserverFromEnv(t *testing.T) ExploreOption {
 
 // DetailedRunRecord is a full trace export for one run (for visualization).
 type DetailedRunRecord struct {
-	Policy    string          `json:"policy"`
-	RunNum    int             `json:"run_num"`
-	Passed    bool            `json:"passed"`
-	UserFailed bool           `json:"user_failed"`
-	ElapsedNs int64           `json:"elapsed_ns"`
-	Steps     []StepRecord    `json:"steps"`
+	Policy     string       `json:"policy"`
+	Attempt    int          `json:"attempt"`
+	RunNum     int          `json:"run_num"`
+	Passed     bool         `json:"passed"`
+	UserFailed bool         `json:"user_failed"`
+	ElapsedNs  int64        `json:"elapsed_ns"`
+	Steps      []StepRecord `json:"steps"`
 }
 
 // StepRecord is one decision in a detailed trace export.
@@ -223,12 +238,13 @@ func NewDetailedObserver(w io.Writer, policy string) RunObserver {
 	enc := json.NewEncoder(w)
 	return func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResult, passed bool) {
 		rec := DetailedRunRecord{
-			Policy:    policy,
-			RunNum:    runNum,
-			Passed:    passed,
+			Policy:     policy,
+			Attempt:    attemptFromEnv(),
+			RunNum:     runNum,
+			Passed:     passed,
 			UserFailed: rr.UserFailed,
-			ElapsedNs: elapsed.Nanoseconds(),
-			Steps:     make([]StepRecord, len(rr.Trace)),
+			ElapsedNs:  elapsed.Nanoseconds(),
+			Steps:      make([]StepRecord, len(rr.Trace)),
 		}
 		for i, s := range rr.Trace {
 			kind := "local"

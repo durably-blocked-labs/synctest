@@ -2,3 +2,4 @@
 .DS_Store
 charts/debug
 tmp/
+bugs/**/data/attempt-*/

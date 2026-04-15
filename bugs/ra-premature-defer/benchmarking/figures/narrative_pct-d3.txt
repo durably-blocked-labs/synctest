@@ -1,54 +1,34 @@
 ======================================================================
-Bug-Finding Trace: pct-d3, Run 295
-Total decisions: 32
+Bug-Finding Trace: pct-d3, Run 78 (attempt 20)
+Total decisions: 16
 ======================================================================
 
 Step   0: [LOCAL  A]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
-Step   1: [LOCAL  B]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
-Step   2: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
-Step   3: [LOCAL  C]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
-Step   4: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step   1: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step   2: [LOCAL  B]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
+Step   3: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step   4: [LOCAL  C]     Run B3  from [B4, B3]  [chose 1 of 2] ** NON-FIFO **
 Step   5: [GLOBAL #1]  Deliver A→C(Request)  [chose 1 of 2] ** NON-FIFO **
-Step   6: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
-Step   7: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
-Step   8: [GLOBAL #2]  Deliver C→A(Start)  [chose 3 of 4] ** NON-FIFO **
-Step   9: [GLOBAL #3]  Deliver C→A(Reply)  [chose 1 of 3] ** NON-FIFO **
-Step  10: [GLOBAL #4]  Deliver A→B(Request)  [chose 0 of 2]
-Step  11: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
-Step  12: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
-Step  13: [GLOBAL #5]  Deliver B→A(Reply)  [chose 1 of 2] ** NON-FIFO **
-Step  14: [GLOBAL #6]  Deliver C→A(Arm)  [chose 0 of 1]
-Step  15: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
-Step  16: [LOCAL  C]     Run B1  from [B1]  [chose 0 of 1]
-Step  17: [GLOBAL #7]  Deliver C→B(Start)  [chose 0 of 1]
-Step  18: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
-Step  19: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
-Step  20: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
-Step  21: [GLOBAL #8]  Deliver B→C(Request)  [chose 1 of 2] ** NON-FIFO **
-Step  22: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
-Step  23: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
-Step  24: [GLOBAL #9]  Deliver B→A(Request)  [chose 0 of 2]
-Step  25: [GLOBAL #10]  Deliver C→B(Reply)  [chose 0 of 1]
-Step  26: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
-Step  27: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
-Step  28: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
-Step  29: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
-Step  30: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
-Step  31: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step   6: [GLOBAL #2]  Deliver A→B(Request)  [chose 0 of 1]
+Step   7: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step   8: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step   9: [GLOBAL #3]  Deliver B→A(Reply)  [chose 0 of 1]
+Step  10: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  11: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  12: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  13: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  14: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  15: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
 
 ======================================================================
-RESULT: BUG FOUND on run 295
-  Global decisions: 10
-  Local decisions:  22
-  Non-FIFO choices: 8
+RESULT: BUG FOUND on run 78
+  Global decisions: 3
+  Local decisions:  13
+  Non-FIFO choices: 4
 
 Key non-FIFO decisions:
   Step 0: LOCAL   node=A  B3 from [B4, B3]  [index 1 of 2]
-  Step 1: LOCAL   node=B  B3 from [B4, B3]  [index 1 of 2]
-  Step 3: LOCAL   node=C  B3 from [B4, B3]  [index 1 of 2]
+  Step 2: LOCAL   node=B  B3 from [B4, B3]  [index 1 of 2]
+  Step 4: LOCAL   node=C  B3 from [B4, B3]  [index 1 of 2]
   Step 5: GLOBAL  Deliver A→C(Request)  [index 1 of 2]
-  Step 8: GLOBAL  Deliver C→A(Start)  [index 3 of 4]
-  Step 9: GLOBAL  Deliver C→A(Reply)  [index 1 of 3]
-  Step 13: GLOBAL  Deliver B→A(Reply)  [index 1 of 2]
-  Step 21: GLOBAL  Deliver B→C(Request)  [index 1 of 2]
 ======================================================================

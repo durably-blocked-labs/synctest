@@ -14,6 +14,7 @@ K       ?= 2
 KMAX    ?= 3
 OUTDIR  ?= charts/data
 BENCH_TIMEOUT ?= 45s
+ATTEMPTS ?= 1
 
 help:
 	@echo "Synctest Development"
@@ -93,6 +94,7 @@ ifdef pkg
 benchmark-charts:
 	@pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
 	mkdir -p "$$pkgdir/benchmarking/data" "$$pkgdir/benchmarking/figures"; \
+	rm -rf "$$pkgdir/benchmarking/data"/attempt-*; \
 	rm -f "$$pkgdir/benchmarking/data"/*.jsonl "$$pkgdir/benchmarking/data"/*.json "$$pkgdir/benchmarking/figures"/*
 	@python3 -c "import matplotlib,numpy" 2>/dev/null || \
 		pip3 install -q -r charts/requirements.txt
@@ -105,24 +107,33 @@ benchmark-charts:
 		exit 1; \
 	fi; \
 	status=0; \
-	for testname in $$($(GO_BIN) test -list '^TestBench_' "$$pkgpath" | grep '^TestBench_'); do \
-		echo "==> $$testname"; \
-		MPLBACKEND=Agg \
-		MPLCONFIGDIR=/tmp/matplotlib \
-		BENCH_DIR="$$pkgdir/benchmarking/data" \
-		GODEBUG=asyncpreemptoff=1 \
-		$(GO_BIN) test -count=1 -v -timeout=$(BENCH_TIMEOUT) -run "^$$testname$$" "$$pkgpath"; \
-		test_status=$$?; \
-		echo "<== $$testname (status=$$test_status)"; \
-		if [ $$test_status -ne 0 ] && [ $$status -eq 0 ]; then \
-			status=$$test_status; \
+	for attempt in $$(seq 1 $(ATTEMPTS)); do \
+		if [ "$(ATTEMPTS)" -eq 1 ]; then \
+			attempt_dir="$$pkgdir/benchmarking/data"; \
+		else \
+			attempt_dir=$$(printf '%s/benchmarking/data/attempt-%03d' "$$pkgdir" "$$attempt"); \
 		fi; \
+		mkdir -p "$$attempt_dir"; \
+		for testname in $$($(GO_BIN) test -list '^TestBench_' "$$pkgpath" | grep '^TestBench_'); do \
+			echo "==> attempt $$attempt $$testname"; \
+			MPLBACKEND=Agg \
+			MPLCONFIGDIR=/tmp/matplotlib \
+			BENCH_DIR="$$attempt_dir" \
+			BENCH_ATTEMPT="$$attempt" \
+			GODEBUG=asyncpreemptoff=1 \
+			$(GO_BIN) test -count=1 -v -timeout=$(BENCH_TIMEOUT) -run "^$$testname$$" "$$pkgpath"; \
+			test_status=$$?; \
+			echo "<== attempt $$attempt $$testname (status=$$test_status)"; \
+			if [ $$test_status -ne 0 ] && [ $$status -eq 0 ]; then \
+				status=$$test_status; \
+			fi; \
+		done; \
 	done; \
 	set -e; \
 	if [ $$status -ne 0 ]; then \
 		echo "benchmark run exited with status $$status; continuing because bug-finding failures are expected"; \
 	fi; \
-	if ! find "$$pkgdir/benchmarking/data" -maxdepth 1 \( -name '*.jsonl' -o -name '*.json' \) | grep -q .; then \
+	if ! find "$$pkgdir/benchmarking/data" \( -name '*.jsonl' -o -name '*.json' \) | grep -q .; then \
 		echo "benchmark run produced no data files"; \
 		exit $$status; \
 	fi
