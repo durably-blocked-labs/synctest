@@ -357,9 +357,23 @@ def search_space_upper_bound(local_sizes, global_sizes):
 def human_large_int(n):
     if n < 1000:
         return str(n)
-    exp = int(np.floor(np.log10(n)))
-    mantissa = n / (10 ** exp)
-    return f"{mantissa:.1f}e{exp}"
+
+    digits = str(n)
+    exp = len(digits) - 1
+    whole = int(digits[0])
+    tenth = int(digits[1]) if len(digits) > 1 else 0
+    hundredth = int(digits[2]) if len(digits) > 2 else 0
+
+    if hundredth >= 5:
+        tenth += 1
+        if tenth == 10:
+            whole += 1
+            tenth = 0
+            if whole == 10:
+                whole = 1
+                exp += 1
+
+    return f"{whole}.{tenth}e{exp}"
 
 
 # ── Figure 1: Runs to first bug ──
@@ -835,11 +849,13 @@ def fig_search_space_vs_explored(summaries, traces, out_dir):
 
     x = np.arange(len(policies))
     width = 0.35
+    theoretical_plot = np.array([float(value) for value in theoretical], dtype=float)
+    explored_plot = np.array([float(value) for value in explored], dtype=float)
     fig, ax = plt.subplots(figsize=(9, 4.8))
-    bars_theoretical = ax.bar(x - width / 2, theoretical, width,
+    bars_theoretical = ax.bar(x - width / 2, theoretical_plot, width,
                               label="Theoretical interleavings", color="#D9E8F7",
                               edgecolor="#333", linewidth=0.5)
-    bars_explored = ax.bar(x + width / 2, explored, width,
+    bars_explored = ax.bar(x + width / 2, explored_plot, width,
                            label="Runs explored", color=COLORS["found"],
                            edgecolor="#333", linewidth=0.5)
 

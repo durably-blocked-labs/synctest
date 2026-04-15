@@ -1,0 +1,136 @@
+======================================================================
+Bug-Finding Trace: pct-d3, Run 46 (attempt 1)
+Total decisions: 109
+======================================================================
+
+Step   0: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step   1: [LOCAL  A]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   2: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step   3: [LOCAL  B]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   4: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step   5: [LOCAL  C]     Run B4  from [B4, B3]  [chose 0 of 2]
+Step   6: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step   7: [GLOBAL #1]  Deliver A→C(Request)  [chose 1 of 2] ** NON-FIFO **
+Step   8: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step   9: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  10: [GLOBAL #2]  Deliver A→B(Request)  [chose 0 of 2]
+Step  11: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  12: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  13: [GLOBAL #3]  Deliver B→A(Reply)  [chose 1 of 2] ** NON-FIFO **
+Step  14: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  15: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  16: [GLOBAL #4]  Deliver C→A(Reply)  [chose 0 of 1]
+Step  17: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  18: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  19: [LOCAL  A]     Run B2  from [B2]  [chose 0 of 1]
+Step  20: [GLOBAL #5]  Deliver A→B(Control)  [chose 0 of 2]
+Step  21: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  22: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
+Step  23: [GLOBAL #6]  Deliver B→C(Request)  [chose 2 of 3] ** NON-FIFO **
+Step  24: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  25: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  26: [GLOBAL #7]  Deliver C→B(Reply)  [chose 2 of 3] ** NON-FIFO **
+Step  27: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  28: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  29: [GLOBAL #8]  Deliver B→A(Request)  [chose 1 of 3] ** NON-FIFO **
+Step  30: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  31: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  32: [GLOBAL #9]  Deliver B→C(Control)  [chose 1 of 2] ** NON-FIFO **
+Step  33: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  34: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  35: [GLOBAL #10]  Deliver A→KV(KVGet)  [chose 0 of 1]
+Step  36: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  37: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  38: [GLOBAL #11]  Deliver KV→A(KVGetReply)  [chose 0 of 1]
+Step  39: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  40: [LOCAL  A]     Run B2  from [B2]  [chose 0 of 1]
+Step  41: [GLOBAL #12]  Deliver A→KV(KVPut)  [chose 0 of 1]
+Step  42: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  43: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  44: [GLOBAL #13]  Deliver KV→A(KVPutReply)  [chose 0 of 1]
+Step  45: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  46: [LOCAL  A]     Run B2  from [B2]  [chose 0 of 1]
+Step  47: [LOCAL  A]     Run B1  from [B1]  [chose 0 of 1]
+Step  48: [GLOBAL #14]  Deliver A→C(Control)  [chose 1 of 2] ** NON-FIFO **
+Step  49: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  50: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  51: [GLOBAL #15]  Deliver C→A(Request)  [chose 1 of 3] ** NON-FIFO **
+Step  52: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step  53: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step  54: [GLOBAL #16]  Deliver C→B(Request)  [chose 1 of 3] ** NON-FIFO **
+Step  55: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  56: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  57: [GLOBAL #17]  Deliver A→C(Reply)  [chose 1 of 2] ** NON-FIFO **
+Step  58: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  59: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  60: [GLOBAL #18]  Deliver A→B(Reply)  [chose 0 of 1]
+Step  61: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  62: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step  63: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
+Step  64: [GLOBAL #19]  Deliver B→C(Reply)  [chose 0 of 2]
+Step  65: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  66: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+Step  67: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  68: [GLOBAL #20]  Deliver B→KV(KVGet)  [chose 0 of 2]
+Step  69: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  70: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  71: [GLOBAL #21]  Deliver C→KV(KVGet)  [chose 0 of 2]
+Step  72: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  73: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  74: [GLOBAL #22]  Deliver KV→C(KVGetReply)  [chose 1 of 2] ** NON-FIFO **
+Step  75: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  76: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  77: [GLOBAL #23]  Deliver C→KV(KVPut)  [chose 1 of 2] ** NON-FIFO **
+Step  78: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  79: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  80: [GLOBAL #24]  Deliver KV→C(KVPutReply)  [chose 1 of 2] ** NON-FIFO **
+Step  81: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step  82: [LOCAL  C]     Run B2  from [B2]  [chose 0 of 1]
+Step  83: [LOCAL  C]     Run B1  from [B1]  [chose 0 of 1]
+Step  84: [GLOBAL #25]  Deliver KV→B(KVGetReply)  [chose 0 of 1]
+Step  85: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  86: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
+Step  87: [GLOBAL #26]  Deliver B→KV(KVPut)  [chose 0 of 1]
+Step  88: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  89: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  90: [GLOBAL #27]  Deliver KV→B(KVPutReply)  [chose 0 of 1]
+Step  91: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  92: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
+Step  93: [GLOBAL #28]  Deliver B→KV(KVGet)  [chose 0 of 1]
+Step  94: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step  95: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step  96: [GLOBAL #29]  Deliver KV→B(KVGetReply)  [chose 0 of 1]
+Step  97: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step  98: [LOCAL  B]     Run B2  from [B2]  [chose 0 of 1]
+Step  99: [LOCAL  B]     Run B1  from [B1]  [chose 0 of 1]
+Step 100: [LOCAL  KV]     Run B3  from [B3]  [chose 0 of 1]
+Step 101: [LOCAL  KV]     Run B2  from [B2]  [chose 0 of 1]
+Step 102: [LOCAL  KV]     Run B1  from [B1]  [chose 0 of 1]
+Step 103: [LOCAL  A]     Run B3  from [B3]  [chose 0 of 1]
+Step 104: [LOCAL  A]     Run B4  from [B4]  [chose 0 of 1]
+Step 105: [LOCAL  B]     Run B3  from [B3]  [chose 0 of 1]
+Step 106: [LOCAL  B]     Run B4  from [B4]  [chose 0 of 1]
+Step 107: [LOCAL  C]     Run B3  from [B3]  [chose 0 of 1]
+Step 108: [LOCAL  C]     Run B4  from [B4]  [chose 0 of 1]
+
+======================================================================
+RESULT: BUG FOUND on run 46
+  Global decisions: 29
+  Local decisions:  80
+  Non-FIFO choices: 13
+
+Key non-FIFO decisions:
+  Step 7: GLOBAL  Deliver A→C(Request)  [index 1 of 2]
+  Step 13: GLOBAL  Deliver B→A(Reply)  [index 1 of 2]
+  Step 23: GLOBAL  Deliver B→C(Request)  [index 2 of 3]
+  Step 26: GLOBAL  Deliver C→B(Reply)  [index 2 of 3]
+  Step 29: GLOBAL  Deliver B→A(Request)  [index 1 of 3]
+  Step 32: GLOBAL  Deliver B→C(Control)  [index 1 of 2]
+  Step 48: GLOBAL  Deliver A→C(Control)  [index 1 of 2]
+  Step 51: GLOBAL  Deliver C→A(Request)  [index 1 of 3]
+  Step 54: GLOBAL  Deliver C→B(Request)  [index 1 of 3]
+  Step 57: GLOBAL  Deliver A→C(Reply)  [index 1 of 2]
+  Step 74: GLOBAL  Deliver KV→C(KVGetReply)  [index 1 of 2]
+  Step 77: GLOBAL  Deliver C→KV(KVPut)  [index 1 of 2]
+  Step 80: GLOBAL  Deliver KV→C(KVPutReply)  [index 1 of 2]
+======================================================================
