@@ -8,7 +8,10 @@ import (
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-const activeContenders = 2
+const (
+	activeContenders = 2
+	kvAddr           = "KV"
+)
 
 var scenarioAddrs = []string{"A", "B", "C"}
 
@@ -27,8 +30,27 @@ func setupCluster(addrs []string) map[string]*OrchestratorTransport {
 	return transports
 }
 
-func addStaleReplyNodes(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport, store *KVStore, inCS *atomic.Int32) {
+func setupClusterWithKV(addrs []string) map[string]*OrchestratorTransport {
+	allAddrs := make([]string, 0, len(addrs)+1)
+	allAddrs = append(allAddrs, kvAddr)
+	allAddrs = append(allAddrs, addrs...)
+	return setupCluster(allAddrs)
+}
+
+func addKVNode(orch *orchestrator.Orchestrator, transports map[string]*OrchestratorTransport) {
+	kvTr := transports[kvAddr]
+	orch.AddNode(kvTr, func(t *testing.T) {
+		kvTr.StartBridge()
+		store := NewNetworkKVStore(kvTr)
+		store.Serve()
+	})
+}
+
+func addStaleReplyNodes(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport) {
 	transports["B"].DuplicateNext("A", MsgReply)
+
+	expected := activeContenders + 1 // A(2 rounds) + B(1 round) = 3 CS entries
+	var done atomic.Int32
 
 	for i, addr := range addrs {
 		addr := addr
@@ -45,50 +67,44 @@ func addStaleReplyNodes(orch *orchestrator.Orchestrator, addrs []string, transpo
 			tr.StartBridge()
 			node := NewStaleReplyNode(addr, tr, peers)
 			node.Start()
+			kv := NewKVClient(tr, kvAddr)
+
+			// checkCounter is called after each CS exit. The last CS
+			// entry to complete checks the final counter value.
+			checkCounter := func() {
+				if int(done.Add(1)) == expected {
+					final := kv.Get("counter")
+					if final != expected {
+						t.Errorf("lost update: counter=%d, want %d", final, expected)
+					}
+				}
+			}
 
 			switch addr {
 			case "A":
 				node.AcquireLock()
-				if inCS != nil {
-					if v := inCS.Add(1); v > 1 {
-						t.Errorf("mutual exclusion violated on %s round 1: %d in CS", addr, v)
-					}
-				}
-				store.Put("counter", store.Get("counter")+1)
-				if inCS != nil {
-					inCS.Add(-1)
-				}
+				val := kv.Get("counter")
+				kv.Put("counter", val+1)
 				node.ReleaseLock()
+				checkCounter()
 
 				time.Sleep(10 * time.Millisecond)
 
 				node.AcquireLock()
-				if inCS != nil {
-					if v := inCS.Add(1); v > 1 {
-						t.Errorf("mutual exclusion violated on %s round 2: %d in CS", addr, v)
-					}
-				}
-				store.Put("counter", store.Get("counter")+1)
-				if inCS != nil {
-					inCS.Add(-1)
-				}
+				val = kv.Get("counter")
+				kv.Put("counter", val+1)
 				node.ReleaseLock()
+				checkCounter()
 				return
 
 			case "B":
 				time.Sleep(5 * time.Millisecond)
 				node.AcquireLock()
-				if inCS != nil {
-					if v := inCS.Add(1); v > 1 {
-						t.Errorf("mutual exclusion violated on %s: %d in CS", addr, v)
-					}
-				}
+				val := kv.Get("counter")
 				time.Sleep(20 * time.Millisecond)
-				store.Put("counter", store.Get("counter")+1)
-				if inCS != nil {
-					inCS.Add(-1)
-				}
+				kv.Put("counter", val+1)
 				node.ReleaseLock()
+				checkCounter()
 				return
 
 			case "C":

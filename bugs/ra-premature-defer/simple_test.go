@@ -8,14 +8,14 @@ import (
 )
 
 func TestSimplePrematureDefer(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	addrs := scenarioAddrs
 
-	transports := setupCluster(addrs)
-	store := NewKVStore()
+	transports := setupClusterWithKV(addrs)
 
 	orch := orchestrator.New()
-	addPrematureDeferNodes(orch, addrs, transports, store, nil, nil)
+	addKVNode(orch, transports)
+	addPrematureDeferNodes(orch, addrs, transports)
 
 	_, ok := orch.Run(t)
 	if !ok {

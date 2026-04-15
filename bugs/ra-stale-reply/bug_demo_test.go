@@ -2,41 +2,35 @@ package rastalereply
 
 import (
 	"runtime"
-	"sync/atomic"
 	"testing"
 
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
 func TestStaleReply_FIFOPasses(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	addrs := scenarioAddrs
-	transports := setupCluster(addrs)
-	store := NewKVStore()
+	transports := setupClusterWithKV(addrs)
 
-	var inCS atomic.Int32
 	orch := orchestrator.New()
-	addStaleReplyNodes(orch, addrs, transports, store, &inCS)
+	addKVNode(orch, transports)
+	addStaleReplyNodes(orch, addrs, transports)
 
 	_, ok := orch.Run(t)
 	if !ok {
 		t.Fatal("FIFO run failed")
 	}
-	if got := store.Get("counter"); got != activeContenders+1 {
-		t.Errorf("lost update: counter=%d, want %d", got, activeContenders+1)
-	}
 }
 
 func TestStaleReply_ExploreGlobalOnly(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	addrs := scenarioAddrs
 
-	var inCS atomic.Int32
 	orch := orchestrator.New()
 	ok := orch.Explore(t, func(o *orchestrator.Orchestrator) {
-		transports := setupCluster(addrs)
-		store := NewKVStore()
-		addStaleReplyNodes(o, addrs, transports, store, &inCS)
+		transports := setupClusterWithKV(addrs)
+		addKVNode(o, transports)
+		addStaleReplyNodes(o, addrs, transports)
 	}, orchestrator.GlobalBound(4), orchestrator.GlobalMaxRuns(500))
 
 	if ok {
@@ -47,16 +41,15 @@ func TestStaleReply_ExploreGlobalOnly(t *testing.T) {
 }
 
 func TestStaleReply_ExploreAll(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	addrs := scenarioAddrs
 
-	var inCS atomic.Int32
 	orch := orchestrator.New()
 	ok := orch.ExploreAll(t, func(o *orchestrator.Orchestrator) {
-		transports := setupCluster(addrs)
-		store := NewKVStore()
-		addStaleReplyNodes(o, addrs, transports, store, &inCS)
-	}, orchestrator.GlobalBound(4), orchestrator.GlobalMaxRuns(500))
+		transports := setupClusterWithKV(addrs)
+		addKVNode(o, transports)
+		addStaleReplyNodes(o, addrs, transports)
+	}, orchestrator.GlobalBound(6), orchestrator.GlobalMaxRuns(2000))
 
 	if ok {
 		t.Log("ExploreAll: did not find bug within max runs")
@@ -66,14 +59,13 @@ func TestStaleReply_ExploreAll(t *testing.T) {
 }
 
 func TestStaleReply_FindBug(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	addrs := scenarioAddrs
 
-	var inCS atomic.Int32
-	store := NewKVStore()
+	transports := setupClusterWithKV(addrs)
 	orch := orchestrator.New()
-	transports := setupCluster(addrs)
-	addStaleReplyNodes(orch, addrs, transports, store, &inCS)
+	addKVNode(orch, transports)
+	addStaleReplyNodes(orch, addrs, transports)
 
 	rr := orch.RunWith(t, func(dp orchestrator.DecisionPoint) int {
 		if dp.Kind == orchestrator.Global && dp.N() > 1 {

@@ -8,7 +8,10 @@ import (
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-const activeContenders = 2
+const (
+	activeContenders = 2
+	kvAddr           = "KV"
+)
 
 var scenarioAddrs = []string{"A", "B", "C"}
 
@@ -27,7 +30,26 @@ func setupCluster(addrs []string) map[string]*OrchestratorTransport {
 	return transports
 }
 
-func addPrematureDeferNodes(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport, store *KVStore, inCS *atomic.Int32, violated *atomic.Bool) {
+func setupClusterWithKV(addrs []string) map[string]*OrchestratorTransport {
+	allAddrs := make([]string, 0, len(addrs)+1)
+	allAddrs = append(allAddrs, kvAddr)
+	allAddrs = append(allAddrs, addrs...)
+	return setupCluster(allAddrs)
+}
+
+func addKVNode(orch *orchestrator.Orchestrator, transports map[string]*OrchestratorTransport) {
+	kvTr := transports[kvAddr]
+	orch.AddNode(kvTr, func(t *testing.T) {
+		kvTr.StartBridge()
+		store := NewNetworkKVStore(kvTr)
+		store.Serve()
+	})
+}
+
+func addPrematureDeferNodes(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport) {
+	expected := activeContenders + 1 // A(2 rounds) + B(1 round) = 3 CS entries
+	var done atomic.Int32
+
 	for i, addr := range addrs {
 		addr := addr
 		tr := transports[addr]
@@ -42,57 +64,49 @@ func addPrematureDeferNodes(orch *orchestrator.Orchestrator, addrs []string, tra
 		orch.AddNode(tr, func(t *testing.T) {
 			tr.StartBridge()
 			node := NewPrematureDeferNode(addr, tr, peers)
-			node.OnViolation = func(msg string) {
-				if violated != nil {
-					violated.Store(true)
-				}
-				t.Errorf("protocol violation: %s", msg)
-			}
 			if addr == "C" {
 				node.SetStartPeer("A")
 			}
 
 			node.Start()
+			kv := NewKVClient(tr, kvAddr)
+
+			checkCounter := func() {
+				if int(done.Add(1)) == expected {
+					final := kv.Get("counter")
+					if final != expected {
+						t.Errorf("lost update: counter=%d, want %d", final, expected)
+					}
+				}
+			}
 
 			switch addr {
 			case "A":
 				node.AcquireLock()
-				store.Put("counter", store.Get("counter")+1)
+				val := kv.Get("counter")
+				kv.Put("counter", val+1)
 				node.ReleaseLock()
+				checkCounter()
 
 				node.WaitForStart()
 				node.AcquireLock()
-				if inCS != nil {
-					if v := inCS.Add(1); v > 1 {
-						t.Errorf("mutual exclusion violated on %s: %d in CS", addr, v)
-					}
-				}
+				val = kv.Get("counter")
 				time.Sleep(5 * time.Millisecond)
-				store.Put("counter", store.Get("counter")+1)
-				if inCS != nil {
-					inCS.Add(-1)
-				}
+				kv.Put("counter", val+1)
 				node.ReleaseLock()
+				checkCounter()
 				return
 
 			case "B":
 				node.WaitForStart()
 				node.AcquireLock()
-				if inCS != nil {
-					if v := inCS.Add(1); v > 1 {
-						t.Errorf("mutual exclusion violated on %s: %d in CS", addr, v)
-					}
-				}
-				// Under FIFO the stale reply is delivered before A is started and is ignored.
-				// Reordered runs can deliver the Arm/Start chain first, then the stale reply.
 				node.SendStaleReply()
 				node.SendArm("C")
+				val := kv.Get("counter")
 				time.Sleep(5 * time.Millisecond)
-				store.Put("counter", store.Get("counter")+1)
-				if inCS != nil {
-					inCS.Add(-1)
-				}
+				kv.Put("counter", val+1)
 				node.ReleaseLock()
+				checkCounter()
 				return
 
 			case "C":

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"sync/atomic"
 	"testing"
 
 	"github.com/shubhaankar/synctest/orchestrator"
@@ -14,11 +13,9 @@ const benchMaxRuns = 500
 
 func benchSetup(o *orchestrator.Orchestrator) {
 	addrs := scenarioAddrs
-	var inCS atomic.Int32
-	var violated atomic.Bool
-	transports := setupCluster(addrs)
-	store := NewKVStore()
-	addPrematureDeferNodes(o, addrs, transports, store, &inCS, &violated)
+	transports := setupClusterWithKV(addrs)
+	addKVNode(o, transports)
+	addPrematureDeferNodes(o, addrs, transports)
 }
 
 func benchDir() string {
@@ -57,7 +54,7 @@ func logBenchDone(t *testing.T, label string, runs int, firstBug int, elapsed in
 }
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	logBenchStart(t, "CHESS(G-only,k=4)")
 	algo := &orchestrator.CHESS{Bound: 4, GlobalOnly: true}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "chess-global")...)
@@ -73,7 +70,7 @@ func TestBench_CHESS_GlobalOnly(t *testing.T) {
 }
 
 func TestBench_CHESS_GL(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	logBenchStart(t, "CHESS(G+L,k=4)")
 	algo := &orchestrator.CHESS{Bound: 4}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "chess-gl")...)
@@ -89,7 +86,7 @@ func TestBench_CHESS_GL(t *testing.T) {
 }
 
 func TestBench_PCT_d2(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	logBenchStart(t, "PCT(d=2)")
 	algo := &orchestrator.PCT{Depth: 2, MaxSteps: 256, Seed: 1}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "pct-d2")...)
@@ -99,7 +96,7 @@ func TestBench_PCT_d2(t *testing.T) {
 }
 
 func TestBench_PCT_d3(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	logBenchStart(t, "PCT(d=3)")
 	algo := &orchestrator.PCT{Depth: 3, MaxSteps: 256, Seed: 1}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "pct-d3")...)
@@ -109,7 +106,7 @@ func TestBench_PCT_d3(t *testing.T) {
 }
 
 func TestBench_Random(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	logBenchStart(t, "Random")
 	algo := &orchestrator.Random{Seed: 1}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "random")...)

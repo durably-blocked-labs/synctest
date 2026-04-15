@@ -11,12 +11,18 @@ type MsgKind int
 const (
 	MsgRequest MsgKind = iota
 	MsgReply
+	MsgKVGet
+	MsgKVPut
+	MsgKVGetReply
+	MsgKVPutReply
 )
 
 type Message struct {
 	Kind      MsgKind
 	From      string
 	Timestamp int
+	Key       string // KV ops
+	Value     int    // KV ops
 }
 
 type nodeTransport interface {
@@ -37,8 +43,9 @@ type OrchestratorTransport struct {
 	closeCh chan struct{}
 	peers   map[string]*OrchestratorTransport
 
-	internalMailbox chan Message
-	bridgeDone      chan struct{}
+	internalMailbox   chan Message
+	internalKVMailbox chan Message
+	bridgeDone        chan struct{}
 
 	duplicate *duplicateRule
 }
@@ -64,14 +71,17 @@ func (t *OrchestratorTransport) DuplicateNext(to string, kind MsgKind) {
 func (t *OrchestratorTransport) Addr() string                           { return t.addr }
 func (t *OrchestratorTransport) Outbox() <-chan *orchestrator.PendingOp { return t.outbox }
 func (t *OrchestratorTransport) Mailbox() <-chan Message                { return t.internalMailbox }
+func (t *OrchestratorTransport) KVMailbox() <-chan Message              { return t.internalKVMailbox }
 
 func (t *OrchestratorTransport) StartBridge() {
 	t.internalMailbox = make(chan Message, 64)
+	t.internalKVMailbox = make(chan Message, 64)
 	t.bridgeDone = make(chan struct{})
 
 	go func() {
 		defer close(t.bridgeDone)
 		defer close(t.internalMailbox)
+		defer close(t.internalKVMailbox)
 		for {
 			var msg Message
 			var closed bool
@@ -85,10 +95,19 @@ func (t *OrchestratorTransport) StartBridge() {
 			if closed {
 				return
 			}
-			select {
-			case t.internalMailbox <- msg:
-			case <-t.closeCh:
-				return
+			switch msg.Kind {
+			case MsgKVGetReply, MsgKVPutReply:
+				select {
+				case t.internalKVMailbox <- msg:
+				case <-t.closeCh:
+					return
+				}
+			default:
+				select {
+				case t.internalMailbox <- msg:
+				case <-t.closeCh:
+					return
+				}
 			}
 		}
 	}()
@@ -153,6 +172,14 @@ func msgKindName(k MsgKind) string {
 		return "Request"
 	case MsgReply:
 		return "Reply"
+	case MsgKVGet:
+		return "KVGet"
+	case MsgKVPut:
+		return "KVPut"
+	case MsgKVGetReply:
+		return "KVGetReply"
+	case MsgKVPutReply:
+		return "KVPutReply"
 	default:
 		return "Unknown"
 	}

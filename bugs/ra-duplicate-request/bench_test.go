@@ -3,7 +3,6 @@ package raduplicaterequest
 import (
 	"os"
 	"runtime"
-	"sync/atomic"
 	"testing"
 
 	"github.com/shubhaankar/synctest/orchestrator"
@@ -13,11 +12,9 @@ const benchMaxRuns = 500
 
 func benchSetup(o *orchestrator.Orchestrator) {
 	addrs := scenarioAddrs
-	var inCS atomic.Int32
-	var violated atomic.Bool
-	transports := setupCluster(addrs)
-	store := NewKVStore()
-	addDuplicateRequestNodes(o, addrs, transports, store, &inCS, &violated, true)
+	transports := setupClusterWithKV(addrs)
+	addKVNode(o, transports)
+	addDuplicateRequestNodes(o, addrs, transports)
 }
 
 func benchDir() string {
@@ -46,7 +43,7 @@ func observers(t *testing.T, policy string) []orchestrator.ExploreOption {
 }
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	algo := &orchestrator.CHESS{Bound: 3, GlobalOnly: true}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "chess-global")...)
 	orch := orchestrator.New()
@@ -61,7 +58,7 @@ func TestBench_CHESS_GlobalOnly(t *testing.T) {
 }
 
 func TestBench_CHESS_GL(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	algo := &orchestrator.CHESS{Bound: 3}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "chess-gl")...)
 	orch := orchestrator.New()
@@ -76,7 +73,7 @@ func TestBench_CHESS_GL(t *testing.T) {
 }
 
 func TestBench_PCT_d2(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	algo := &orchestrator.PCT{Depth: 2, MaxSteps: 256, Seed: 1}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "pct-d2")...)
 	orch := orchestrator.New()
@@ -85,7 +82,7 @@ func TestBench_PCT_d2(t *testing.T) {
 }
 
 func TestBench_PCT_d3(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	algo := &orchestrator.PCT{Depth: 3, MaxSteps: 256, Seed: 1}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "pct-d3")...)
 	orch := orchestrator.New()
@@ -94,7 +91,7 @@ func TestBench_PCT_d3(t *testing.T) {
 }
 
 func TestBench_Random(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	algo := &orchestrator.Random{Seed: 1}
 	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "random")...)
 	orch := orchestrator.New()

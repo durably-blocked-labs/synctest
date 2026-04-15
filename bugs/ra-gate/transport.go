@@ -12,13 +12,19 @@ type MsgKind int
 const (
 	MsgRequest MsgKind = iota
 	MsgReply
+	MsgKVGet      // Key set
+	MsgKVPut      // Key, Value set
+	MsgKVGetReply // Value set
+	MsgKVPutReply // ack
 )
 
-// Message is the wire format for RA protocol messages.
+// Message is the wire format for RA protocol and KV messages.
 type Message struct {
 	Kind      MsgKind
 	From      string
 	Timestamp int
+	Key       string // KV ops
+	Value     int    // KV ops
 }
 
 // nodeTransport is the interface GateRANode uses to send and receive messages.
@@ -36,8 +42,9 @@ type OrchestratorTransport struct {
 	closeCh chan struct{}
 	peers   map[string]*OrchestratorTransport
 
-	internalMailbox chan Message
-	bridgeDone      chan struct{}
+	internalMailbox   chan Message
+	internalKVMailbox chan Message
+	bridgeDone        chan struct{}
 }
 
 func NewOrchestratorTransport(addr string) *OrchestratorTransport {
@@ -57,17 +64,20 @@ func (t *OrchestratorTransport) Connect(peer *OrchestratorTransport) {
 func (t *OrchestratorTransport) Addr() string                           { return t.addr }
 func (t *OrchestratorTransport) Outbox() <-chan *orchestrator.PendingOp { return t.outbox }
 func (t *OrchestratorTransport) Mailbox() <-chan Message                { return t.internalMailbox }
+func (t *OrchestratorTransport) KVMailbox() <-chan Message              { return t.internalKVMailbox }
 
 // StartBridge creates the internal mailbox channel inside the bubble and
 // launches the bridge goroutine that forwards orchestrator-delivered messages
 // from the external mailbox to the internal one.
 func (t *OrchestratorTransport) StartBridge() {
 	t.internalMailbox = make(chan Message, 64)
+	t.internalKVMailbox = make(chan Message, 64)
 	t.bridgeDone = make(chan struct{})
 
 	go func() {
 		defer close(t.bridgeDone)
-		defer close(t.internalMailbox) // handler sees closed channel and exits
+		defer close(t.internalMailbox)
+		defer close(t.internalKVMailbox)
 		for {
 			var msg Message
 			var closed bool
@@ -81,10 +91,19 @@ func (t *OrchestratorTransport) StartBridge() {
 			if closed {
 				return
 			}
-			select {
-			case t.internalMailbox <- msg:
-			case <-t.closeCh:
-				return
+			switch msg.Kind {
+			case MsgKVGetReply, MsgKVPutReply:
+				select {
+				case t.internalKVMailbox <- msg:
+				case <-t.closeCh:
+					return
+				}
+			default:
+				select {
+				case t.internalMailbox <- msg:
+				case <-t.closeCh:
+					return
+				}
 			}
 		}
 	}()
@@ -131,6 +150,7 @@ func (t *OrchestratorTransport) Shutdown() {
 }
 
 // Close shuts down the bridge goroutine and waits for it to exit.
+// The bridge's defer handles closing internalMailbox and internalKVMailbox.
 func (t *OrchestratorTransport) Close() {
 	select {
 	case <-t.closeCh:
@@ -140,7 +160,6 @@ func (t *OrchestratorTransport) Close() {
 		close(t.closeCh)
 	}
 	<-t.bridgeDone
-	close(t.internalMailbox)
 }
 
 func msgKindName(k MsgKind) string {
@@ -149,6 +168,14 @@ func msgKindName(k MsgKind) string {
 		return "Request"
 	case MsgReply:
 		return "Reply"
+	case MsgKVGet:
+		return "KVGet"
+	case MsgKVPut:
+		return "KVPut"
+	case MsgKVGetReply:
+		return "KVGetReply"
+	case MsgKVPutReply:
+		return "KVPutReply"
 	default:
 		return "Unknown"
 	}

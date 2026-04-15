@@ -8,13 +8,13 @@ import (
 )
 
 func TestSimpleStaleReply(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(8)
 	addrs := scenarioAddrs
-	transports := setupCluster(addrs)
-	store := NewKVStore()
+	transports := setupClusterWithKV(addrs)
 
 	orch := orchestrator.New()
-	addStaleReplyNodes(orch, addrs, transports, store, nil)
+	addKVNode(orch, transports)
+	addStaleReplyNodes(orch, addrs, transports)
 
 	_, ok := orch.Run(t)
 	if !ok {
