@@ -41,14 +41,15 @@ COLORS = {
 }
 
 ALGO_LABELS = {
-    "chess-gl": "CHESS\n(G+L, k=2)",
-    "chess-global": "CHESS\n(G-only, k=2)",
+    "targeted": "Targeted\n(trace)",
+    "chess-gl": "CHESS\n(G+L, k=4)",
+    "chess-global": "CHESS\n(G-only, k=4)",
     "pct-d2": "PCT\n(d=2)",
     "pct-d3": "PCT\n(d=3)",
     "random": "Random",
 }
 
-ALGO_ORDER = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+ALGO_ORDER = ["targeted", "random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
 LINE_COLORS = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
 
 

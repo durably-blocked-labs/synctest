@@ -74,6 +74,12 @@ func addReplicas(orch *orchestrator.Orchestrator, addrs []string, transports map
 }
 
 func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) {
+	addQuorumReadRepairScenarioWithRecorder(orch, func(replica string, values []VersionedValue) {
+		recordOutcome(replica, values)
+	}, checked)
+}
+
+func addQuorumReadRepairScenarioWithRecorder(orch *orchestrator.Orchestrator, record func(string, []VersionedValue), checked bool) {
 	all := append([]string{}, replicaAddrs...)
 	all = append(all, clientAddrs...)
 	transports := setupCluster(all)
@@ -120,8 +126,8 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 		if len(final) == 0 {
 			return
 		}
-		recordOutcome("reader", final)
-		recordReplicaOutcomes(replicas)
+		record("reader", final)
+		recordReplicaOutcomesWithRecorder(replicas, record)
 		if checked && observedBugFound() {
 			t.Errorf("lost concurrent sibling or divergent replicas: got %v want every replica [A B]", lastObservedValues())
 		}
@@ -129,6 +135,12 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 }
 
 func addFocusedReadRepairRace(orch *orchestrator.Orchestrator) {
+	addFocusedReadRepairRaceWithRecorder(orch, func(values []VersionedValue) {
+		recordOutcome("R1", values)
+	})
+}
+
+func addFocusedReadRepairRaceWithRecorder(orch *orchestrator.Orchestrator, record func([]VersionedValue)) {
 	addrs := []string{"R1", "Writer", "Repairer", "Checker"}
 	transports := setupCluster(addrs)
 	replicas := addReplicas(orch, []string{"R1"}, transports)
@@ -175,7 +187,7 @@ func addFocusedReadRepairRace(orch *orchestrator.Orchestrator) {
 		tr.StartBridge()
 		tr.WaitControl("writer-done")
 		tr.WaitControl("repair-done")
-		recordOutcome("R1", replicas["R1"].Snapshot("x"))
+		record(replicas["R1"].Snapshot("x"))
 	})
 }
 
@@ -188,8 +200,14 @@ func waitForExtraPutAcks(client *Client, requestID string, extra int) {
 }
 
 func recordReplicaOutcomes(replicas map[string]*Replica) {
+	recordReplicaOutcomesWithRecorder(replicas, func(replica string, values []VersionedValue) {
+		recordOutcome(replica, values)
+	})
+}
+
+func recordReplicaOutcomesWithRecorder(replicas map[string]*Replica, record func(string, []VersionedValue)) {
 	for _, addr := range replicaAddrs {
-		recordOutcome(addr, replicas[addr].Snapshot("x"))
+		record(addr, replicas[addr].Snapshot("x"))
 	}
 }
 
