@@ -1,26 +1,47 @@
 // Package explorer explores scheduling interleavings of concurrent Go tests.
 //
 // The explorer runs a synctest workload through multiple bubble executions,
-// each with a different scheduling interleaving. It uses depth-first search
-// with context bounding to limit the exploration space while still catching
-// most concurrency bugs.
+// each with a different scheduling interleaving. It uses pluggable algorithms
+// (CHESS, PCT, Random) from the orchestrator package to control scheduling
+// decisions, while keeping a simple single-bubble execution model.
 //
-// Usage is identical to synctest.Test — just replace the call:
+// Usage:
 //
-//	// Before: runs once with default FIFO scheduling.
-//	synctest.Test(t, func(t *testing.T) { ... })
-//
-//	// After: explores interleavings, stops at first failure.
+//	// CHESS (default): systematic DFS with context bound 2.
 //	explorer.Test(t, func(t *testing.T) { ... })
 //
-// For custom scheduling strategies (e.g., distributed simulation),
-// use RunWithHook to control each scheduling decision via a callback.
+//	// PCT: randomized priority-based scheduling.
+//	explorer.Test(t, func(t *testing.T) { ... }, &explorer.PCT{Depth: 3})
+//
+//	// Random: uniform random scheduling.
+//	explorer.Test(t, func(t *testing.T) { ... }, &explorer.Random{Seed: 1})
+//
+//	// Full-featured with options:
+//	explorer.Explore(t, f, &explorer.PCT{Depth: 3}, explorer.MaxRuns(500))
+//
+// For custom scheduling strategies, use RunWithHook to control each
+// scheduling decision via a callback.
 package explorer
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 	"testing/synctest"
+	"time"
+
+	"github.com/shubhaankar/synctest/orchestrator"
+)
+
+// Re-export algorithm types so single-bubble users only import explorer.
+type (
+	Algorithm         = orchestrator.Algorithm
+	CHESS             = orchestrator.CHESS
+	PCT               = orchestrator.PCT
+	Random            = orchestrator.Random
+	RunObserver       = orchestrator.RunObserver
+	RunResult         = orchestrator.RunResult
+	ExplorationResult = orchestrator.ExplorationResult
 )
 
 // Decision is a scheduling decision recorded within a bubble.
@@ -34,20 +55,12 @@ type BubbleState = synctest.BubbleState
 // to schedule next (0 = first in runq = FIFO default).
 type DecisionHook func(state BubbleState) int32
 
-// Option configures the explorer.
+// Option configures exploration.
 type Option func(*config)
 
 type config struct {
-	bound   int // context bound (max non-FIFO decisions per trace)
-	maxRuns int // hard cap on bubble executions (0 = unlimited)
-}
-
-// Bound sets the context bound — the maximum number of scheduling
-// decisions that may differ from the default FIFO order in any single
-// interleaving. Most concurrency bugs manifest with 1–2 non-default
-// choices. Default is 2.
-func Bound(k int) Option {
-	return func(c *config) { c.bound = k }
+	maxRuns   int
+	observers []RunObserver
 }
 
 // MaxRuns sets a hard cap on the number of bubble executions.
@@ -56,13 +69,14 @@ func MaxRuns(n int) Option {
 	return func(c *config) { c.maxRuns = n }
 }
 
+// WithObserver registers a callback invoked after each non-diverged run.
+func WithObserver(fn RunObserver) Option {
+	return func(c *config) { c.observers = append(c.observers, fn) }
+}
+
 // RunWithHook executes f in a new bubble with the given decision hook.
 // The hook is called at every frontier scheduling decision point
 // (i.e., where the runq has goroutines and no pre-loaded prefix applies).
-//
-// The hook is set inside the bubble before f runs. Infrastructure steps
-// (bubble.main, tRunner) happen before the hook is active, but those
-// always have runqSize=1 (no choice to make).
 //
 // Returns the full scheduling trace and whether the test passed.
 // If the bubble panics (e.g., deadlock), returns (nil, false).
@@ -79,100 +93,175 @@ func RunWithHook(t *testing.T, f func(*testing.T), hook DecisionHook) ([]Decisio
 	return synctest.Explore(t, wrapped, nil)
 }
 
-// Test explores scheduling interleavings of f using depth-first search
-// with context bounding. f is a normal synctest workload — it receives
-// a *testing.T and uses standard assertions (t.Error, t.Errorf, etc.).
+// Explore runs f repeatedly under the given algorithm, collecting metrics.
+// This is the full-featured entry point for single-bubble exploration.
 //
-// If any interleaving causes f to fail, Test reports the failing trace
-// and stops. If all interleavings within the bound pass, Test succeeds.
+// The algorithm controls scheduling at every decision point where multiple
+// goroutines are runnable. CHESS explores systematically via DFS, PCT uses
+// randomized priorities, Random picks uniformly.
 //
-// Each interleaving runs through the onDecision hook, validating the
-// full frontier signaling path (g0 → root → g0 round-trip).
-func Test(t *testing.T, f func(*testing.T), opts ...Option) {
+// All failures — including deadlocks — are counted as bugs.
+//
+// Returns the exploration result (runs, failures, timing).
+func Explore(t *testing.T, f func(*testing.T), algo Algorithm, opts ...Option) ExplorationResult {
 	t.Helper()
+	saved := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(saved) })
 
-	cfg := config{bound: 2}
+	var cfg config
 	for _, o := range opts {
 		o(&cfg)
 	}
 
-	type work struct {
-		prefix  []Decision
-		nonFIFO int // number of non-zero indices in prefix
-	}
+	start := time.Now()
+	result := ExplorationResult{FirstBug: -1}
 
-	stack := []work{{}} // start with empty prefix (baseline FIFO)
-	runCount := 0
-
-	for len(stack) > 0 {
-		if cfg.maxRuns > 0 && runCount >= cfg.maxRuns {
+	for algo.BeforeRun() {
+		if cfg.maxRuns > 0 && result.Runs >= cfg.maxRuns {
 			break
 		}
 
-		w := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
+		var trace orchestrator.Trace
+		var diverged bool
+		runStart := time.Now()
 
-		var trace []Decision
-		var ok bool
-
-		name := fmt.Sprintf("run_%d", runCount)
-		runCount++
-
-		// Build a hook that follows the plan (prefix) for known steps,
-		// then returns 0 (FIFO) at the frontier.
-		plan := w.prefix
-
-		passed := t.Run(name, func(subT *testing.T) {
+		passed := t.Run(fmt.Sprintf("run_%d", result.Runs), func(subT *testing.T) {
 			subT.Helper()
-			trace, ok = RunWithHook(subT, f, func(state BubbleState) int32 {
-				step := int(state.Step)
-				if step < len(plan) {
-					return plan[step].Index
+			_, ok := RunWithHook(subT, f, func(state BubbleState) int32 {
+				alts := buildAlts(state)
+				dp := orchestrator.DecisionPoint{
+					Kind: orchestrator.Local,
+					Step: int(state.Step),
+					Node: "local",
+					Alts: alts,
 				}
-				return 0 // FIFO at frontier
-			})
-			if !ok {
-				if len(trace) > 0 {
-					subT.Logf("failing interleaving (prefix len=%d):", len(w.prefix))
-					for i, d := range trace {
-						subT.Logf("  step=%d index=%d chosenBgid=B%d runqSize=%d runqBgids=%v",
-							i, d.Index, d.ChosenBgid, d.RunqSize, d.RunqBgids[:d.RunqSize])
+				// Catch divergence panics from algo.Decide (e.g., CHESS prefix mismatch).
+				// We set diverged via the closure, then re-panic to abort the bubble.
+				// Note: synctest.Explore will swallow the re-panic (it recovers all
+				// panics and returns ok=false). The diverged flag — not the panic — is
+				// the actual signal we check after RunWithHook returns.
+				defer func() {
+					if r := recover(); r != nil {
+						diverged = true
+						panic(r)
 					}
-				}
-				subT.Errorf("interleaving failed (prefix len=%d)", len(w.prefix))
+				}()
+				idx := algo.Decide(dp)
+				trace = append(trace, orchestrator.NewStep{
+					Kind:         orchestrator.Local,
+					Node:         "local",
+					Index:        int32(idx),
+					Alternatives: int32(len(alts)),
+					ChosenID:     alts[idx].ID,
+					ChosenBGID:   alts[idx].BGID,
+					RunqBGIDs:    bgidsFromAlts(alts),
+				})
+				return int32(idx)
+			})
+			if !ok && !diverged {
+				subT.Errorf("interleaving failed")
 			}
 		})
 
-		if !passed {
-			return
+		elapsed := time.Since(runStart)
+		rr := RunResult{
+			Trace:          trace,
+			Passed:         passed,
+			Diverged:       diverged,
+			DivergenceStep: -1,
+			Elapsed:        elapsed,
+		}
+		if !passed && !diverged {
+			rr.UserFailed = true
 		}
 
-		// Find branching points in the frontier (past the prefix).
-		// Only explore alternatives at positions >= len(prefix), since
-		// earlier positions are already covered by ancestor explorations.
-		for i := len(w.prefix); i < len(trace); i++ {
-			d := trace[i]
-			if d.RunqSize <= 1 {
-				continue
+		result.Runs++
+		algo.AfterRun(rr)
+
+		if diverged {
+			continue
+		}
+
+		// Notify observers on non-diverged runs.
+		if len(cfg.observers) > 0 {
+			nonFIFO := 0
+			for _, s := range trace {
+				if s.Index != 0 {
+					nonFIFO++
+				}
 			}
-			for alt := int32(0); alt < d.RunqSize; alt++ {
-				if alt == d.Index {
-					continue
-				}
-				newNonFIFO := w.nonFIFO
-				if alt != 0 {
-					newNonFIFO++
-				}
-				if newNonFIFO > cfg.bound {
-					continue
-				}
-				newPrefix := make([]Decision, i+1)
-				copy(newPrefix, trace[:i+1])
-				newPrefix[i].Index = alt
-				stack = append(stack, work{prefix: newPrefix, nonFIFO: newNonFIFO})
+			for _, obs := range cfg.observers {
+				obs(result.Runs, nonFIFO, elapsed, rr, passed)
 			}
+		}
+
+		if !passed {
+			result.Failed++
+			if result.FirstBug == -1 {
+				result.FirstBug = result.Runs
+			}
+			break
 		}
 	}
 
-	t.Logf("explored %d interleavings, all passed (bound=%d)", runCount, cfg.bound)
+	result.Elapsed = time.Since(start)
+	return result
+}
+
+// Test explores scheduling interleavings of f, stopping at the first failure.
+// With no algorithm argument, uses CHESS with context bound 2.
+//
+// Accepts an optional Algorithm and/or Option arguments:
+//
+//	explorer.Test(t, f)                                    // CHESS default
+//	explorer.Test(t, f, &explorer.CHESS{Bound: 3})         // CHESS with bound 3
+//	explorer.Test(t, f, &explorer.PCT{Depth: 3, Seed: 1})  // PCT
+//	explorer.Test(t, f, &explorer.Random{Seed: 1})          // Random
+//	explorer.Test(t, f, explorer.MaxRuns(100))              // CHESS default + cap
+func Test(t *testing.T, f func(*testing.T), args ...any) {
+	t.Helper()
+
+	var algo Algorithm
+	var opts []Option
+
+	for _, a := range args {
+		switch v := a.(type) {
+		case Algorithm:
+			algo = v
+		case Option:
+			opts = append(opts, v)
+		default:
+			panic(fmt.Sprintf("explorer.Test: unsupported argument type %T", a))
+		}
+	}
+	if algo == nil {
+		algo = &CHESS{Bound: 2}
+	}
+
+	r := Explore(t, f, algo, opts...)
+	if r.Failed > 0 {
+		return // Explore already reported the failure via t.Run subtests
+	}
+	t.Logf("explored %d interleavings, all passed", r.Runs)
+}
+
+// buildAlts converts BubbleState goroutine info to orchestrator Alt entries.
+func buildAlts(state BubbleState) []orchestrator.Alt {
+	alts := make([]orchestrator.Alt, state.RunnableN)
+	for i := int32(0); i < state.RunnableN; i++ {
+		alts[i] = orchestrator.Alt{
+			ID:   fmt.Sprintf("B%d", state.RunnableBgid[i]),
+			BGID: state.RunnableBgid[i],
+		}
+	}
+	return alts
+}
+
+// bgidsFromAlts extracts the BGID slice for trace recording.
+func bgidsFromAlts(alts []orchestrator.Alt) []uint32 {
+	bgids := make([]uint32, len(alts))
+	for i, a := range alts {
+		bgids[i] = a.BGID
+	}
+	return bgids
 }

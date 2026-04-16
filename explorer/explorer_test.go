@@ -201,12 +201,12 @@ func TestExploreBound(t *testing.T) {
 
 	// Bound 0: only baseline FIFO (1 run).
 	t.Run("bound_0", func(t *testing.T) {
-		explorer.Test(t, workload, explorer.Bound(0))
+		explorer.Test(t, workload, &explorer.CHESS{Bound: 0})
 	})
 
 	// Bound 1: more interleavings.
 	t.Run("bound_1", func(t *testing.T) {
-		explorer.Test(t, workload, explorer.Bound(1))
+		explorer.Test(t, workload, &explorer.CHESS{Bound: 1})
 	})
 
 	// MaxRuns cap.

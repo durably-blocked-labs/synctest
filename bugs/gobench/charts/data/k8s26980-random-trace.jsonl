@@ -1,0 +1,1 @@
+{"policy":"k8s26980-random","attempt":1,"run_num":1,"passed":false,"user_failed":true,"elapsed_ns":22875,"steps":[{"kind":"local","node":"local","index":1,"alternatives":2,"chosen_id":"B3","chosen_bgid":3,"runq_bgids":[4,3]},{"kind":"local","node":"local","index":0,"alternatives":1,"chosen_id":"B4","chosen_bgid":4,"runq_bgids":[4]}]}

@@ -39,9 +39,6 @@ type RunNode struct {
 
 // BeforeRun prepares the next run. Returns false when exploration is done.
 func (s *CHESS) BeforeRun() bool {
-	if s.Bound == 0 {
-		s.Bound = 2
-	}
 	if s.count == 0 {
 		// Seed with empty prefix (FIFO baseline).
 		s.stack = []chessItem{{prefix: nil, nonFIFO: 0, parent: -1, branch: -1}}
