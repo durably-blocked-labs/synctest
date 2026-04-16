@@ -163,7 +163,6 @@ func (r *Replica) Start() {
 	go r.router()
 	go r.applyLoop()
 	go r.repairLoop()
-	<-r.tr.closeCh
 }
 
 func (r *Replica) router() {
@@ -173,9 +172,19 @@ func (r *Replica) router() {
 	for msg := range r.tr.Mailbox() {
 		switch msg.Kind {
 		case MsgPut:
-			r.applyCh <- applyReq{msg: msg, ack: msg.From}
+			req := applyReq{msg: msg, ack: msg.From}
+			select {
+			case r.applyCh <- req:
+			case <-r.tr.closeCh:
+				return
+			}
 		case MsgRepair:
-			r.repairCh <- applyReq{msg: msg, ack: msg.From}
+			req := applyReq{msg: msg, ack: msg.From}
+			select {
+			case r.repairCh <- req:
+			case <-r.tr.closeCh:
+				return
+			}
 		case MsgGet:
 			r.tr.Send(msg.From, Message{
 				Kind:      MsgGetResp,

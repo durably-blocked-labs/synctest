@@ -98,14 +98,15 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 	})
 	orch.AddNode(c, func(t *testing.T) {
 		c.StartBridge()
+		inbox := newMessageInbox(c)
 		c.Send("R1", Message{Kind: MsgPut, RequestID: "put-a", Key: "x", Values: []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}}})
 		c.Send("R1", Message{Kind: MsgPut, RequestID: "put-b", Key: "x", Values: []VersionedValue{{Value: "B", Clock: Clock{"C2": 1}}}})
 
-		waitForAck(t, c, MsgPutAck, "put-a")
-		waitForAck(t, c, MsgPutAck, "put-b")
+		waitForAck(t, inbox, MsgPutAck, "put-a")
+		waitForAck(t, inbox, MsgPutAck, "put-b")
 
 		c.Send("R1", Message{Kind: MsgGet, RequestID: "get", Key: "x"})
-		resp := waitForResponse(t, c, MsgGetResp, "get")
+		resp := waitForResponse(t, inbox, MsgGetResp, "get")
 		assertValues(t, resp.Values, []VersionedValue{
 			{Value: "A", Clock: Clock{"C1": 1}},
 			{Value: "B", Clock: Clock{"C2": 1}},
@@ -115,6 +116,27 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 
 	if _, ok := orch.Run(t); !ok {
 		t.Fatal("replica FIFO run failed")
+	}
+}
+
+func TestMessageInbox_PreservesOutOfOrderMessages(t *testing.T) {
+	tr := NewOrchestratorTransport("C")
+	inbox := &messageInbox{
+		transport: tr,
+		pending: []Message{
+			{Kind: MsgPutAck, RequestID: "later"},
+			{Kind: MsgPutAck, RequestID: "earlier"},
+		},
+	}
+
+	got := waitForAck(t, inbox, MsgPutAck, "earlier")
+	if got.RequestID != "earlier" {
+		t.Fatalf("first wait returned %q, want earlier", got.RequestID)
+	}
+
+	got = waitForAck(t, inbox, MsgPutAck, "later")
+	if got.RequestID != "later" {
+		t.Fatalf("second wait returned %q, want later", got.RequestID)
 	}
 }
 
@@ -133,22 +155,47 @@ func assertValues(t *testing.T, got, want []VersionedValue) {
 	}
 }
 
-func waitForAck(t *testing.T, tr *OrchestratorTransport, kind MsgKind, requestID string) Message {
-	t.Helper()
-	return waitForMessage(t, tr, kind, requestID)
+type messageInbox struct {
+	transport *OrchestratorTransport
+	pending   []Message
 }
 
-func waitForResponse(t *testing.T, tr *OrchestratorTransport, kind MsgKind, requestID string) Message {
-	t.Helper()
-	return waitForMessage(t, tr, kind, requestID)
+func newMessageInbox(tr *OrchestratorTransport) *messageInbox {
+	return &messageInbox{transport: tr}
 }
 
-func waitForMessage(t *testing.T, tr *OrchestratorTransport, kind MsgKind, requestID string) Message {
-	t.Helper()
-	for msg := range tr.Mailbox() {
-		if msg.Kind == kind && msg.RequestID == requestID {
-			return msg
+func (i *messageInbox) waitFor(kind MsgKind, requestID string) Message {
+	for {
+		for idx, msg := range i.pending {
+			if msg.Kind == kind && msg.RequestID == requestID {
+				i.pending = append(i.pending[:idx], i.pending[idx+1:]...)
+				return msg
+			}
 		}
+
+		msg, ok := <-i.transport.Mailbox()
+		if !ok {
+			return Message{}
+		}
+		i.pending = append(i.pending, msg)
+	}
+}
+
+func waitForAck(t *testing.T, inbox *messageInbox, kind MsgKind, requestID string) Message {
+	t.Helper()
+	return waitForMessage(t, inbox, kind, requestID)
+}
+
+func waitForResponse(t *testing.T, inbox *messageInbox, kind MsgKind, requestID string) Message {
+	t.Helper()
+	return waitForMessage(t, inbox, kind, requestID)
+}
+
+func waitForMessage(t *testing.T, inbox *messageInbox, kind MsgKind, requestID string) Message {
+	t.Helper()
+	msg := inbox.waitFor(kind, requestID)
+	if msg.Kind == kind && msg.RequestID == requestID {
+		return msg
 	}
 	t.Fatalf("mailbox closed before %s %s", msgKindName(kind), requestID)
 	return Message{}
