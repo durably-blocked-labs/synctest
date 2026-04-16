@@ -79,6 +79,9 @@ func mergeSiblings(existing, incoming []VersionedValue) []VersionedValue {
 }
 
 func buggyRepairMerge(existing, incoming []VersionedValue) []VersionedValue {
+	if sameValues(existing, incoming) {
+		return mergeSiblings(existing, incoming)
+	}
 	all := mergeSiblings(existing, incoming)
 	if len(all) <= 1 {
 		return all

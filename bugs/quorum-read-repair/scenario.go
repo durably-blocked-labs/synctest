@@ -57,23 +57,26 @@ func setupCluster(addrs []string) map[string]*OrchestratorTransport {
 	return transports
 }
 
-func addReplicas(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport) {
+func addReplicas(orch *orchestrator.Orchestrator, addrs []string, transports map[string]*OrchestratorTransport) map[string]*Replica {
+	replicas := make(map[string]*Replica, len(addrs))
 	for _, addr := range addrs {
 		addr := addr
 		tr := transports[addr]
+		replica := NewReplica(addr, tr)
+		replicas[addr] = replica
 		orch.AddNode(tr, func(t *testing.T) {
 			tr.StartBridge()
-			replica := NewReplica(addr, tr)
 			replica.Start()
 		})
 	}
+	return replicas
 }
 
 func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) {
 	all := append([]string{}, replicaAddrs...)
 	all = append(all, clientAddrs...)
 	transports := setupCluster(all)
-	addReplicas(orch, replicaAddrs, transports)
+	replicas := addReplicas(orch, replicaAddrs, transports)
 
 	orch.AddNode(transports["C1"], func(t *testing.T) {
 		tr := transports["C1"]
@@ -101,10 +104,17 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 		client.GetAndRepair("x", "read-1")
 		final := client.GetAndRepair("x", "read-2")
 		recordOutcome("reader", final)
-		if checked && !hasValues(final, "A", "B") {
-			t.Errorf("lost concurrent sibling in reader result: got %v want [A B]", valuesOnly(final))
+		recordReplicaOutcomes(replicas)
+		if checked && observedBugFound() {
+			t.Errorf("lost concurrent sibling or divergent replicas: got %v want every replica [A B]", lastObservedValues())
 		}
 	})
+}
+
+func recordReplicaOutcomes(replicas map[string]*Replica) {
+	for _, addr := range replicaAddrs {
+		recordOutcome(addr, replicas[addr].Snapshot("x"))
+	}
 }
 
 func recordOutcome(replica string, values []VersionedValue) {
