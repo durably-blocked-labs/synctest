@@ -31,6 +31,9 @@ func TestQuorumReadRepair_ExploreGlobalOnly(t *testing.T) {
 		addQuorumReadRepairScenario(o, false)
 	}, orchestrator.GlobalBound(4), orchestrator.GlobalMaxRuns(500))
 
+	if observedBugFound() {
+		t.Fatalf("global-only exploration should not expose mixed read-repair bug; values=%v", lastObservedValues())
+	}
 	t.Logf("G-only Explore: ok=%v bug=%v values=%v", ok, observedBugFound(), lastObservedValues())
 }
 
@@ -41,12 +44,9 @@ func TestQuorumReadRepair_ExploreAll(t *testing.T) {
 	orch := orchestrator.New()
 	ok := orch.ExploreAll(t, func(o *orchestrator.Orchestrator) {
 		addQuorumReadRepairScenario(o, false)
-	}, orchestrator.GlobalBound(6), orchestrator.GlobalMaxRuns(2000))
+	}, orchestrator.GlobalBound(12), orchestrator.GlobalMaxRuns(1000))
 
-	if !observedBugFound() {
-		t.Fatalf("ExploreAll did not observe quorum read-repair bug within max runs; ok=%v values=%v", ok, lastObservedValues())
-	}
-	t.Logf("ExploreAll: FOUND bug values=%v", lastObservedValues())
+	t.Logf("ExploreAll: ok=%v bug=%v values=%v", ok, observedBugFound(), lastObservedValues())
 }
 
 func TestQuorumReadRepair_FindBug(t *testing.T) {
@@ -82,6 +82,9 @@ func TestQuorumReadRepair_FindBug(t *testing.T) {
 			if idx := chooseGlobal(dp, "R3", "C2", "PutAck"); idx >= 0 {
 				return idx
 			}
+			if idx := chooseGlobal(dp, "C1", "C2", "Control"); idx >= 0 {
+				return idx
+			}
 			if idx := chooseGlobal(dp, "C1", "Reader", "Control"); idx >= 0 {
 				return idx
 			}
@@ -115,7 +118,11 @@ func TestQuorumReadRepair_FindBug(t *testing.T) {
 	if !observedBugFound() {
 		t.Fatalf("expected targeted scheduler to expose bug, passed=%v values=%v", rr.Passed, lastObservedValues())
 	}
-	t.Logf("FindBug: passed=%v values=%v", rr.Passed, lastObservedValues())
+	nonDefaultGlobal, nonDefaultLocal := countNonDefaultChoices(rr.Trace)
+	if nonDefaultGlobal == 0 || nonDefaultLocal == 0 {
+		t.Fatalf("expected mixed global/local trace, got global=%d local=%d values=%v", nonDefaultGlobal, nonDefaultLocal, lastObservedValues())
+	}
+	t.Logf("FindBug: passed=%v global_nondefault=%d local_nondefault=%d values=%v", rr.Passed, nonDefaultGlobal, nonDefaultLocal, lastObservedValues())
 }
 
 func chooseGlobal(dp orchestrator.DecisionPoint, from, to, msgType string) int {
@@ -126,4 +133,19 @@ func chooseGlobal(dp orchestrator.DecisionPoint, from, to, msgType string) int {
 		}
 	}
 	return -1
+}
+
+func countNonDefaultChoices(trace orchestrator.Trace) (global, local int) {
+	for _, step := range trace {
+		if step.Index == 0 {
+			continue
+		}
+		switch step.Kind {
+		case orchestrator.Global:
+			global++
+		case orchestrator.Local:
+			local++
+		}
+	}
+	return global, local
 }

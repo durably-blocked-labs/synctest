@@ -82,16 +82,29 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 		tr := transports["C1"]
 		tr.StartBridge()
 		client := NewClient("C1", tr, replicaAddrs)
-		client.Put("x", "A")
+		requestID := client.Put("x", "A")
+		waitForExtraPutAcks(client, requestID, len(replicaAddrs)-quorum)
+		tr.SendControl("C2", "c1-all-done")
 		tr.SendControl("Reader", "c1-done")
 	})
 
 	orch.AddNode(transports["C2"], func(t *testing.T) {
 		tr := transports["C2"]
 		tr.StartBridge()
-		client := NewClient("C2", tr, replicaAddrs)
+		tr.WaitControl("c1-all-done")
+		client := NewClient("C2", tr, []string{"R2", "R3"})
 		client.Put("x", "B")
 		tr.SendControl("Reader", "c2-done")
+		tr.Send("R1", Message{
+			Kind:      MsgPut,
+			From:      "C2",
+			RequestID: "C2-late-R1",
+			Key:       "x",
+			Values: []VersionedValue{{
+				Value: "B",
+				Clock: Clock{"C2": 1},
+			}},
+		})
 	})
 
 	orch.AddNode(transports["Reader"], func(t *testing.T) {
@@ -103,12 +116,23 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 		client := NewClient("Reader", tr, replicaAddrs)
 		client.GetAndRepair("x", "read-1")
 		final := client.GetAndRepair("x", "read-2")
+		if len(final) == 0 {
+			return
+		}
 		recordOutcome("reader", final)
 		recordReplicaOutcomes(replicas)
 		if checked && observedBugFound() {
 			t.Errorf("lost concurrent sibling or divergent replicas: got %v want every replica [A B]", lastObservedValues())
 		}
 	})
+}
+
+func waitForExtraPutAcks(client *Client, requestID string, extra int) {
+	for i := 0; i < extra; i++ {
+		if _, ok := client.inbox.waitFor(MsgPutAck, requestID); !ok {
+			return
+		}
+	}
 }
 
 func recordReplicaOutcomes(replicas map[string]*Replica) {

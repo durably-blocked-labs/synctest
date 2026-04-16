@@ -12,8 +12,9 @@ type Replica struct {
 	repairCh chan applyReq
 	closeCh  chan struct{}
 
-	mu    sync.Mutex
-	store map[string][]VersionedValue
+	mu           sync.Mutex
+	store        map[string][]VersionedValue
+	pendingApply int
 }
 
 type applyReq struct {
@@ -176,9 +177,15 @@ func (r *Replica) router() {
 		switch msg.Kind {
 		case MsgPut:
 			req := applyReq{msg: msg, ack: msg.From}
+			r.mu.Lock()
+			r.pendingApply++
+			r.mu.Unlock()
 			select {
 			case r.applyCh <- req:
 			case <-r.tr.closeCh:
+				r.mu.Lock()
+				r.pendingApply--
+				r.mu.Unlock()
 				return
 			}
 		case MsgRepair:
@@ -203,6 +210,7 @@ func (r *Replica) router() {
 func (r *Replica) applyLoop() {
 	for req := range r.applyCh {
 		r.mu.Lock()
+		r.pendingApply--
 		r.store[req.msg.Key] = mergeSiblings(r.store[req.msg.Key], req.msg.Values)
 		r.mu.Unlock()
 
@@ -218,7 +226,11 @@ func (r *Replica) applyLoop() {
 func (r *Replica) repairLoop() {
 	for req := range r.repairCh {
 		r.mu.Lock()
-		r.store[req.msg.Key] = buggyRepairMerge(r.store[req.msg.Key], req.msg.Values)
+		if r.pendingApply > 0 {
+			r.store[req.msg.Key] = buggyRepairMerge(r.store[req.msg.Key], req.msg.Values)
+		} else {
+			r.store[req.msg.Key] = mergeSiblings(r.store[req.msg.Key], req.msg.Values)
+		}
 		r.mu.Unlock()
 
 		r.tr.Send(req.ack, Message{

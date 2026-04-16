@@ -23,7 +23,7 @@ func NewClient(addr string, tr *OrchestratorTransport, replicas []string) *Clien
 	}
 }
 
-func (c *Client) Put(key, value string) {
+func (c *Client) Put(key, value string) string {
 	c.seq++
 	requestID := fmt.Sprintf("%s-put-%d", c.addr, c.seq)
 	version := VersionedValue{
@@ -45,13 +45,14 @@ func (c *Client) Put(key, value string) {
 	for acks < quorum {
 		msg, ok := c.inbox.waitFor(MsgPutAck, requestID)
 		if !ok {
-			return
+			return requestID
 		}
 		if msg.Kind == MsgPutAck && msg.RequestID == requestID {
 			acks++
 		}
 	}
 	c.inbox.drainAvailable()
+	return requestID
 }
 
 func (c *Client) GetAndRepair(key, requestID string) []VersionedValue {
