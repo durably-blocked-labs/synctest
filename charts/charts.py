@@ -160,6 +160,100 @@ def find_bug_run(records):
     return None
 
 
+def is_control_step(step):
+    return step.get("kind") == "global" and step.get("msg_type") == "Control"
+
+
+def measured_steps(steps):
+    return [step for step in steps if not is_control_step(step)]
+
+
+def measured_non_fifo(steps):
+    return sum(1 for step in measured_steps(steps) if step.get("index", 0) != 0)
+
+
+def meaningful_local_decision(step):
+    runq = step.get("runq_bgids", [])
+    if runq:
+        return sum(1 for bgid in runq if bgid != 0) > 1
+    return step.get("alternatives", 0) > 1
+
+
+def measured_global_decisions(steps):
+    return sum(1 for step in measured_steps(steps) if step.get("kind") == "global")
+
+
+def measured_local_decisions(steps):
+    return sum(
+        1
+        for step in measured_steps(steps)
+        if step.get("kind") == "local" and meaningful_local_decision(step)
+    )
+
+
+def measured_branch_points(steps):
+    return sum(1 for step in measured_steps(steps) if step.get("alternatives", 0) > 1)
+
+
+def measured_queue_sizes(steps):
+    return [
+        step.get("alternatives", 0)
+        for step in measured_steps(steps)
+        if step.get("kind") == "global"
+    ]
+
+
+def measured_trace_fingerprint(steps):
+    parts = []
+    for step in measured_steps(steps):
+        if step.get("kind") != "global":
+            continue
+        parts.append(f"{step.get('from', '')}->{step.get('to', '')}({step.get('msg_type', '')})")
+    return " ".join(parts)
+
+
+def measured_local_by_node(steps):
+    counts = defaultdict(int)
+    for step in measured_steps(steps):
+        if step.get("kind") == "local" and meaningful_local_decision(step):
+            counts[step.get("node", "")] += 1
+    return dict(counts)
+
+
+def apply_chart_adjustments(summaries, traces):
+    """Attach chart-only metrics with Control traffic excluded.
+
+    Raw summary and detailed trace records stay unchanged. Charts should use the
+    chart_* fields when present and fall back to raw fields for older data that
+    lacks detailed traces.
+    """
+    for policy, attempts in summaries.items():
+        for attempt, records in attempts.items():
+            trace_records = traces.get(policy, {}).get(attempt, [])
+            by_run = {record.get("run_num"): record for record in trace_records}
+            for record in records:
+                trace = by_run.get(record.get("run_num"))
+                if not trace:
+                    continue
+                steps = trace.get("steps") or []
+                if not steps:
+                    continue
+                local_total = measured_local_decisions(steps)
+                global_total = measured_global_decisions(steps)
+                record["chart_non_fifo"] = measured_non_fifo(steps)
+                record["chart_global_decision_count"] = global_total
+                record["chart_local_decision_total"] = local_total
+                record["chart_total_decisions"] = global_total + local_total
+                record["chart_branch_points"] = measured_branch_points(steps)
+                record["chart_queue_sizes"] = measured_queue_sizes(steps)
+                record["chart_trace_fingerprint"] = measured_trace_fingerprint(steps)
+                record["chart_local_decision_by_node"] = measured_local_by_node(steps)
+
+
+def metric_value(record, key, default=0):
+    return record.get(f"chart_{key}", record.get(key, default))
+
+
 def effective_runs_to_bug(records):
     bug = find_bug_run(records)
     if bug:
@@ -232,18 +326,19 @@ def bug_trace_metrics(policy, summaries, traces):
         return None
 
     steps = trace_bug.get("steps", [])
+    measured = measured_steps(steps)
     local_steps = [step for step in steps if step["kind"] == "local"]
-    global_steps = [step for step in steps if step["kind"] == "global"]
+    global_steps = [step for step in measured if step["kind"] == "global"]
     local_sizes = [len(step.get("runq_bgids", [])) or step.get("alternatives", 0) for step in local_steps]
-    if summary_bug and summary_bug.get("queue_sizes"):
-        global_sizes = list(summary_bug["queue_sizes"])
+    if summary_bug and metric_value(summary_bug, "queue_sizes", []):
+        global_sizes = list(metric_value(summary_bug, "queue_sizes", []))
     else:
         global_sizes = [step.get("alternatives", 0) for step in global_steps]
 
     return {
         "summary_bug": summary_bug,
         "trace_bug": trace_bug,
-        "steps": steps,
+        "steps": measured,
         "local_steps": local_steps,
         "global_steps": global_steps,
         "local_sizes": local_sizes,
@@ -299,13 +394,8 @@ def successful_bug_trace_counts(policy, summaries, traces, trees):
             counts.append(
                 {
                     "attempt": attempt,
-                    "local": sum(
-                        1
-                        for step in steps
-                        if step["kind"] == "local"
-                        and sum(1 for bgid in step.get("runq_bgids", []) if bgid != 0) > 1
-                    ),
-                    "global": sum(1 for step in steps if step["kind"] == "global"),
+                    "local": measured_local_decisions(steps),
+                    "global": measured_global_decisions(steps),
                 }
             )
             continue
@@ -316,8 +406,8 @@ def successful_bug_trace_counts(policy, summaries, traces, trees):
         counts.append(
             {
                 "attempt": attempt,
-                "local": summary_bug.get("local_decision_total", 0),
-                "global": summary_bug.get("global_decision_count", 0),
+                "local": metric_value(summary_bug, "local_decision_total", 0),
+                "global": metric_value(summary_bug, "global_decision_count", 0),
             }
         )
     return counts
@@ -670,13 +760,14 @@ def fig_nonfifo_from_traces(traces, summaries, out_dir):
             if bug and bug.get("steps"):
                 steps = bug["steps"]
                 policies.append(policy)
-                g_nonfifo.append(sum(1 for step in steps if step["kind"] == "global" and step["index"] != 0))
-                l_nonfifo.append(sum(1 for step in steps if step["kind"] == "local" and step["index"] != 0))
+                measured = measured_steps(steps)
+                g_nonfifo.append(sum(1 for step in measured if step["kind"] == "global" and step["index"] != 0))
+                l_nonfifo.append(sum(1 for step in measured if step["kind"] == "local" and step["index"] != 0))
         elif policy in summaries:
             bug = find_bug_run(summaries[policy])
             if bug:
                 policies.append(policy)
-                g_nonfifo.append(bug.get("non_fifo", 0))
+                g_nonfifo.append(metric_value(bug, "non_fifo", 0))
                 l_nonfifo.append(0)
 
     if not policies:
@@ -805,7 +896,7 @@ def fig_nonfifo_over_runs(summaries, out_dir):
         values_by_attempt = []
         for _, records in attempt_series(summaries[policy]):
             ordered = sorted(records, key=lambda record: record.get("run_num", 0))
-            values_by_attempt.append([record.get("non_fifo", 0) for record in ordered])
+            values_by_attempt.append([metric_value(record, "non_fifo", 0) for record in ordered])
         aggregated = aggregate_series(values_by_attempt)
         if aggregated is None:
             continue
@@ -1132,8 +1223,8 @@ def fig_summary_table(summaries, out_dir):
         attempts = attempt_series(summaries[policy])
         effective_runs = [effective_runs_to_bug(records) for _, records in attempts]
         found = sum(1 for _, records in attempts if find_bug_run(records))
-        avg_nf = np.mean([record.get("non_fifo", 0) for _, records in attempts for record in records])
-        avg_td = np.mean([record.get("total_decisions", 0) for _, records in attempts for record in records])
+        avg_nf = np.mean([metric_value(record, "non_fifo", 0) for _, records in attempts for record in records])
+        avg_td = np.mean([metric_value(record, "total_decisions", 0) for _, records in attempts for record in records])
         rows.append([
             algo_label(policy).replace("\n", " "),
             str(len(attempts)),
@@ -1186,7 +1277,7 @@ def fig_cumulative_unique_traces(summaries, out_dir):
             seen = set()
             cumulative = []
             for record in sorted(records, key=lambda r: r.get("run_num", 0)):
-                fingerprint = record.get("trace_fingerprint")
+                fingerprint = metric_value(record, "trace_fingerprint", "")
                 if fingerprint:
                     seen.add(fingerprint)
                 cumulative.append(len(seen))
@@ -1232,7 +1323,7 @@ def fig_queue_pressure_profile(summaries, out_dir):
         bug = find_bug_run(summaries.get(policy, []))
         if bug is None:
             continue
-        queue_sizes = list(bug.get("queue_sizes") or [])
+        queue_sizes = list(metric_value(bug, "queue_sizes", []) or [])
         if queue_sizes:
             series.append((policy, queue_sizes))
 
@@ -1279,7 +1370,7 @@ def fig_local_decision_burden(summaries, out_dir):
         bug = find_bug_run(summaries.get(policy, []))
         if bug is None:
             continue
-        counts = bug.get("local_decision_by_node") or {}
+        counts = metric_value(bug, "local_decision_by_node", {}) or {}
         rows.append([counts.get(node, 0) for node in all_nodes])
         policies.append(policy)
 
@@ -1326,8 +1417,16 @@ def fig_nonfifo_position_profile(traces, out_dir):
         rows.append(
             (
                 policy,
-                [(idx + 1) / total_steps for idx, step in enumerate(steps) if step["kind"] == "local" and step["index"] != 0],
-                [(idx + 1) / total_steps for idx, step in enumerate(steps) if step["kind"] == "global" and step["index"] != 0],
+                [
+                    (idx + 1) / total_steps
+                    for idx, step in enumerate(steps)
+                    if not is_control_step(step) and step["kind"] == "local" and step["index"] != 0
+                ],
+                [
+                    (idx + 1) / total_steps
+                    for idx, step in enumerate(steps)
+                    if not is_control_step(step) and step["kind"] == "global" and step["index"] != 0
+                ],
                 total_steps,
             )
         )
@@ -1383,6 +1482,7 @@ def main():
 
     summaries = load_all_summaries(args.data)
     traces = load_all_traces(args.data)
+    apply_chart_adjustments(summaries, traces)
     trees = load_tree_files(args.data)
     multi_attempt = has_multi_attempt_data(summaries, traces, trees)
     rep_summaries, rep_traces, rep_trees, rep_attempts = representative_views(summaries, traces, trees)

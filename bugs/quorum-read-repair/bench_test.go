@@ -11,7 +11,7 @@ import (
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-const benchMaxRuns = 500
+const benchMaxRuns = 1000000000
 
 type benchmarkOutcome struct {
 	mu     sync.Mutex
@@ -186,7 +186,7 @@ func runBenchmark(t *testing.T, label, policy string, algo orchestrator.Algorith
 }
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
-	algo := &orchestrator.CHESS{Bound: 4, GlobalOnly: true}
+	algo := &orchestrator.CHESS{Bound: 8, GlobalOnly: true}
 	runBenchmark(t, "CHESS(G-only,k=4)", "chess-global", algo)
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/chess-global-tree.json"); err == nil {
@@ -197,7 +197,7 @@ func TestBench_CHESS_GlobalOnly(t *testing.T) {
 }
 
 func TestBench_CHESS_GL(t *testing.T) {
-	algo := &orchestrator.CHESS{Bound: 4}
+	algo := &orchestrator.CHESS{Bound: 256}
 	_, firstBug := runBenchmark(t, "CHESS(G+L,k=4)", "chess-gl", algo)
 	_ = firstBug
 	if dir := benchDir(); dir != "" {
