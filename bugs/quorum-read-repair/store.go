@@ -1,0 +1,119 @@
+package quorumreadrepair
+
+import (
+	"sort"
+	"sync"
+)
+
+type Replica struct {
+	addr     string
+	tr       *OrchestratorTransport
+	applyCh  chan applyReq
+	repairCh chan applyReq
+	closeCh  chan struct{}
+
+	mu    sync.Mutex
+	store map[string][]VersionedValue
+}
+
+type applyReq struct {
+	msg Message
+	ack string
+}
+
+func compareClock(a, b Clock) int {
+	aGreater := false
+	bGreater := false
+	keys := make(map[string]struct{}, len(a)+len(b))
+	for k := range a {
+		keys[k] = struct{}{}
+	}
+	for k := range b {
+		keys[k] = struct{}{}
+	}
+	for k := range keys {
+		av := a[k]
+		bv := b[k]
+		if av > bv {
+			aGreater = true
+		}
+		if bv > av {
+			bGreater = true
+		}
+	}
+	switch {
+	case aGreater && !bGreater:
+		return 1
+	case bGreater && !aGreater:
+		return -1
+	default:
+		return 0
+	}
+}
+
+func mergeSiblings(existing, incoming []VersionedValue) []VersionedValue {
+	all := append(cloneValues(existing), cloneValues(incoming)...)
+	var kept []VersionedValue
+	for i, candidate := range all {
+		dominated := false
+		duplicate := false
+		for j, other := range all {
+			if i == j {
+				continue
+			}
+			if compareClock(candidate.Clock, other.Clock) < 0 {
+				dominated = true
+				break
+			}
+			if candidate.Value == other.Value && clockEqual(candidate.Clock, other.Clock) && j < i {
+				duplicate = true
+				break
+			}
+		}
+		if !dominated && !duplicate {
+			kept = append(kept, VersionedValue{Value: candidate.Value, Clock: cloneClock(candidate.Clock)})
+		}
+	}
+	sortValues(kept)
+	return kept
+}
+
+func buggyRepairMerge(existing, incoming []VersionedValue) []VersionedValue {
+	all := mergeSiblings(existing, incoming)
+	if len(all) <= 1 {
+		return all
+	}
+	winner := all[0]
+	for _, v := range all[1:] {
+		if clockScore(v.Clock) >= clockScore(winner.Clock) {
+			winner = v
+		}
+	}
+	return []VersionedValue{{Value: winner.Value, Clock: cloneClock(winner.Clock)}}
+}
+
+func clockScore(c Clock) int {
+	var score int
+	for _, v := range c {
+		score += v
+	}
+	return score
+}
+
+func clockEqual(a, b Clock) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		if b[k] != av {
+			return false
+		}
+	}
+	return true
+}
+
+func sortValues(values []VersionedValue) {
+	sort.Slice(values, func(i, j int) bool {
+		return values[i].Value < values[j].Value
+	})
+}
