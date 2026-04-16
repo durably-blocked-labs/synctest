@@ -781,7 +781,7 @@ def fig_chess_tree(tree_files, out_dir, rep_attempts, multi_attempt):
                 mpatches.Patch(color=COLORS["passed"], label=f"Passed ({n_passed})"),
                 mpatches.Patch(color=COLORS["failed"], label=f"Bug found ({n_failed})"),
             ],
-            loc="lower right",
+            loc="upper right",
             fontsize=8,
         )
 
