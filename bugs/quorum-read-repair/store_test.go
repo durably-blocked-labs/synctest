@@ -96,7 +96,6 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 		replica := NewReplica("R1", r)
 		replica.Start()
 		<-r.closeCh
-		r.Close()
 	})
 	orch.AddNode(c, func(t *testing.T) {
 		c.StartBridge()
@@ -122,22 +121,36 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 }
 
 func TestMessageInbox_PreservesOutOfOrderMessages(t *testing.T) {
-	tr := NewOrchestratorTransport("C")
-	tr.internalMailbox = make(chan Message, 2)
-	tr.internalMailbox <- Message{Kind: MsgPutAck, RequestID: "later"}
-	tr.internalMailbox <- Message{Kind: MsgPutAck, RequestID: "earlier"}
-	close(tr.internalMailbox)
+	sender := NewOrchestratorTransport("S")
+	receiver := NewOrchestratorTransport("R")
+	sender.Connect(receiver)
+	receiver.Connect(sender)
 
-	inbox := newMessageInbox(tr)
+	orch := orchestrator.New()
+	orch.AddNode(sender, func(t *testing.T) {
+		sender.StartBridge()
+		defer sender.Close()
+		sender.Send("R", Message{Kind: MsgPutAck, RequestID: "first"})
+		sender.Send("R", Message{Kind: MsgPutAck, RequestID: "second"})
+	})
+	orch.AddNode(receiver, func(t *testing.T) {
+		receiver.StartBridge()
+		defer receiver.Close()
+		inbox := newMessageInbox(receiver)
 
-	got := waitForAck(t, inbox, MsgPutAck, "earlier")
-	if got.RequestID != "earlier" {
-		t.Fatalf("first wait returned %q, want earlier", got.RequestID)
-	}
+		got := waitForAck(t, inbox, MsgPutAck, "second")
+		if got.RequestID != "second" {
+			t.Fatalf("first wait returned %q, want second", got.RequestID)
+		}
 
-	got = waitForAck(t, inbox, MsgPutAck, "later")
-	if got.RequestID != "later" {
-		t.Fatalf("second wait returned %q, want later", got.RequestID)
+		got = waitForAck(t, inbox, MsgPutAck, "first")
+		if got.RequestID != "first" {
+			t.Fatalf("second wait returned %q, want first", got.RequestID)
+		}
+	})
+
+	if _, ok := orch.Run(t); !ok {
+		t.Fatal("message inbox run failed")
 	}
 }
 
