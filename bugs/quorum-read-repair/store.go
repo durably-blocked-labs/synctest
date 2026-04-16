@@ -114,6 +114,36 @@ func clockEqual(a, b Clock) bool {
 
 func sortValues(values []VersionedValue) {
 	sort.Slice(values, func(i, j int) bool {
-		return values[i].Value < values[j].Value
+		left := values[i]
+		right := values[j]
+		if left.Value != right.Value {
+			return left.Value < right.Value
+		}
+		return clockLess(left.Clock, right.Clock)
 	})
+}
+
+func clockLess(a, b Clock) bool {
+	keysA := make([]string, 0, len(a))
+	for k := range a {
+		keysA = append(keysA, k)
+	}
+	keysB := make([]string, 0, len(b))
+	for k := range b {
+		keysB = append(keysB, k)
+	}
+	sort.Strings(keysA)
+	sort.Strings(keysB)
+
+	for i := 0; i < len(keysA) && i < len(keysB); i++ {
+		if keysA[i] != keysB[i] {
+			return keysA[i] < keysB[i]
+		}
+		av := a[keysA[i]]
+		bv := b[keysB[i]]
+		if av != bv {
+			return av < bv
+		}
+	}
+	return len(keysA) < len(keysB)
 }

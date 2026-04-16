@@ -28,6 +28,35 @@ func TestCorrectMergeDropsDominatedValue(t *testing.T) {
 	})
 }
 
+func TestCorrectMergePreservesConcurrentSamePayloadDeterministicOrder(t *testing.T) {
+	existing := []VersionedValue{{Value: "A", Clock: Clock{"C2": 1}}}
+	incoming := []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}}
+
+	got := mergeSiblings(existing, incoming)
+
+	assertValues(t, got, []VersionedValue{
+		{Value: "A", Clock: Clock{"C1": 1}},
+		{Value: "A", Clock: Clock{"C2": 1}},
+	})
+}
+
+func TestCorrectMergeDeepCopiesInputs(t *testing.T) {
+	existing := []VersionedValue{{Value: "left", Clock: Clock{"C1": 1}}}
+	incoming := []VersionedValue{{Value: "right", Clock: Clock{"C2": 1}}}
+
+	got := mergeSiblings(existing, incoming)
+
+	existing[0].Value = "mutated-left"
+	existing[0].Clock["C1"] = 99
+	incoming[0].Value = "mutated-right"
+	incoming[0].Clock["C2"] = 88
+
+	assertValues(t, got, []VersionedValue{
+		{Value: "left", Clock: Clock{"C1": 1}},
+		{Value: "right", Clock: Clock{"C2": 1}},
+	})
+}
+
 func TestBuggyRepairMergeDropsConcurrentSibling(t *testing.T) {
 	existing := []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}}
 	incoming := []VersionedValue{{Value: "B", Clock: Clock{"C2": 1}}}
@@ -37,6 +66,17 @@ func TestBuggyRepairMergeDropsConcurrentSibling(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("buggyRepairMerge returned %d values, want 1", len(got))
 	}
+}
+
+func TestBuggyRepairMergeDeterministicTieWinner(t *testing.T) {
+	existing := []VersionedValue{{Value: "A", Clock: Clock{"C2": 2}}}
+	incoming := []VersionedValue{{Value: "A", Clock: Clock{"C1": 2}}}
+
+	got := buggyRepairMerge(existing, incoming)
+
+	assertValues(t, got, []VersionedValue{
+		{Value: "A", Clock: Clock{"C2": 2}},
+	})
 }
 
 func assertValues(t *testing.T, got, want []VersionedValue) {
