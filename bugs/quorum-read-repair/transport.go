@@ -116,6 +116,7 @@ func (t *OrchestratorTransport) Send(to string, msg Message) {
 	if msg.From == "" {
 		msg.From = t.addr
 	}
+	frozen := cloneMessage(msg)
 
 	synctest.ExternalWait(func() {
 		select {
@@ -123,10 +124,10 @@ func (t *OrchestratorTransport) Send(to string, msg Message) {
 			Dir:  orchestrator.OpSend,
 			From: t.addr,
 			To:   to,
-			Type: msgKindName(msg.Kind),
+			Type: msgKindName(frozen.Kind),
 			Execute: func() {
 				select {
-				case peer.mailbox <- cloneMessage(msg):
+				case peer.mailbox <- frozen:
 				case <-peer.closeCh:
 				}
 			},
