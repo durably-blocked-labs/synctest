@@ -2,7 +2,6 @@ package quorumreadrepair
 
 import (
 	"fmt"
-	"sync"
 )
 
 const quorum = 2
@@ -25,7 +24,6 @@ func NewClient(addr string, tr *OrchestratorTransport, replicas []string) *Clien
 }
 
 func (c *Client) Put(key, value string) {
-	c.inbox.start()
 	c.seq++
 	requestID := fmt.Sprintf("%s-put-%d", c.addr, c.seq)
 	version := VersionedValue{
@@ -45,15 +43,18 @@ func (c *Client) Put(key, value string) {
 
 	acks := 0
 	for acks < quorum {
-		msg := c.inbox.waitFor(MsgPutAck, requestID)
+		msg, ok := c.inbox.waitFor(MsgPutAck, requestID)
+		if !ok {
+			return
+		}
 		if msg.Kind == MsgPutAck && msg.RequestID == requestID {
 			acks++
 		}
 	}
+	c.inbox.drainAvailable()
 }
 
 func (c *Client) GetAndRepair(key, requestID string) []VersionedValue {
-	c.inbox.start()
 	for _, replica := range c.replicas {
 		c.tr.Send(replica, Message{
 			Kind:      MsgGet,
@@ -66,7 +67,10 @@ func (c *Client) GetAndRepair(key, requestID string) []VersionedValue {
 	responses := make(map[string][]VersionedValue, len(c.replicas))
 	var merged []VersionedValue
 	for len(responses) < quorum {
-		msg := c.inbox.waitFor(MsgGetResp, requestID)
+		msg, ok := c.inbox.waitFor(MsgGetResp, requestID)
+		if !ok {
+			return merged
+		}
 		if msg.Kind != MsgGetResp || msg.RequestID != requestID {
 			continue
 		}
@@ -86,6 +90,7 @@ func (c *Client) GetAndRepair(key, requestID string) []VersionedValue {
 		}
 	}
 
+	c.inbox.drainAvailable()
 	return merged
 }
 
@@ -104,50 +109,37 @@ func sameValues(a, b []VersionedValue) bool {
 }
 
 type clientInbox struct {
-	once      sync.Once
-	mu        sync.Mutex
-	cond      *sync.Cond
 	transport *OrchestratorTransport
 	pending   []Message
-	closed    bool
 }
 
-func (i *clientInbox) start() {
-	i.once.Do(func() {
-		i.cond = sync.NewCond(&i.mu)
-		go i.run()
-	})
-}
-
-func (i *clientInbox) waitFor(kind MsgKind, requestID string) Message {
-	i.start()
-	i.mu.Lock()
-	defer i.mu.Unlock()
-
+func (i *clientInbox) waitFor(kind MsgKind, requestID string) (Message, bool) {
 	for {
 		for idx, msg := range i.pending {
 			if msg.Kind == kind && msg.RequestID == requestID {
 				i.pending = append(i.pending[:idx], i.pending[idx+1:]...)
-				return msg
+				return msg, true
 			}
 		}
 
-		if i.closed {
-			return Message{}
+		msg, ok := <-i.transport.Mailbox()
+		if !ok {
+			return Message{}, false
 		}
-		i.cond.Wait()
+		i.pending = append(i.pending, msg)
 	}
 }
 
-func (i *clientInbox) run() {
-	for msg := range i.transport.Mailbox() {
-		i.mu.Lock()
-		i.pending = append(i.pending, msg)
-		i.cond.Broadcast()
-		i.mu.Unlock()
+func (i *clientInbox) drainAvailable() {
+	for {
+		select {
+		case msg, ok := <-i.transport.Mailbox():
+			if !ok {
+				return
+			}
+			i.pending = append(i.pending, msg)
+		default:
+			return
+		}
 	}
-	i.mu.Lock()
-	i.closed = true
-	i.cond.Broadcast()
-	i.mu.Unlock()
 }

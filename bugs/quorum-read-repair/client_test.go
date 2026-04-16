@@ -51,6 +51,11 @@ func TestClientQuorum_PutAndReadRepairsWithUnavailableReplica(t *testing.T) {
 	if _, ok := orch.Run(t); !ok {
 		t.Fatal("client quorum run failed")
 	}
+
+	repairs := drainTransportMailbox(transports["R3"])
+	if !containsRepair(repairs, "read-1-repair-R3") {
+		t.Fatalf("repair to R3 not delivered; got=%#v", repairs)
+	}
 }
 
 func TestNewClientUsesPerInstanceInbox(t *testing.T) {
@@ -66,4 +71,25 @@ func TestNewClientUsesPerInstanceInbox(t *testing.T) {
 	if c1.inbox.transport != c1.tr || c2.inbox.transport != c2.tr {
 		t.Fatal("client inbox transport should match the owning client transport")
 	}
+}
+
+func drainTransportMailbox(tr *OrchestratorTransport) []Message {
+	var msgs []Message
+	for {
+		select {
+		case msg := <-tr.mailbox:
+			msgs = append(msgs, msg)
+		default:
+			return msgs
+		}
+	}
+}
+
+func containsRepair(msgs []Message, requestID string) bool {
+	for _, msg := range msgs {
+		if msg.Kind == MsgRepair && msg.RequestID == requestID {
+			return true
+		}
+	}
+	return false
 }
