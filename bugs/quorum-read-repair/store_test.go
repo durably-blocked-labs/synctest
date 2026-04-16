@@ -95,9 +95,12 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 		r.StartBridge()
 		replica := NewReplica("R1", r)
 		replica.Start()
+		<-r.closeCh
+		r.Close()
 	})
 	orch.AddNode(c, func(t *testing.T) {
 		c.StartBridge()
+		defer c.Close()
 		inbox := newMessageInbox(c)
 		c.Send("R1", Message{Kind: MsgPut, RequestID: "put-a", Key: "x", Values: []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}}})
 		c.Send("R1", Message{Kind: MsgPut, RequestID: "put-b", Key: "x", Values: []VersionedValue{{Value: "B", Clock: Clock{"C2": 1}}}})
@@ -111,7 +114,6 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 			{Value: "A", Clock: Clock{"C1": 1}},
 			{Value: "B", Clock: Clock{"C2": 1}},
 		})
-		c.Shutdown()
 	})
 
 	if _, ok := orch.Run(t); !ok {
@@ -121,13 +123,12 @@ func TestReplicaFIFO_NormalWritesPreserveSiblings(t *testing.T) {
 
 func TestMessageInbox_PreservesOutOfOrderMessages(t *testing.T) {
 	tr := NewOrchestratorTransport("C")
-	inbox := &messageInbox{
-		transport: tr,
-		pending: []Message{
-			{Kind: MsgPutAck, RequestID: "later"},
-			{Kind: MsgPutAck, RequestID: "earlier"},
-		},
-	}
+	tr.internalMailbox = make(chan Message, 2)
+	tr.internalMailbox <- Message{Kind: MsgPutAck, RequestID: "later"}
+	tr.internalMailbox <- Message{Kind: MsgPutAck, RequestID: "earlier"}
+	close(tr.internalMailbox)
+
+	inbox := newMessageInbox(tr)
 
 	got := waitForAck(t, inbox, MsgPutAck, "earlier")
 	if got.RequestID != "earlier" {
