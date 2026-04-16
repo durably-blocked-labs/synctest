@@ -147,3 +147,79 @@ func clockLess(a, b Clock) bool {
 	}
 	return len(keysA) < len(keysB)
 }
+
+func NewReplica(addr string, tr *OrchestratorTransport) *Replica {
+	return &Replica{
+		addr:     addr,
+		tr:       tr,
+		applyCh:  make(chan applyReq, 64),
+		repairCh: make(chan applyReq, 64),
+		closeCh:  make(chan struct{}),
+		store:    make(map[string][]VersionedValue),
+	}
+}
+
+func (r *Replica) Start() {
+	go r.router()
+	go r.applyLoop()
+	go r.repairLoop()
+	<-r.tr.closeCh
+}
+
+func (r *Replica) router() {
+	defer close(r.applyCh)
+	defer close(r.repairCh)
+
+	for msg := range r.tr.Mailbox() {
+		switch msg.Kind {
+		case MsgPut:
+			r.applyCh <- applyReq{msg: msg, ack: msg.From}
+		case MsgRepair:
+			r.repairCh <- applyReq{msg: msg, ack: msg.From}
+		case MsgGet:
+			r.tr.Send(msg.From, Message{
+				Kind:      MsgGetResp,
+				From:      r.addr,
+				RequestID: msg.RequestID,
+				Key:       msg.Key,
+				Values:    r.Snapshot(msg.Key),
+			})
+		}
+	}
+}
+
+func (r *Replica) applyLoop() {
+	for req := range r.applyCh {
+		r.mu.Lock()
+		r.store[req.msg.Key] = mergeSiblings(r.store[req.msg.Key], req.msg.Values)
+		r.mu.Unlock()
+
+		r.tr.Send(req.ack, Message{
+			Kind:      MsgPutAck,
+			From:      r.addr,
+			RequestID: req.msg.RequestID,
+			Key:       req.msg.Key,
+		})
+	}
+}
+
+func (r *Replica) repairLoop() {
+	for req := range r.repairCh {
+		r.mu.Lock()
+		r.store[req.msg.Key] = buggyRepairMerge(r.store[req.msg.Key], req.msg.Values)
+		r.mu.Unlock()
+
+		r.tr.Send(req.ack, Message{
+			Kind:      MsgRepairAck,
+			From:      r.addr,
+			RequestID: req.msg.RequestID,
+			Key:       req.msg.Key,
+		})
+	}
+}
+
+func (r *Replica) Snapshot(key string) []VersionedValue {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return cloneValues(r.store[key])
+}
