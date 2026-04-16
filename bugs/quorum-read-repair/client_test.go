@@ -10,7 +10,7 @@ import (
 func TestClientFIFO_PutAndReadRepairs(t *testing.T) {
 	runtime.GOMAXPROCS(8)
 
-	addrs := []string{"R1", "R2", "R3", "C1"}
+	addrs := []string{"R1", "R2", "C1"}
 	transports := setupCluster(addrs)
 	orch := orchestrator.New()
 	addReplicas(orch, []string{"R1", "R2"}, transports)
@@ -18,50 +18,45 @@ func TestClientFIFO_PutAndReadRepairs(t *testing.T) {
 	orch.AddNode(transports["C1"], func(t *testing.T) {
 		tr := transports["C1"]
 		tr.StartBridge()
-		client := NewClient("C1", tr, []string{"R1", "R2", "R3"})
+		client := NewClient("C1", tr, []string{"R1", "R2"})
 		client.Put("x", "A")
 		got := client.GetAndRepair("x", "read-1")
 		assertValues(t, got, []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}})
+		shutdownTransports(transports, addrs)
 	})
 
 	if _, ok := orch.Run(t); !ok {
 		t.Fatal("client FIFO run failed")
 	}
-
-	transports["C1"].Shutdown()
-	transports["R1"].Shutdown()
-	transports["R2"].Shutdown()
 }
 
-func TestClientQuorum_PutAndReadRepairsWithUnavailableReplica(t *testing.T) {
+func TestClientQuorum_PutAndReadRepairsStaleReplica(t *testing.T) {
 	runtime.GOMAXPROCS(8)
 
 	addrs := []string{"R1", "R2", "R3", "C1"}
 	transports := setupCluster(addrs)
 	orch := orchestrator.New()
-	addReplicas(orch, []string{"R1", "R2"}, transports)
+	addReplicas(orch, []string{"R1", "R2", "R3"}, transports)
 
 	orch.AddNode(transports["C1"], func(t *testing.T) {
 		tr := transports["C1"]
 		tr.StartBridge()
-		client := NewClient("C1", tr, []string{"R1", "R2", "R3"})
-		client.Put("x", "A")
-		got := client.GetAndRepair("x", "read-1")
+		writer := NewClient("C1", tr, []string{"R1", "R2"})
+		writer.Put("x", "A")
+
+		reader := NewClient("C1", tr, []string{"R1", "R2", "R3"})
+		got := reader.GetAndRepair("x", "read-1")
 		assertValues(t, got, []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}})
+		msg, ok := reader.inbox.waitFor(MsgRepairAck, "read-1-repair-R3")
+		if !ok || msg.From != "R3" {
+			t.Fatalf("repair ack from R3 = %#v, ok=%v", msg, ok)
+		}
+		shutdownTransports(transports, addrs)
 	})
 
 	if _, ok := orch.Run(t); !ok {
 		t.Fatal("client quorum run failed")
 	}
-
-	repairs := drainTransportMailbox(transports["R3"])
-	if !containsRepair(repairs, "read-1-repair-R3") {
-		t.Fatalf("repair to R3 not delivered; got=%#v", repairs)
-	}
-
-	transports["C1"].Shutdown()
-	transports["R1"].Shutdown()
-	transports["R2"].Shutdown()
 }
 
 func TestNewClientUsesPerInstanceInbox(t *testing.T) {
@@ -79,23 +74,8 @@ func TestNewClientUsesPerInstanceInbox(t *testing.T) {
 	}
 }
 
-func drainTransportMailbox(tr *OrchestratorTransport) []Message {
-	var msgs []Message
-	for {
-		select {
-		case msg := <-tr.mailbox:
-			msgs = append(msgs, msg)
-		default:
-			return msgs
-		}
+func shutdownTransports(transports map[string]*OrchestratorTransport, addrs []string) {
+	for _, addr := range addrs {
+		transports[addr].Shutdown()
 	}
-}
-
-func containsRepair(msgs []Message, requestID string) bool {
-	for _, msg := range msgs {
-		if msg.Kind == MsgRepair && msg.RequestID == requestID {
-			return true
-		}
-	}
-	return false
 }
