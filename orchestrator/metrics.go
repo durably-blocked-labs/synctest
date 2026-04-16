@@ -80,7 +80,7 @@ func NewJSONLObserver(w io.Writer, policy string) RunObserver {
 			RunNum:         runNum,
 			NonFIFO:        nonFIFO,
 			ElapsedNs:      elapsed.Nanoseconds(),
-			TotalDecisions: len(rr.Trace),
+			TotalDecisions: 0,
 			Passed:         passed,
 			UserFailed:     rr.UserFailed,
 		}
@@ -112,6 +112,7 @@ func NewJSONLObserver(w io.Writer, policy string) RunObserver {
 				localStepIdx++
 			}
 		}
+		r.TotalDecisions = r.GlobalDecisionCount + r.LocalDecisionTotal
 
 		// Build local trace detail if requested.
 		if includeLocalTrace(passed) {
