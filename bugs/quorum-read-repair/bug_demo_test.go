@@ -43,9 +43,12 @@ func TestQuorumReadRepair_ExploreAll(t *testing.T) {
 
 	orch := orchestrator.New()
 	ok := orch.ExploreAll(t, func(o *orchestrator.Orchestrator) {
-		addQuorumReadRepairScenario(o, false)
-	}, orchestrator.GlobalBound(12), orchestrator.GlobalMaxRuns(1000))
+		addFocusedReadRepairRace(o)
+	}, orchestrator.GlobalBound(4), orchestrator.GlobalMaxRuns(1000))
 
+	if !observedBugFound() {
+		t.Fatalf("ExploreAll did not observe focused read-repair race; ok=%v values=%v", ok, lastObservedValues())
+	}
 	t.Logf("ExploreAll: ok=%v bug=%v values=%v", ok, observedBugFound(), lastObservedValues())
 }
 

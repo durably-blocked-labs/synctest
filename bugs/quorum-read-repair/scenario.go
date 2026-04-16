@@ -13,15 +13,17 @@ var replicaAddrs = []string{"R1", "R2", "R3"}
 var clientAddrs = []string{"C1", "C2", "Reader"}
 
 var outcome struct {
-	mu     sync.Mutex
-	values map[string][]string
-	bug    bool
+	mu             sync.Mutex
+	values         map[string][]string
+	firstBugValues map[string][]string
+	bug            bool
 }
 
 func resetObservedOutcome() {
 	outcome.mu.Lock()
 	defer outcome.mu.Unlock()
 	outcome.values = make(map[string][]string)
+	outcome.firstBugValues = nil
 	outcome.bug = false
 }
 
@@ -35,11 +37,10 @@ func lastObservedValues() map[string][]string {
 	outcome.mu.Lock()
 	defer outcome.mu.Unlock()
 
-	out := make(map[string][]string, len(outcome.values))
-	for replica, values := range outcome.values {
-		out[replica] = append([]string(nil), values...)
+	if outcome.firstBugValues != nil {
+		return cloneOutcomeValues(outcome.firstBugValues)
 	}
-	return out
+	return cloneOutcomeValues(outcome.values)
 }
 
 func setupCluster(addrs []string) map[string]*OrchestratorTransport {
@@ -127,6 +128,57 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 	})
 }
 
+func addFocusedReadRepairRace(orch *orchestrator.Orchestrator) {
+	addrs := []string{"R1", "Writer", "Repairer", "Checker"}
+	transports := setupCluster(addrs)
+	replicas := addReplicas(orch, []string{"R1"}, transports)
+	replicas["R1"].store["x"] = []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}}
+
+	orch.AddNode(transports["Writer"], func(t *testing.T) {
+		tr := transports["Writer"]
+		tr.StartBridge()
+		tr.Send("R1", Message{
+			Kind:      MsgPut,
+			From:      "Writer",
+			RequestID: "late-put",
+			Key:       "x",
+			Values: []VersionedValue{{
+				Value: "B",
+				Clock: Clock{"C2": 1},
+			}},
+		})
+		inbox := clientInbox{transport: tr}
+		inbox.waitFor(MsgPutAck, "late-put")
+		tr.SendControl("Checker", "writer-done")
+	})
+
+	orch.AddNode(transports["Repairer"], func(t *testing.T) {
+		tr := transports["Repairer"]
+		tr.StartBridge()
+		tr.Send("R1", Message{
+			Kind:      MsgRepair,
+			From:      "Repairer",
+			RequestID: "repair",
+			Key:       "x",
+			Values: []VersionedValue{
+				{Value: "A", Clock: Clock{"C1": 1}},
+				{Value: "B", Clock: Clock{"C2": 1}},
+			},
+		})
+		inbox := clientInbox{transport: tr}
+		inbox.waitFor(MsgRepairAck, "repair")
+		tr.SendControl("Checker", "repair-done")
+	})
+
+	orch.AddNode(transports["Checker"], func(t *testing.T) {
+		tr := transports["Checker"]
+		tr.StartBridge()
+		tr.WaitControl("writer-done")
+		tr.WaitControl("repair-done")
+		recordOutcome("R1", replicas["R1"].Snapshot("x"))
+	})
+}
+
 func waitForExtraPutAcks(client *Client, requestID string, extra int) {
 	for i := 0; i < extra; i++ {
 		if _, ok := client.inbox.waitFor(MsgPutAck, requestID); !ok {
@@ -148,8 +200,19 @@ func recordOutcome(replica string, values []VersionedValue) {
 	defer outcome.mu.Unlock()
 	outcome.values[replica] = got
 	if !stringSetEqual(got, []string{"A", "B"}) {
+		if !outcome.bug {
+			outcome.firstBugValues = cloneOutcomeValues(outcome.values)
+		}
 		outcome.bug = true
 	}
+}
+
+func cloneOutcomeValues(values map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(values))
+	for replica, replicaValues := range values {
+		out[replica] = append([]string(nil), replicaValues...)
+	}
+	return out
 }
 
 func valuesOnly(values []VersionedValue) []string {
