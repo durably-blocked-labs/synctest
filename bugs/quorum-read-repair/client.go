@@ -12,6 +12,7 @@ type Client struct {
 	tr       *OrchestratorTransport
 	replicas []string
 	seq      int
+	inbox    *clientInbox
 }
 
 func NewClient(addr string, tr *OrchestratorTransport, replicas []string) *Client {
@@ -19,10 +20,12 @@ func NewClient(addr string, tr *OrchestratorTransport, replicas []string) *Clien
 		addr:     addr,
 		tr:       tr,
 		replicas: append([]string(nil), replicas...),
+		inbox:    &clientInbox{transport: tr},
 	}
 }
 
 func (c *Client) Put(key, value string) {
+	c.inbox.start()
 	c.seq++
 	requestID := fmt.Sprintf("%s-put-%d", c.addr, c.seq)
 	version := VersionedValue{
@@ -30,7 +33,6 @@ func (c *Client) Put(key, value string) {
 		Clock: Clock{c.addr: c.seq},
 	}
 
-	inbox := newClientInbox(c.tr)
 	for _, replica := range c.replicas {
 		c.tr.Send(replica, Message{
 			Kind:      MsgPut,
@@ -42,8 +44,8 @@ func (c *Client) Put(key, value string) {
 	}
 
 	acks := 0
-	for acks < len(c.replicas) {
-		msg := inbox.waitFor(MsgPutAck, requestID)
+	for acks < quorum {
+		msg := c.inbox.waitFor(MsgPutAck, requestID)
 		if msg.Kind == MsgPutAck && msg.RequestID == requestID {
 			acks++
 		}
@@ -51,7 +53,7 @@ func (c *Client) Put(key, value string) {
 }
 
 func (c *Client) GetAndRepair(key, requestID string) []VersionedValue {
-	inbox := newClientInbox(c.tr)
+	c.inbox.start()
 	for _, replica := range c.replicas {
 		c.tr.Send(replica, Message{
 			Kind:      MsgGet,
@@ -63,8 +65,8 @@ func (c *Client) GetAndRepair(key, requestID string) []VersionedValue {
 
 	responses := make(map[string][]VersionedValue, len(c.replicas))
 	var merged []VersionedValue
-	for len(responses) < len(c.replicas) {
-		msg := inbox.waitFor(MsgGetResp, requestID)
+	for len(responses) < quorum {
+		msg := c.inbox.waitFor(MsgGetResp, requestID)
 		if msg.Kind != MsgGetResp || msg.RequestID != requestID {
 			continue
 		}
@@ -102,23 +104,26 @@ func sameValues(a, b []VersionedValue) bool {
 }
 
 type clientInbox struct {
+	once      sync.Once
+	mu        sync.Mutex
+	cond      *sync.Cond
 	transport *OrchestratorTransport
 	pending   []Message
+	closed    bool
 }
 
-var clientInboxByTransport sync.Map
-
-func newClientInbox(tr *OrchestratorTransport) *clientInbox {
-	if inbox, ok := clientInboxByTransport.Load(tr); ok {
-		return inbox.(*clientInbox)
-	}
-
-	inbox := &clientInbox{transport: tr}
-	actual, _ := clientInboxByTransport.LoadOrStore(tr, inbox)
-	return actual.(*clientInbox)
+func (i *clientInbox) start() {
+	i.once.Do(func() {
+		i.cond = sync.NewCond(&i.mu)
+		go i.run()
+	})
 }
 
 func (i *clientInbox) waitFor(kind MsgKind, requestID string) Message {
+	i.start()
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
 	for {
 		for idx, msg := range i.pending {
 			if msg.Kind == kind && msg.RequestID == requestID {
@@ -127,10 +132,22 @@ func (i *clientInbox) waitFor(kind MsgKind, requestID string) Message {
 			}
 		}
 
-		msg, ok := <-i.transport.Mailbox()
-		if !ok {
+		if i.closed {
 			return Message{}
 		}
-		i.pending = append(i.pending, msg)
+		i.cond.Wait()
 	}
+}
+
+func (i *clientInbox) run() {
+	for msg := range i.transport.Mailbox() {
+		i.mu.Lock()
+		i.pending = append(i.pending, msg)
+		i.cond.Broadcast()
+		i.mu.Unlock()
+	}
+	i.mu.Lock()
+	i.closed = true
+	i.cond.Broadcast()
+	i.mu.Unlock()
 }
