@@ -22,12 +22,15 @@ func TestClientFIFO_PutAndReadRepairs(t *testing.T) {
 		client.Put("x", "A")
 		got := client.GetAndRepair("x", "read-1")
 		assertValues(t, got, []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}})
-		tr.Shutdown()
 	})
 
 	if _, ok := orch.Run(t); !ok {
 		t.Fatal("client FIFO run failed")
 	}
+
+	transports["C1"].Shutdown()
+	transports["R1"].Shutdown()
+	transports["R2"].Shutdown()
 }
 
 func TestClientQuorum_PutAndReadRepairsWithUnavailableReplica(t *testing.T) {
@@ -45,7 +48,6 @@ func TestClientQuorum_PutAndReadRepairsWithUnavailableReplica(t *testing.T) {
 		client.Put("x", "A")
 		got := client.GetAndRepair("x", "read-1")
 		assertValues(t, got, []VersionedValue{{Value: "A", Clock: Clock{"C1": 1}}})
-		tr.Shutdown()
 	})
 
 	if _, ok := orch.Run(t); !ok {
@@ -56,6 +58,10 @@ func TestClientQuorum_PutAndReadRepairsWithUnavailableReplica(t *testing.T) {
 	if !containsRepair(repairs, "read-1-repair-R3") {
 		t.Fatalf("repair to R3 not delivered; got=%#v", repairs)
 	}
+
+	transports["C1"].Shutdown()
+	transports["R1"].Shutdown()
+	transports["R2"].Shutdown()
 }
 
 func TestNewClientUsesPerInstanceInbox(t *testing.T) {
