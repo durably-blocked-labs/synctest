@@ -185,6 +185,9 @@ The main figures are:
   runs.
 - `runs_to_bug.png`: how quickly each policy found the first complete semantic
   bug.
+- `seed_runs_to_bug.png`: a strip plot for repeated benchmark attempts where
+  each dot is one PCT/Random seed, with medians, worst observed attempts, and a
+  CHESS reference line when CHESS finds the bug.
 - `bug_trace_decision_mix.png`: global, local, and non-FIFO decision counts in
   the first bug trace for each policy that found one.
 - `nonfifo_comparison.png` and `nonfifo_over_runs.png`: how much non-default

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-const benchMaxRuns = 1000000000
+const benchMaxRuns = 2000
 
 type benchmarkOutcome struct {
 	mu     sync.Mutex
@@ -111,6 +112,36 @@ func benchDir() string {
 	return d
 }
 
+func benchSeed() int64 {
+	s := os.Getenv("BENCH_ATTEMPT")
+	if s == "" {
+		return 1
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return 1
+	}
+	return n
+}
+
+func TestBenchSeedUsesAttemptNumber(t *testing.T) {
+	t.Setenv("BENCH_ATTEMPT", "42")
+	if got := benchSeed(); got != 42 {
+		t.Fatalf("benchSeed() = %d, want 42", got)
+	}
+}
+
+func TestBenchSeedDefaultsToOne(t *testing.T) {
+	for _, value := range []string{"", "0", "-7", "not-a-number"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("BENCH_ATTEMPT", value)
+			if got := benchSeed(); got != 1 {
+				t.Fatalf("benchSeed() = %d, want 1", got)
+			}
+		})
+	}
+}
+
 func observers(t *testing.T, policy string) []orchestrator.RunObserver {
 	dir := benchDir()
 	if dir == "" {
@@ -187,7 +218,7 @@ func runBenchmark(t *testing.T, label, policy string, algo orchestrator.Algorith
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
 	algo := &orchestrator.CHESS{Bound: 8, GlobalOnly: true}
-	runBenchmark(t, "CHESS(G-only,k=4)", "chess-global", algo)
+	runBenchmark(t, "CHESS(G-only,k=8)", "chess-global", algo)
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/chess-global-tree.json"); err == nil {
 			orchestrator.WriteTreeJSON(f, algo.Tree())
@@ -197,8 +228,8 @@ func TestBench_CHESS_GlobalOnly(t *testing.T) {
 }
 
 func TestBench_CHESS_GL(t *testing.T) {
-	algo := &orchestrator.CHESS{Bound: 256}
-	_, firstBug := runBenchmark(t, "CHESS(G+L,k=4)", "chess-gl", algo)
+	algo := &orchestrator.CHESS{Bound: 8}
+	_, firstBug := runBenchmark(t, "CHESS(G+L,k=8)", "chess-gl", algo)
 	_ = firstBug
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/chess-gl-tree.json"); err == nil {
@@ -209,17 +240,17 @@ func TestBench_CHESS_GL(t *testing.T) {
 }
 
 func TestBench_PCT_d2(t *testing.T) {
-	algo := &orchestrator.PCT{Depth: 2, MaxSteps: 256, Seed: 1}
+	algo := &orchestrator.PCT{Depth: 2, MaxSteps: 256, Seed: benchSeed()}
 	runBenchmark(t, "PCT(d=2)", "pct-d2", algo)
 }
 
 func TestBench_PCT_d3(t *testing.T) {
-	algo := &orchestrator.PCT{Depth: 3, MaxSteps: 256, Seed: 1}
+	algo := &orchestrator.PCT{Depth: 3, MaxSteps: 256, Seed: benchSeed()}
 	runBenchmark(t, "PCT(d=3)", "pct-d3", algo)
 }
 
 func TestBench_Random(t *testing.T) {
-	algo := &orchestrator.Random{Seed: 1}
+	algo := &orchestrator.Random{Seed: benchSeed()}
 	runBenchmark(t, "Random", "random", algo)
 }
 

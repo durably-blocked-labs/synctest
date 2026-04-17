@@ -51,6 +51,13 @@ ALGO_LABELS = {
 
 ALGO_ORDER = ["targeted", "random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
 LINE_COLORS = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
+SEED_DOT_POLICIES = ("random", "pct-d2", "pct-d3")
+SEED_REFERENCE_POLICY = "chess-gl"
+SEED_DOT_COLORS = {
+    "random": "#B765C9",
+    "pct-d2": "#FDBB63",
+    "pct-d3": "#8BCB91",
+}
 
 
 def algo_label(name):
@@ -259,6 +266,56 @@ def effective_runs_to_bug(records):
     if bug:
         return bug["run_num"]
     return len(records)
+
+
+def observed_run_count(records):
+    """Return the largest observed run number, falling back to record count."""
+    if not records:
+        return 0
+    return max((record.get("run_num", 0) for record in records), default=0) or len(records)
+
+
+def seed_runs_to_bug_rows(summaries, policies=None):
+    """Flatten attempt-grouped summaries into per-seed runs-to-bug rows."""
+    selected = list(policies) if policies is not None else policies_in_order(summaries)
+    rows = []
+    for policy in selected:
+        for attempt, records in attempt_series(summaries.get(policy, {})):
+            if not records:
+                continue
+            bug = find_bug_run(records)
+            rows.append(
+                {
+                    "policy": policy,
+                    "attempt": attempt,
+                    "runs": bug.get("run_num", observed_run_count(records)) if bug else observed_run_count(records),
+                    "found": bug is not None,
+                }
+            )
+    return rows
+
+
+def seed_jitter(attempt):
+    # Deterministic jitter keeps repeated renders stable without hiding ties.
+    value = ((attempt * 1103515245 + 12345) & 0x7FFFFFFF) / float(0x7FFFFFFF)
+    return (value - 0.5) * 0.32
+
+
+def seed_policy_label(policy):
+    labels = {
+        "random": "Random",
+        "pct-d2": "PCT (d=2)",
+        "pct-d3": "PCT (d=3)",
+    }
+    return labels.get(policy, algo_label(policy).replace("\n", " "))
+
+
+def seed_reference_label(policy):
+    labels = {
+        "chess-gl": "CHESS",
+        "chess-global": "CHESS\n(G-only)",
+    }
+    return labels.get(policy, algo_label(policy).replace("\n", " "))
 
 
 def found_rate_text(found, total):
@@ -555,6 +612,165 @@ def fig_runs_to_bug(summaries, out_dir):
     fig.savefig(os.path.join(out_dir, "runs_to_bug.png"), dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  runs_to_bug.png")
+
+
+def fig_seed_runs_to_bug(
+    summaries,
+    out_dir,
+    title_subject="quorum read repair",
+    dot_policies=SEED_DOT_POLICIES,
+    reference_policy=SEED_REFERENCE_POLICY,
+):
+    """Strip plot of per-seed runs-to-bug with median/worst annotations."""
+    policies = [policy for policy in dot_policies if summaries.get(policy)]
+    rows = seed_runs_to_bug_rows(summaries, policies=policies)
+    if not rows:
+        return
+
+    rows_by_policy = defaultdict(list)
+    for row in rows:
+        rows_by_policy[row["policy"]].append(row)
+
+    reference_rows = seed_runs_to_bug_rows(summaries, policies=(reference_policy,))
+    reference_found = [row["runs"] for row in reference_rows if row["found"]]
+    reference_value = int(np.median(reference_found)) if reference_found else None
+
+    all_runs = [row["runs"] for row in rows if row["runs"] > 0]
+    if reference_value is not None:
+        all_runs.append(reference_value)
+    if not all_runs:
+        return
+
+    fig, ax = plt.subplots(figsize=(9.2, 4.4))
+    y_positions = {policy: idx for idx, policy in enumerate(policies)}
+
+    for policy in policies:
+        color = SEED_DOT_COLORS.get(policy, "#777777")
+        policy_rows = rows_by_policy[policy]
+        found_rows = [row for row in policy_rows if row["found"]]
+        missed_rows = [row for row in policy_rows if not row["found"]]
+
+        if found_rows:
+            ax.scatter(
+                [row["runs"] for row in found_rows],
+                [y_positions[policy] + seed_jitter(row["attempt"]) for row in found_rows],
+                s=18,
+                color=color,
+                alpha=0.58,
+                linewidths=0,
+                zorder=3,
+            )
+        if missed_rows:
+            ax.scatter(
+                [row["runs"] for row in missed_rows],
+                [y_positions[policy] + seed_jitter(row["attempt"]) for row in missed_rows],
+                s=28,
+                facecolors="none",
+                edgecolors=color,
+                alpha=0.85,
+                linewidths=1.1,
+                zorder=4,
+            )
+
+        measured = [row["runs"] for row in policy_rows]
+        found = [row["runs"] for row in found_rows]
+        if found:
+            median = int(np.median(found))
+            ax.vlines(
+                median,
+                y_positions[policy] - 0.24,
+                y_positions[policy] + 0.24,
+                color=color,
+                linewidth=3,
+                zorder=5,
+            )
+            ax.text(
+                median,
+                y_positions[policy] + 0.32,
+                f"med={median}",
+                color=color,
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+            )
+
+        worst = max(measured)
+        worst_label = f"worst={worst}"
+        if len(missed_rows) > 0:
+            worst_label = f"miss={len(missed_rows)}"
+        ax.scatter(
+            [worst],
+            [y_positions[policy]],
+            s=55,
+            marker="x",
+            color=color,
+            linewidths=1.8,
+            zorder=6,
+        )
+        ax.text(
+            worst + max(1.0, 0.015 * max(all_runs)),
+            y_positions[policy] + 0.32,
+            worst_label,
+            color="#888888",
+            ha="left",
+            va="bottom",
+            fontsize=8,
+        )
+
+    if reference_value is not None:
+        ax.axvline(reference_value, color="#4A90D9", linewidth=2.0, alpha=0.8, zorder=1)
+        label_y = max(y_positions.values()) / 2 if y_positions else 0
+        ax.text(
+            reference_value + max(1.0, 0.018 * max(all_runs)),
+            label_y,
+            f"{seed_reference_label(reference_policy)}\n({reference_value} runs)",
+            color="#2A6FBB",
+            ha="left",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+        )
+
+    policy_counts = [len(rows_by_policy[policy]) for policy in policies]
+    if len(set(policy_counts)) == 1:
+        seed_count = policy_counts[0]
+        seed_phrase = f"{seed_count} {'seed' if seed_count == 1 else 'seeds'} per strategy"
+    else:
+        seed_count = sum(policy_counts)
+        seed_phrase = f"{seed_count} {'seed' if seed_count == 1 else 'seeds'} across strategies"
+    ax.set_title(
+        f"{title_subject}: each dot = one seed ({seed_phrase})",
+        fontsize=12,
+        fontweight="bold",
+        pad=8,
+    )
+    ax.set_xlabel(f"Runs to find {title_subject} bug", fontsize=11)
+    ax.set_yticks([y_positions[policy] for policy in policies])
+    ax.set_yticklabels([seed_policy_label(policy) for policy in policies], fontsize=10)
+    ax.set_ylim(-0.55, len(policies) - 0.45)
+    ax.set_xlim(0, max(all_runs) * 1.12 + 2)
+    ax.grid(axis="x", color="#EEEEEE", linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if any(not row["found"] for row in rows):
+        handle = Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="#777777",
+            markerfacecolor="none",
+            linestyle="",
+            label="Bug not found within observed runs",
+        )
+        ax.legend(handles=[handle], loc="lower right", fontsize=8, frameon=False)
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "seed_runs_to_bug.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  seed_runs_to_bug.png")
 
 
 # ── Figure 2: Bug-finding trace swimlane ──
@@ -1489,6 +1705,9 @@ def main():
 
     print("Figure 1: Runs to first bug")
     fig_runs_to_bug(summaries, args.out)
+
+    print("\nFigure 1b: Seed runs to first bug")
+    fig_seed_runs_to_bug(summaries, args.out)
 
     print("\nFigure 2: Bug-finding swimlane")
     fig_swimlane(rep_traces, args.out, rep_attempts, multi_attempt)

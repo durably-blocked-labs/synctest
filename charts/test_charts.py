@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 
 def load_charts_module():
@@ -28,6 +29,66 @@ class SearchSpaceFigureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             charts.fig_search_space_vs_explored(rep_summaries, rep_traces, tmpdir)
             output = Path(tmpdir) / "search_space_vs_explored.png"
+            self.assertTrue(output.exists())
+
+
+class SeedRunsFigureTest(unittest.TestCase):
+    def test_seed_runs_rows_use_first_bug_or_observed_run_count(self):
+        charts = load_charts_module()
+        summaries = {
+            "pct-d2": {
+                2: [
+                    {"policy": "pct-d2", "attempt": 2, "run_num": 1, "user_failed": False},
+                    {"policy": "pct-d2", "attempt": 2, "run_num": 2, "user_failed": True},
+                ],
+                1: [
+                    {"policy": "pct-d2", "attempt": 1, "run_num": 1, "user_failed": False},
+                    {"policy": "pct-d2", "attempt": 1, "run_num": 2, "user_failed": False},
+                    {"policy": "pct-d2", "attempt": 1, "run_num": 3, "user_failed": False},
+                ],
+            },
+            "chess-gl": {
+                1: [
+                    {"policy": "chess-gl", "attempt": 1, "run_num": 1, "user_failed": False},
+                    {"policy": "chess-gl", "attempt": 1, "run_num": 2, "user_failed": True},
+                ],
+            },
+        }
+
+        rows = charts.seed_runs_to_bug_rows(summaries, policies=("pct-d2", "chess-gl"))
+
+        self.assertEqual(
+            rows,
+            [
+                {"policy": "pct-d2", "attempt": 1, "runs": 3, "found": False},
+                {"policy": "pct-d2", "attempt": 2, "runs": 2, "found": True},
+                {"policy": "chess-gl", "attempt": 1, "runs": 2, "found": True},
+            ],
+        )
+
+    def test_seed_runs_plot_writes_temp_output(self):
+        charts = load_charts_module()
+        summaries = {
+            "random": {
+                1: [{"policy": "random", "attempt": 1, "run_num": 11, "user_failed": True}],
+                2: [{"policy": "random", "attempt": 2, "run_num": 17, "user_failed": True}],
+            },
+            "pct-d2": {
+                1: [{"policy": "pct-d2", "attempt": 1, "run_num": 5, "user_failed": True}],
+                2: [{"policy": "pct-d2", "attempt": 2, "run_num": 7, "user_failed": True}],
+            },
+            "pct-d3": {
+                1: [{"policy": "pct-d3", "attempt": 1, "run_num": 3, "user_failed": True}],
+                2: [{"policy": "pct-d3", "attempt": 2, "run_num": 4, "user_failed": True}],
+            },
+            "chess-gl": {
+                1: [{"policy": "chess-gl", "attempt": 1, "run_num": 9, "user_failed": True}],
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            charts.fig_seed_runs_to_bug(summaries, tmpdir, title_subject="quorum repair")
+            output = Path(tmpdir) / "seed_runs_to_bug.png"
             self.assertTrue(output.exists())
 
 

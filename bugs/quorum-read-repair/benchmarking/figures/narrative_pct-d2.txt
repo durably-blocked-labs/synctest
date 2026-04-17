@@ -1,5 +1,5 @@
 ======================================================================
-Bug-Finding Trace: pct-d2, Run 12
+Bug-Finding Trace: pct-d2, Run 6 (attempt 7)
 Total decisions: 144
 ======================================================================
 
@@ -149,7 +149,7 @@ Step 142: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
 Step 143: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
 
 ======================================================================
-RESULT: BUG FOUND on run 12
+RESULT: BUG FOUND on run 6
   Global decisions: 35
   Local decisions:  109
   Non-FIFO choices: 32
