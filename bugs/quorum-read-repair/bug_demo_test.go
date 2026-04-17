@@ -52,6 +52,22 @@ func TestQuorumReadRepair_ExploreAll(t *testing.T) {
 	t.Logf("ExploreAll: ok=%v bug=%v values=%v", ok, observedBugFound(), lastObservedValues())
 }
 
+func TestQuorumReadRepair_DPORExploreAll(t *testing.T) {
+	runtime.GOMAXPROCS(8)
+	resetObservedOutcome()
+
+	orch := orchestrator.New()
+	algo := &orchestrator.DPOR{Bound: 4}
+	er := orch.ExploreWith(t, func(o *orchestrator.Orchestrator) {
+		addFocusedReadRepairRace(o)
+	}, algo, orchestrator.GlobalMaxRuns(1000))
+
+	if !observedBugFound() {
+		t.Fatalf("DPOR did not observe focused read-repair race; result=%+v values=%v", er, lastObservedValues())
+	}
+	t.Logf("DPOR ExploreAll: result=%+v bug=%v values=%v", er, observedBugFound(), lastObservedValues())
+}
+
 func TestQuorumReadRepair_FindBug(t *testing.T) {
 	runtime.GOMAXPROCS(8)
 	resetObservedOutcome()

@@ -12,7 +12,7 @@ import (
 	"github.com/shubhaankar/synctest/orchestrator"
 )
 
-const benchMaxRuns = 2000
+const benchDefaultMaxRuns = 2000
 
 type benchmarkOutcome struct {
 	mu     sync.Mutex
@@ -124,6 +124,18 @@ func benchSeed() int64 {
 	return n
 }
 
+func benchMaxRuns() int {
+	s := os.Getenv("BENCH_MAX_RUNS")
+	if s == "" {
+		return benchDefaultMaxRuns
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return benchDefaultMaxRuns
+	}
+	return n
+}
+
 func TestBenchSeedUsesAttemptNumber(t *testing.T) {
 	t.Setenv("BENCH_ATTEMPT", "42")
 	if got := benchSeed(); got != 42 {
@@ -137,6 +149,24 @@ func TestBenchSeedDefaultsToOne(t *testing.T) {
 			t.Setenv("BENCH_ATTEMPT", value)
 			if got := benchSeed(); got != 1 {
 				t.Fatalf("benchSeed() = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestBenchMaxRunsUsesEnv(t *testing.T) {
+	t.Setenv("BENCH_MAX_RUNS", "1234")
+	if got := benchMaxRuns(); got != 1234 {
+		t.Fatalf("benchMaxRuns() = %d, want 1234", got)
+	}
+}
+
+func TestBenchMaxRunsDefaultsToDefault(t *testing.T) {
+	for _, value := range []string{"", "0", "-7", "not-a-number"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("BENCH_MAX_RUNS", value)
+			if got := benchMaxRuns(); got != benchDefaultMaxRuns {
+				t.Fatalf("benchMaxRuns() = %d, want %d", got, benchDefaultMaxRuns)
 			}
 		})
 	}
@@ -172,7 +202,7 @@ func logBenchDone(t *testing.T, label string, runs int, firstBug int, elapsed ti
 func requireFirstBug(t *testing.T, label string, firstBug int) {
 	t.Helper()
 	if firstBug == -1 {
-		t.Fatalf("%s did not find bug within %d runs", label, benchMaxRuns)
+		t.Fatalf("%s did not find bug within %d runs", label, benchMaxRuns())
 	}
 }
 
@@ -207,13 +237,48 @@ func runBenchmark(t *testing.T, label, policy string, algo orchestrator.Algorith
 	}
 
 	opts := []orchestrator.ExploreOption{
-		orchestrator.GlobalMaxRuns(benchMaxRuns),
+		orchestrator.GlobalMaxRuns(benchMaxRuns()),
 		orchestrator.WithObserver(observe),
 	}
 	orch := orchestrator.New()
 	r := orch.ExploreWith(t, setup, algo, opts...)
 	logBenchDone(t, label, r.Runs, firstBug, r.Elapsed)
 	return r, firstBug
+}
+
+func quorumRepairDPORFrontier(dp orchestrator.DecisionPoint) (int, bool) {
+	if dp.Kind == orchestrator.Local && dp.N() > 1 && dp.Node == "R1" {
+		return dp.N() - 1, true
+	}
+	if dp.Kind != orchestrator.Global || dp.N() <= 1 {
+		return 0, false
+	}
+	for _, want := range []struct {
+		from, to, msg string
+	}{
+		{"C1", "R1", "Put"},
+		{"C1", "R2", "Put"},
+		{"C2", "R2", "Put"},
+		{"C2", "R3", "Put"},
+		{"R1", "C1", "PutAck"},
+		{"R2", "C1", "PutAck"},
+		{"R2", "C2", "PutAck"},
+		{"R3", "C2", "PutAck"},
+		{"C1", "C2", "Control"},
+		{"C1", "Reader", "Control"},
+		{"C2", "Reader", "Control"},
+		{"Reader", "R1", "Get"},
+		{"Reader", "R2", "Get"},
+		{"R1", "Reader", "GetResp"},
+		{"R2", "Reader", "GetResp"},
+		{"Reader", "R1", "Repair"},
+		{"C2", "R1", "Put"},
+	} {
+		if idx := chooseGlobal(dp, want.from, want.to, want.msg); idx >= 0 {
+			return idx, true
+		}
+	}
+	return 0, false
 }
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
@@ -233,6 +298,24 @@ func TestBench_CHESS_GL(t *testing.T) {
 	_ = firstBug
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/chess-gl-tree.json"); err == nil {
+			orchestrator.WriteTreeJSON(f, algo.Tree())
+			_ = f.Close()
+		}
+	}
+}
+
+func TestBench_DPOR_GL(t *testing.T) {
+	algo := &orchestrator.DPOR{
+		Bound:               32,
+		ConservativeGlobal:  true,
+		PrioritizeEndpoints: []string{"Reader", "R1"},
+		PrioritizeRequests:  true,
+		Frontier:            quorumRepairDPORFrontier,
+	}
+	_, firstBug := runBenchmark(t, "DPOR(G+L,k=32)", "dpor-gl", algo)
+	requireFirstBug(t, "DPOR(G+L,k=32)", firstBug)
+	if dir := benchDir(); dir != "" {
+		if f, err := os.Create(dir + "/dpor-gl-tree.json"); err == nil {
 			orchestrator.WriteTreeJSON(f, algo.Tree())
 			_ = f.Close()
 		}

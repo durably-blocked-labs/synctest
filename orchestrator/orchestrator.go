@@ -52,7 +52,7 @@ type shutdowner interface{ Shutdown() }
 type GlobalStepType int
 
 const (
-	StepDeliver     GlobalStepType = iota
+	StepDeliver GlobalStepType = iota
 	StepTimeAdvance
 	StepDone
 )
@@ -222,6 +222,24 @@ func buildGlobalAlts(schedulable []*PendingOp) []Alt {
 	return alts
 }
 
+func altIDsAndResources(dp DecisionPoint) ([]string, []string) {
+	ids := make([]string, len(dp.Alts))
+	resources := make([]string, len(dp.Alts))
+	for i, alt := range dp.Alts {
+		ids[i] = alt.ID
+		if dp.Kind == Local {
+			resources[i] = dp.Node
+		} else {
+			resources[i] = endpointResource(alt.From, alt.To)
+		}
+	}
+	return ids, resources
+}
+
+func endpointResource(from, to string) string {
+	return from + "|" + to
+}
+
 // ─── Event handling ───
 
 type bubbleEvent struct {
@@ -291,12 +309,21 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 			return
 		}
 		for _, d := range ctrl.bubble.DrainLocal() {
+			altIDs := make([]string, len(d.RunqBGIDs))
+			altResources := make([]string, len(d.RunqBGIDs))
+			for i, bgid := range d.RunqBGIDs {
+				altIDs[i] = fmt.Sprintf("B%d", bgid)
+				altResources[i] = addr
+			}
 			unified = append(unified, NewStep{
 				Kind:         Local,
 				Node:         addr,
 				Index:        d.Index,
 				Alternatives: d.Alternatives,
 				ChosenID:     fmt.Sprintf("B%d", d.ChosenBGID),
+				Resource:     addr,
+				AltIDs:       altIDs,
+				AltResources: altResources,
 				ChosenBGID:   d.ChosenBGID,
 				RunqBGIDs:    d.RunqBGIDs,
 			})
@@ -438,6 +465,7 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 			}
 
 			op := o.schedulable[chosenIdx]
+			altIDs, altResources := altIDsAndResources(dp)
 			o.schedulable = append(o.schedulable[:chosenIdx], o.schedulable[chosenIdx+1:]...)
 
 			unified = append(unified, NewStep{
@@ -445,7 +473,9 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 				Index:        int32(chosenIdx),
 				Alternatives: int32(len(dp.Alts)),
 				ChosenID:     dp.Alts[chosenIdx].ID,
-				Resource:     op.To,
+				Resource:     endpointResource(op.From, op.To),
+				AltIDs:       altIDs,
+				AltResources: altResources,
 				From:         op.From,
 				To:           op.To,
 				MsgType:      op.Type,
