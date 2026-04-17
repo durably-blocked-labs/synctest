@@ -78,7 +78,7 @@ func (d *DPOR) BeforeRun() bool {
 	return true
 }
 
-// Decide follows the replay prefix, then returns FIFO at the frontier.
+// Decide follows the replay prefix, then uses the frontier scheduler.
 func (d *DPOR) Decide(dp DecisionPoint) int {
 	if d.GlobalOnly && dp.Kind == Local {
 		return 0
@@ -175,7 +175,7 @@ func (d *DPOR) pushDependentAlts(trace Trace, nodeIdx int, wantGlobal bool) {
 				nonFIFO: newNonFIFO,
 				parent:  nodeIdx,
 				branch:  i,
-				score:   d.branchScore(trace, i, int(alt), wantGlobal),
+				score:   d.branchScore(trace, i, int(alt)),
 			})
 		}
 	}
@@ -185,11 +185,8 @@ func (d *DPOR) pushDependentAlts(trace Trace, nodeIdx int, wantGlobal bool) {
 	d.stack = append(d.stack, items...)
 }
 
-func (d *DPOR) branchScore(trace Trace, stepIdx int, alt int, wantGlobal bool) int {
-	score := stepIdx
-	if wantGlobal {
-		score += 10_000
-	}
+func (d *DPOR) branchScore(trace Trace, stepIdx int, alt int) int {
+	score := -stepIdx
 	resource := stepAltResource(trace[stepIdx], alt)
 	for _, endpoint := range d.PrioritizeEndpoints {
 		if resourceTouchesEndpoint(resource, endpoint) {
@@ -206,7 +203,7 @@ func (d *DPOR) frontierChoice(dp DecisionPoint) int {
 		}
 	}
 	if len(d.PrioritizeEndpoints) == 0 || dp.Kind != Global {
-		return 0
+		return dp.N() - 1
 	}
 	chosen := 0
 	chosenScore := d.altEndpointScore(dp.Alts[0])

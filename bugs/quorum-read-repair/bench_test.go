@@ -172,6 +172,22 @@ func TestBenchMaxRunsDefaultsToDefault(t *testing.T) {
 	}
 }
 
+func TestBenchDPORUsesNeutralSearch(t *testing.T) {
+	algo := newQuorumRepairDPORAlgorithm()
+	if algo.Frontier != nil {
+		t.Fatal("DPOR benchmark must not use a directed frontier witness")
+	}
+	if algo.ConservativeGlobal {
+		t.Fatal("DPOR benchmark must use the default dependency relation")
+	}
+	if algo.PrioritizeRequests {
+		t.Fatal("DPOR benchmark must not prioritize request messages")
+	}
+	if len(algo.PrioritizeEndpoints) != 0 {
+		t.Fatalf("DPOR benchmark must not prioritize endpoints, got %v", algo.PrioritizeEndpoints)
+	}
+}
+
 func observers(t *testing.T, policy string) []orchestrator.RunObserver {
 	dir := benchDir()
 	if dir == "" {
@@ -246,39 +262,8 @@ func runBenchmark(t *testing.T, label, policy string, algo orchestrator.Algorith
 	return r, firstBug
 }
 
-func quorumRepairDPORFrontier(dp orchestrator.DecisionPoint) (int, bool) {
-	if dp.Kind == orchestrator.Local && dp.N() > 1 && dp.Node == "R1" {
-		return dp.N() - 1, true
-	}
-	if dp.Kind != orchestrator.Global || dp.N() <= 1 {
-		return 0, false
-	}
-	for _, want := range []struct {
-		from, to, msg string
-	}{
-		{"C1", "R1", "Put"},
-		{"C1", "R2", "Put"},
-		{"C2", "R2", "Put"},
-		{"C2", "R3", "Put"},
-		{"R1", "C1", "PutAck"},
-		{"R2", "C1", "PutAck"},
-		{"R2", "C2", "PutAck"},
-		{"R3", "C2", "PutAck"},
-		{"C1", "C2", "Control"},
-		{"C1", "Reader", "Control"},
-		{"C2", "Reader", "Control"},
-		{"Reader", "R1", "Get"},
-		{"Reader", "R2", "Get"},
-		{"R1", "Reader", "GetResp"},
-		{"R2", "Reader", "GetResp"},
-		{"Reader", "R1", "Repair"},
-		{"C2", "R1", "Put"},
-	} {
-		if idx := chooseGlobal(dp, want.from, want.to, want.msg); idx >= 0 {
-			return idx, true
-		}
-	}
-	return 0, false
+func newQuorumRepairDPORAlgorithm() *orchestrator.DPOR {
+	return &orchestrator.DPOR{Bound: 32}
 }
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
@@ -305,15 +290,8 @@ func TestBench_CHESS_GL(t *testing.T) {
 }
 
 func TestBench_DPOR_GL(t *testing.T) {
-	algo := &orchestrator.DPOR{
-		Bound:               32,
-		ConservativeGlobal:  true,
-		PrioritizeEndpoints: []string{"Reader", "R1"},
-		PrioritizeRequests:  true,
-		Frontier:            quorumRepairDPORFrontier,
-	}
-	_, firstBug := runBenchmark(t, "DPOR(G+L,k=32)", "dpor-gl", algo)
-	requireFirstBug(t, "DPOR(G+L,k=32)", firstBug)
+	algo := newQuorumRepairDPORAlgorithm()
+	runBenchmark(t, "DPOR(G+L,k=32)", "dpor-gl", algo)
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/dpor-gl-tree.json"); err == nil {
 			orchestrator.WriteTreeJSON(f, algo.Tree())

@@ -287,6 +287,52 @@ func TestDPORPrioritizesEndpointBranches(t *testing.T) {
 	}
 }
 
+func TestDPORPrioritizesEarlierNeutralBranches(t *testing.T) {
+	algo := &DPOR{Bound: 4}
+	if !algo.BeforeRun() {
+		t.Fatal("first run was not scheduled")
+	}
+
+	algo.AfterRun(RunResult{
+		Passed: true,
+		Trace: Trace{
+			{
+				Kind:         Global,
+				Index:        0,
+				Alternatives: 2,
+				ChosenID:     "msg:A->R1(Put)",
+				Resource:     "A|R1",
+				AltIDs:       []string{"msg:A->R1(Put)", "msg:B->R1(Put)"},
+				AltResources: []string{"A|R1", "B|R1"},
+			},
+			{
+				Kind:         Global,
+				Index:        0,
+				Alternatives: 2,
+				ChosenID:     "msg:C->R2(Put)",
+				Resource:     "C|R2",
+				AltIDs:       []string{"msg:C->R2(Put)", "msg:D->R2(Put)"},
+				AltResources: []string{"C|R2", "D|R2"},
+			},
+		},
+	})
+
+	if !algo.BeforeRun() {
+		t.Fatal("expected branch")
+	}
+	first := DecisionPoint{
+		Kind: Global,
+		Step: 0,
+		Alts: []Alt{
+			{ID: "msg:A->R1(Put)", From: "A", To: "R1"},
+			{ID: "msg:B->R1(Put)", From: "B", To: "R1"},
+		},
+	}
+	if got := algo.Decide(first); got != 1 {
+		t.Fatalf("first neutral branch decision = %d, want 1", got)
+	}
+}
+
 func TestDPORPrioritizesFrontierDecisionByEndpointOrder(t *testing.T) {
 	algo := &DPOR{Bound: 4, PrioritizeEndpoints: []string{"Reader", "R1"}}
 	if !algo.BeforeRun() {
@@ -304,6 +350,26 @@ func TestDPORPrioritizesFrontierDecisionByEndpointOrder(t *testing.T) {
 	}
 	if got := algo.Decide(dp); got != 2 {
 		t.Fatalf("frontier decision = %d, want 2", got)
+	}
+}
+
+func TestDPORNeutralFrontierChoosesNewestAlternative(t *testing.T) {
+	algo := &DPOR{Bound: 4}
+	if !algo.BeforeRun() {
+		t.Fatal("first run was not scheduled")
+	}
+
+	dp := DecisionPoint{
+		Kind: Global,
+		Step: 0,
+		Alts: []Alt{
+			{ID: "msg:A->R1(Put)", From: "A", To: "R1"},
+			{ID: "msg:B->R2(Put)", From: "B", To: "R2"},
+			{ID: "msg:C->R3(Put)", From: "C", To: "R3"},
+		},
+	}
+	if got := algo.Decide(dp); got != 2 {
+		t.Fatalf("neutral frontier decision = %d, want 2", got)
 	}
 }
 

@@ -51,12 +51,13 @@ ALGO_LABELS = {
 
 ALGO_ORDER = ["targeted", "random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
 LINE_COLORS = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
-SEED_DOT_POLICIES = ("random", "pct-d2", "pct-d3")
+SEED_DOT_POLICIES = ("random", "pct-d2", "pct-d3", "dpor-gl")
 SEED_REFERENCE_POLICY = "chess-gl"
 SEED_DOT_COLORS = {
     "random": "#B765C9",
     "pct-d2": "#FDBB63",
     "pct-d3": "#8BCB91",
+    "dpor-gl": "#E05B5B",
 }
 
 
@@ -306,6 +307,7 @@ def seed_policy_label(policy):
         "random": "Random",
         "pct-d2": "PCT (d=2)",
         "pct-d3": "PCT (d=3)",
+        "dpor-gl": "DPOR (G+L)",
     }
     return labels.get(policy, algo_label(policy).replace("\n", " "))
 
