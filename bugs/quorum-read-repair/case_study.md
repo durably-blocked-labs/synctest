@@ -19,6 +19,84 @@ The scenario models a minimal Dynamo-style replicated key-value store — a simp
 
 **Transport.** Each node uses an `OrchestratorTransport`. Sends are not delivered immediately; they produce a `PendingOp` that is placed in an outbox channel and handed to the global orchestrator. The orchestrator holds all in-flight messages across all bubbles and chooses, at each step, which message to deliver next. Inside each bubble, `synctest.ExternalWait` bridges the synchronous bubble world to the external message queue. This is what makes both dimensions of non-determinism — message delivery order (global) and goroutine scheduling order (local) — observable and controllable.
 
+### Replication and Consistency Model
+
+The store is a **leaderless, eventually-consistent replicated KV system** in the style of Amazon Dynamo. There is no primary replica, no designated coordinator, and no total ordering imposed on writes. Any replica can receive any write at any time. The system trades strong consistency for availability: a write completes as soon as a quorum of replicas acknowledge it, even if some replicas have not yet seen every prior write.
+
+**Replication.** Every write is broadcast to all known replicas. Each replica independently applies writes to its local store. There is no replication log, no leader-follower streaming, and no global sequence number. Replicas diverge transiently whenever writes arrive in different orders at different nodes — this is the expected and accepted operating condition.
+
+**Consistency model: causality without coordination.** Rather than serializing writes through a single node (which would require coordination and reduce availability), the store tracks causality with per-writer vector clocks. Each client increments its own entry in the clock with each write. A `VersionedValue` is a `(value, clock)` pair. The clock encodes *what the client knew about the world* when it issued the write. Two values are causally related if one clock dominates the other; they are concurrent if neither dominates.
+
+When a value is causally dominated by a newer write from the same lineage, the older value is safe to discard — the newer write subsumes it. When two values are concurrent (neither happened-before the other), neither can be discarded without losing information. The store keeps all concurrent values as a *sibling set*. Siblings represent genuinely conflicting writes that the system cannot automatically resolve, and they must all be visible to any reader until application logic explicitly reconciles them.
+
+**Quorum writes (W=2 of N=3).** `Client.Put` broadcasts the write to all replicas and waits for `quorum=2` acknowledgments before returning. The write is durable once 2 replicas have it. The third replica may receive it later — or, as in this scenario, much later. A replica that has not yet applied a write is *stale* for that key.
+
+**Quorum reads with read-repair (R=2 of N=3).** `Client.GetAndRepair` broadcasts `Get` to all replicas and waits for `quorum=2` responses. It then computes the *merge* of all received sibling sets using `mergeSiblings` — the union of all non-dominated values across all responses. Importantly, the read does not return until this merged view is computed. Any replica whose response was a strict subset of the merged result (i.e., it was missing siblings) receives a `Repair` message carrying the full merged set. Replicas that did not respond at all also receive a repair, since their absence from the response map means their state is unknown and potentially stale.
+
+**Why W+R > N guarantees read-your-writes.** With W=2 and R=2 over N=3 replicas, any read quorum must overlap with any write quorum in at least one replica (2+2−3=1). This means a quorum read after a quorum write always includes at least one replica that has seen the write. The client merges all quorum responses, so even if the other replica in the read quorum is stale, the merged result will include the write from the overlapping replica. This is the core safety argument for the Dynamo quorum protocol.
+
+**Read-repair as anti-entropy.** The repair messages sent at the end of `GetAndRepair` are the system's primary mechanism for propagating writes to stale replicas. This is *lazy anti-entropy*: replicas are not kept in sync proactively. Instead, reads detect and fix divergence as a side effect. Over time, repeated reads converge all replicas toward the same state. The invariant the system must preserve is: after a `GetAndRepair` and the subsequent repairs have been applied, every repaired replica holds at least the sibling set that was returned to the reader. This is what the scenario checks.
+
+**The sibling preservation invariant.** Since `A` and `B` are concurrent writes (neither client read the other's value before writing), every replica must eventually hold both as siblings: `[A{C1:1}, B{C2:1}]`. A system that returns only `[A]` or only `[B]` has lost information — a replica that was authoritative for one concurrent value has been silently overwritten. The checked invariant in the benchmark is: every observer (reader and each replica) must see exactly `{A, B}` after the full read-repair cycle completes. Any singleton observation is a correctness violation.
+
+### Correctness of the Core Data Model
+
+The following traces through the actual code to establish that the store is a legitimate replicated KV implementation, not a mock.
+
+**Vector clock partial order.** `compareClock(a, b)` (`store.go:25`) builds the union of all keys across both clocks, then checks two booleans: `aGreater` (there exists a key where `a[k] > b[k]`) and `bGreater` (there exists a key where `b[k] > a[k]`). The result is +1 if only `aGreater` (a causally dominates b), -1 if only `bGreater` (b dominates a), and 0 otherwise (concurrent or equal). This is the standard vector clock partial order used in distributed systems literature.
+
+Applying this to the scenario values: `A` has clock `{"C1": 1}`, `B` has clock `{"C2": 1}`. Computing `compareClock({"C1":1}, {"C2":1})`:
+- Key `"C1"`: `a["C1"]=1 > b["C1"]=0` → `aGreater = true`
+- Key `"C2"`: `a["C2"]=0 < b["C2"]=1` → `bGreater = true`
+- Both flags set → return 0: **A and B are genuinely concurrent**
+
+Neither write happened-before the other. Both must be retained as siblings — this is not a design choice but a theorem about the partial order.
+
+**`mergeSiblings` correctness.** The algorithm (`store.go:55`) pools `existing` and `incoming` into a single slice `all`, then filters it to keep only values that are (a) not dominated by any other value in the pool, and (b) not exact duplicates of an earlier entry (same value string and identical clock). The dominance check is `compareClock(candidate.Clock, other.Clock) < 0` — i.e., some other value in the pool has a strictly greater vector clock. The duplicate check uses index ordering (`j < i`) to keep exactly one copy of any value that appears identically in both sets.
+
+Tracing through the repair case: `mergeSiblings([A{C1:1}], [A{C1:1}, B{C2:1}])` produces `all = [A{C1:1}@0, A{C1:1}@1, B{C2:1}@2]`:
+- `i=0, A{C1:1}`: vs `j=1` — `compareClock` returns 0 (equal clocks), not dominated; same value and clock but `j=1 > i=0`, so not counted as duplicate. vs `j=2, B{C2:1}` — concurrent, not dominated. **Kept.**
+- `i=1, A{C1:1}`: vs `j=0` — same value, same clock, `j=0 < i=1` → **duplicate, dropped.**
+- `i=2, B{C2:1}`: vs `j=0, A{C1:1}` — `compareClock(B{C2:1}, A{C1:1})`: key `"C1"` gives `0 < 1` so `bGreater=true`; key `"C2"` gives `1 > 0` so `aGreater=true` → both flags, concurrent. Not dominated. vs `j=1`, same result. **Kept.**
+- Result after `sortValues`: `[A{C1:1}, B{C2:1}]` ✓
+
+The deduplication property also means `mergeSiblings` is idempotent: applying it to the same set twice yields the same result. This is necessary for read-repair correctness — repairing an already-correct replica must not alter its state.
+
+**Quorum protocol invariant.** `const quorum = 2` with 3 replicas gives a write quorum of 2 and a read quorum of 2, satisfying the classic Dynamo condition `W + R > N` (2 + 2 > 3). This guarantees that any read quorum intersects any write quorum in at least one replica — a replica that has the write will always be present in any quorum read. The `Put` implementation (`client.go:34`) broadcasts to all configured replicas and blocks until `quorum` acks arrive. The `GetAndRepair` (`client.go:58`) broadcasts `Get` to all replicas, collects quorum responses, merges them with `mergeSiblings`, then sends `Repair` to every replica whose snapshot is not `sameValues` as the merged result.
+
+The repair target set includes replicas that did not respond within the quorum window. If Reader collects responses from R1 and R2 but not R3, `responses["R3"]` is nil. `sameValues(nil, [A, B])` calls `mergeSiblings(nil, nil) = []` and `mergeSiblings(nil, [A, B]) = [A, B]`, then fails the `len(a) != len(b)` check (0 ≠ 2), returning false. R3 therefore receives a repair — correct behavior.
+
+**Correct FIFO execution trace.** Under FIFO message delivery (the default), the protocol converges correctly:
+
+1. C1 sends `Put(A{C1:1})` to R1, R2, R3. Each replica's `router` increments `pendingApply`, enqueues to `applyCh`. Each `applyLoop` runs: `mergeSiblings([], [A{C1:1}]) = [A{C1:1}]`, sends `PutAck`. C1 collects 2 acks.
+2. C2 sends `Put(B{C2:1})` to R2, R3. Each `applyLoop` runs: `mergeSiblings([A{C1:1}], [B{C2:1}]) = [A{C1:1}, B{C2:1}]`. C2 collects 2 acks. R2 and R3 now hold `[A, B]`; R1 still holds `[A]`.
+3. C2 sends the late `Put(B{C2:1})` to R1. In FIFO order this arrives before Reader queries. R1's `applyLoop` runs: `mergeSiblings([A{C1:1}], [B{C2:1}]) = [A{C1:1}, B{C2:1}]`. R1 now holds `[A, B]`.
+4. Reader sends `Get` to R1, R2, R3. Collects quorum responses (e.g., R1 and R2), both returning `[A, B]`. Merged result = `mergeSiblings([A,B], [A,B]) = [A,B]`. `sameValues([A,B], [A,B])` is true for both responding replicas — no repairs sent. R3 (non-responding) receives a repair carrying `[A,B]`, which is idempotent if R3 already holds it.
+5. Reader observes `[A, B]`. Invariant holds. `TestQuorumReadRepair_FIFOPasses` verifies this exact path.
+
+**Incorrect (bug-triggering) execution trace.** Steps 1–2 are identical. The divergence begins when the orchestrator withholds C2's late Put to R1 and Reader starts its read before it arrives.
+
+1. C1 sends `Put(A{C1:1})` to R1, R2, R3. All replicas apply: `store["x"] = [A{C1:1}]`. C1 gets quorum, signals C2 and Reader.
+2. C2 sends `Put(B{C2:1})` to R2 and R3. Both apply: `store["x"] = [A{C1:1}, B{C2:1}]`. C2 gets quorum, signals Reader. C2 sends the late `Put(B{C2:1})` to R1 — the orchestrator holds this in the global pending queue and does **not** deliver it yet. R1 still holds `[A{C1:1}]`.
+3. Reader sends `Get` to R1, R2, R3.
+4. R1's `router` handles the `Get` inline and responds with `[A{C1:1}]` (stale). R2 responds with `[A{C1:1}, B{C2:1}]`. Reader collects these two as its quorum.
+5. Reader merges: `mergeSiblings([A{C1:1}], [A{C1:1}, B{C2:1}]) = [A{C1:1}, B{C2:1}]`. R1's response is a strict subset of the merged result, so Reader sends `Repair([A{C1:1}, B{C2:1}])` to R1.
+6. **Non-FIFO global decision**: the orchestrator now delivers C2's late `Put(B{C2:1})` to R1. Both the late Put and the Repair are now in R1's network mailbox, in that order.
+7. R1's bridge goroutine reads the late Put from the external mailbox via `ExternalWait` and forwards it to `internalMailbox`. R1's `router` goroutine wakes and processes it: `pendingApply++ → 1`, enqueues `B{C2:1}` to `applyCh`.
+8. **Non-FIFO local decision**: instead of `applyLoop` running next (the FIFO choice), the scheduler runs `router` again. R1's bridge goroutine reads the Repair from the external mailbox and forwards it to `internalMailbox`. R1's `router` goroutine wakes and processes it: enqueues `Repair([A,B])` to `repairCh`.
+9. `repairLoop` runs. It acquires the mutex, observes `pendingApply = 1`, and calls `buggyRepairMerge([A{C1:1}], [A{C1:1}, B{C2:1}])`:
+   - `sameValues([A{C1:1}], [A{C1:1}, B{C2:1}])` → false (different lengths after merge)
+   - `all = mergeSiblings([A{C1:1}], [A{C1:1}, B{C2:1}]) = [A{C1:1}, B{C2:1}]`
+   - `len(all) = 2 > 1` → pick winner by `clockScore`
+   - `clockScore({"C1":1}) = 1`, `clockScore({"C2":1}) = 1` — tie; the `>=` condition means B wins as the last-seen candidate
+   - Returns `[B{C2:1}]`
+   - `store["x"] = [B{C2:1}]`. **Sibling A is permanently lost.**
+10. `applyLoop` runs. `pendingApply-- → 0`. `mergeSiblings([B{C2:1}], [B{C2:1}]) = [B{C2:1}]` — the late Put applies cleanly but changes nothing. R1 holds `[B{C2:1}]`.
+11. Reader's second `GetAndRepair("x", "read-2")` fires. R1 responds `[B{C2:1}]`. R2 responds `[A{C1:1}, B{C2:1}]`. Reader merges to `[A{C1:1}, B{C2:1}]` and records `final = [A, B]` — Reader itself sees the correct merged value, because it merges across quorum respondents.
+12. Reader calls `recordReplicaOutcomesWithRecorder`, which takes a direct `Snapshot("x")` from each replica object in memory. R1's snapshot is `[B{C2:1}]`. The recorder calls `hasValues([B{C2:1}], "A", "B")` → false → **bug detected**. R2 and R3 return correct snapshots, but R1's lost sibling is enough to trigger the invariant violation.
+
+Note the subtle observer asymmetry in step 11–12: Reader's own view of `final` is `[A, B]` because it performs a client-side merge of quorum responses. But the invariant checks replica state directly, not the reader's merged view. A real system where clients only ever see the merged result would appear correct at the reader, while individual replicas silently hold inconsistent data. This is why replica-level invariant checking is necessary — client-visible correctness does not imply replica-level correctness.
+
 ---
 
 ## 2. Scenario Construction
