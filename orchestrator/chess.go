@@ -34,6 +34,8 @@ type RunNode struct {
 	BranchStep int // which trace step diverged from parent
 	NonFIFO    int
 	Passed     bool
+	UserFailed bool
+	Diverged   bool
 	TraceLen   int
 }
 
@@ -93,6 +95,8 @@ func (s *CHESS) AfterRun(result RunResult) {
 		BranchStep: s.current.branch,
 		NonFIFO:    s.current.nonFIFO,
 		Passed:     result.Passed,
+		UserFailed: result.UserFailed,
+		Diverged:   result.Diverged,
 		TraceLen:   len(result.Trace),
 	})
 

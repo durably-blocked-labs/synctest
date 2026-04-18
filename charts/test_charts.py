@@ -92,5 +92,23 @@ class SeedRunsFigureTest(unittest.TestCase):
             self.assertTrue(output.exists())
 
 
+class TreeFigureTest(unittest.TestCase):
+    def test_tree_display_keeps_diverged_nodes(self):
+        charts = load_charts_module()
+        tree = [
+            {"Run": 1, "Parent": -1, "Passed": True, "UserFailed": False, "Diverged": False},
+            {"Run": 2, "Parent": 0, "Passed": False, "UserFailed": False, "Diverged": True},
+            {"Run": 3, "Parent": 1, "Passed": False, "UserFailed": True, "Diverged": False},
+            {"Run": 4, "Parent": 1, "Passed": True, "UserFailed": False, "Diverged": False},
+        ]
+
+        display_tree = charts.tree_display_nodes(tree)
+
+        self.assertEqual([node["Run"] for node in display_tree], [1, 2, 3, 4])
+        self.assertEqual([node["Parent"] for node in display_tree], [-1, 0, 1, 1])
+        self.assertTrue(display_tree[1]["Diverged"])
+        self.assertTrue(display_tree[2]["UserFailed"])
+
+
 if __name__ == "__main__":
     unittest.main()

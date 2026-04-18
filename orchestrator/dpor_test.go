@@ -37,6 +37,44 @@ func TestDPORPrunesIndependentGlobalAlternatives(t *testing.T) {
 	}
 }
 
+func TestDPORTreeRecordsUserFailuresSeparately(t *testing.T) {
+	algo := &DPOR{Bound: 4}
+	if !algo.BeforeRun() {
+		t.Fatal("first run was not scheduled")
+	}
+
+	algo.AfterRun(RunResult{
+		Passed:     false,
+		UserFailed: false,
+		Trace: Trace{
+			{
+				Kind:         Global,
+				Index:        0,
+				Alternatives: 2,
+				ChosenID:     "msg:A->R1(Put)",
+				Resource:     "R1",
+				AltIDs:       []string{"msg:A->R1(Put)", "msg:B->R1(Repair)"},
+				AltResources: []string{"R1", "R1"},
+			},
+		},
+	})
+	if !algo.BeforeRun() {
+		t.Fatal("second run was not scheduled")
+	}
+	algo.AfterRun(RunResult{Passed: false, UserFailed: true})
+
+	tree := algo.Tree()
+	if len(tree) != 2 {
+		t.Fatalf("len(tree) = %d, want 2", len(tree))
+	}
+	if tree[0].UserFailed {
+		t.Fatal("non-user failure should not be recorded as a user failure")
+	}
+	if !tree[1].UserFailed {
+		t.Fatal("user failure should be recorded in the tree")
+	}
+}
+
 func TestDPORConservativeGlobalBranchesIndependentEndpoints(t *testing.T) {
 	algo := &DPOR{Bound: 4, ConservativeGlobal: true}
 	if !algo.BeforeRun() {

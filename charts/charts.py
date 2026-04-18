@@ -32,6 +32,7 @@ COLORS = {
     "not_found": "#BDBDBD",
     "passed": "#7ED321",
     "failed": "#D0021B",
+    "diverged": "#9B9B9B",
     "node_A": "#4A90D9",
     "node_B": "#F5A623",
     "node_C": "#7ED321",
@@ -166,6 +167,29 @@ def find_bug_run(records):
         elif not record.get("passed", True):
             return record
     return None
+
+
+def tree_node_user_failed(node):
+    """Return whether a tree node is a semantic bug, not merely non-passing."""
+    if "UserFailed" in node:
+        return bool(node.get("UserFailed"))
+    if "user_failed" in node:
+        return bool(node.get("user_failed"))
+    return (not node.get("Passed", True)) and node.get("TraceLen", 0) > 0
+
+
+def tree_node_diverged(node):
+    """Return whether a tree node represents replay divergence."""
+    if "Diverged" in node:
+        return bool(node.get("Diverged"))
+    if "diverged" in node:
+        return bool(node.get("diverged"))
+    return (not node.get("Passed", True)) and not tree_node_user_failed(node)
+
+
+def tree_display_nodes(tree):
+    """Return tree nodes to render."""
+    return [dict(node) for node in tree]
 
 
 def is_control_step(step):
@@ -1023,6 +1047,7 @@ def fig_chess_tree(tree_files, out_dir, rep_attempts, multi_attempt):
     """Representative CHESS DFS tree."""
     for policy, tree_path in tree_files.items():
         tree = load_json(tree_path)
+        tree = tree_display_nodes(tree)
         if not tree:
             continue
 
@@ -1068,17 +1093,26 @@ def fig_chess_tree(tree_files, out_dir, rep_attempts, multi_attempt):
 
         xs = [x_pos[i] for i in range(n_nodes)]
         ys = [y_pos[i] for i in range(n_nodes)]
-        node_colors = [COLORS["failed"] if not node["Passed"] else COLORS["passed"] for node in tree]
+        node_colors = []
+        for node in tree:
+            if tree_node_user_failed(node):
+                node_colors.append(COLORS["failed"])
+            elif tree_node_diverged(node):
+                node_colors.append(COLORS["diverged"])
+            else:
+                node_colors.append(COLORS["passed"])
         node_size = max(8, min(40, 800 / max(n_nodes, 1)))
         ax.scatter(xs, ys, c=node_colors, s=node_size, zorder=2, edgecolors="#333", linewidth=0.3)
 
-        n_passed = sum(1 for node in tree if node["Passed"])
-        n_failed = n_nodes - n_passed
+        n_bugs = sum(1 for node in tree if tree_node_user_failed(node))
+        n_diverged = sum(1 for node in tree if tree_node_diverged(node))
+        n_passed = n_nodes - n_bugs - n_diverged
+        bug_label = "bug" if n_bugs == 1 else "bugs"
         ax.set_xlabel("Exploration Frontier", fontsize=10)
         ax.set_ylabel("DFS Depth", fontsize=10)
         ax.set_title(
-            f"CHESS Tree \u2014 {algo_label(policy).replace(chr(10), ' ')} "
-            f"({n_nodes} runs, {n_failed} bugs{title_attempt_suffix(policy, rep_attempts, multi_attempt)})",
+            f"Exploration Tree \u2014 {algo_label(policy).replace(chr(10), ' ')} "
+            f"({n_nodes} runs, {n_bugs} {bug_label}{title_attempt_suffix(policy, rep_attempts, multi_attempt)})",
             fontsize=11,
             fontweight="bold",
             pad=10,
@@ -1089,7 +1123,8 @@ def fig_chess_tree(tree_files, out_dir, rep_attempts, multi_attempt):
         ax.legend(
             handles=[
                 mpatches.Patch(color=COLORS["passed"], label=f"Passed ({n_passed})"),
-                mpatches.Patch(color=COLORS["failed"], label=f"Bug found ({n_failed})"),
+                mpatches.Patch(color=COLORS["failed"], label=f"Bug found ({n_bugs})"),
+                mpatches.Patch(color=COLORS["diverged"], label=f"Diverged ({n_diverged})"),
             ],
             loc="upper right",
             fontsize=8,
@@ -1720,7 +1755,7 @@ def main():
     print("\nFigure 4: Non-FIFO decision comparison")
     fig_nonfifo_from_traces(rep_traces, rep_summaries, args.out)
 
-    print("\nFigure 5: CHESS tree")
+    print("\nFigure 5: Exploration tree")
     fig_chess_tree(rep_trees, args.out, rep_attempts, multi_attempt)
 
     print("\nFigure 6: Non-FIFO over runs")

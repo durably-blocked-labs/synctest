@@ -1,5 +1,5 @@
 ======================================================================
-Bug-Finding Trace: dpor-gl, Run 11 (attempt 1)
+Bug-Finding Trace: dpor-gl, Run 11 (attempt 2)
 Total decisions: 132
 ======================================================================
 

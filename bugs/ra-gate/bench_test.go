@@ -75,6 +75,21 @@ func TestBench_CHESS_GL(t *testing.T) {
 	}
 }
 
+func TestBench_DPOR_GL(t *testing.T) {
+	runtime.GOMAXPROCS(8)
+	algo := &orchestrator.DPOR{Bound: 32}
+	opts := append([]orchestrator.ExploreOption{orchestrator.GlobalMaxRuns(benchMaxRuns)}, observers(t, "dpor-gl")...)
+	orch := orchestrator.New()
+	r := orch.ExploreWith(t, benchSetup, algo, opts...)
+	t.Logf("DPOR(G+L,k=32): %d runs, first_bug=%d, elapsed=%s", r.Runs, r.FirstBug, r.Elapsed)
+	if dir := benchDir(); dir != "" {
+		if f, err := os.Create(dir + "/dpor-gl-tree.json"); err == nil {
+			orchestrator.WriteTreeJSON(f, algo.Tree())
+			f.Close()
+		}
+	}
+}
+
 func TestBench_PCT_d2(t *testing.T) {
 	runtime.GOMAXPROCS(8)
 	algo := &orchestrator.PCT{Depth: 2, MaxSteps: 256, Seed: 1}

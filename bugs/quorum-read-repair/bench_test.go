@@ -3,8 +3,10 @@ package quorumreadrepair
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -172,6 +174,113 @@ func TestBenchMaxRunsDefaultsToDefault(t *testing.T) {
 	}
 }
 
+type targetedRepeatAlgorithm struct {
+	count int
+	limit int
+}
+
+func (a *targetedRepeatAlgorithm) BeforeRun() bool {
+	return a.count < a.limit
+}
+
+func (a *targetedRepeatAlgorithm) Decide(dp orchestrator.DecisionPoint) int {
+	return chooseTargetedQuorumDecision(dp)
+}
+
+func (a *targetedRepeatAlgorithm) AfterRun(orchestrator.RunResult) {
+	a.count++
+}
+
+func TestRunBenchmarkStopsWhenBugIsFound(t *testing.T) {
+	if os.Getenv("QUORUM_STOP_ON_BUG_HELPER") == "1" {
+		r, firstBug := runBenchmark(t, "regression-stop-on-bug", "", &targetedRepeatAlgorithm{limit: 3})
+		if firstBug == -1 {
+			t.Fatal("benchmark did not observe the bug")
+		}
+		if r.FirstBug != firstBug {
+			t.Fatalf("ExploreWith FirstBug = %d, benchmark firstBug = %d", r.FirstBug, firstBug)
+		}
+		if r.Runs != firstBug {
+			t.Fatalf("ExploreWith continued after the bug: runs=%d firstBug=%d", r.Runs, firstBug)
+		}
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRunBenchmarkStopsWhenBugIsFound$", "-test.v")
+	cmd.Env = append(os.Environ(),
+		"BENCH_MAX_RUNS=3",
+		"GODEBUG=asyncpreemptoff=1",
+		"QUORUM_STOP_ON_BUG_HELPER=1",
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("helper unexpectedly passed; output:\n%s", out)
+	}
+	if !strings.Contains(string(out), "DONE regression-stop-on-bug: runs=1 first_bug=1") {
+		t.Fatalf("helper did not stop at first bug; output:\n%s", out)
+	}
+}
+
+func chooseTargetedQuorumDecision(dp orchestrator.DecisionPoint) int {
+	if dp.Kind == orchestrator.Global && dp.N() > 1 {
+		if idx := chooseGlobal(dp, "C1", "R1", "Put"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C1", "R2", "Put"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C2", "R2", "Put"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C2", "R3", "Put"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "R1", "C1", "PutAck"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "R2", "C1", "PutAck"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "R2", "C2", "PutAck"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "R3", "C2", "PutAck"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C1", "C2", "Control"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C1", "Reader", "Control"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C2", "Reader", "Control"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "Reader", "R1", "Get"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "Reader", "R2", "Get"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "R1", "Reader", "GetResp"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "R2", "Reader", "GetResp"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "Reader", "R1", "Repair"); idx >= 0 {
+			return idx
+		}
+		if idx := chooseGlobal(dp, "C2", "R1", "Put"); idx >= 0 {
+			return idx
+		}
+	}
+	if dp.Kind == orchestrator.Local && dp.N() > 1 && dp.Node == "R1" {
+		return dp.N() - 1
+	}
+	return 0
+}
+
 func TestBenchDPORUsesNeutralSearch(t *testing.T) {
 	algo := newQuorumRepairDPORAlgorithm()
 	if algo.Frontier != nil {
@@ -234,11 +343,18 @@ func runBenchmark(t *testing.T, label, policy string, algo orchestrator.Algorith
 	setup := func(o *orchestrator.Orchestrator) {
 		runID, record := outcomes.beginRun()
 		currentRun = runID
-		addQuorumReadRepairScenarioWithRecorder(o, record, false)
+		addQuorumReadRepairScenarioWithRecorderAndChecker(o, record, func(t *testing.T) {
+			if outcomes.bugFound(runID) {
+				t.Errorf("lost concurrent sibling or divergent replicas: want every replica [A B]")
+			}
+		})
 	}
 	benchObservers := observers(t, policy)
 	observe := func(runNum int, nonFIFO int, elapsed time.Duration, rr orchestrator.RunResult, passed bool) {
-		bugFound := outcomes.bugFound(currentRun) && completeQuorumBugTrace(rr)
+		bugFound := !passed && rr.UserFailed
+		if !bugFound {
+			bugFound = outcomes.bugFound(currentRun) && completeQuorumBugTrace(rr)
+		}
 		passed = !bugFound
 		rr.Passed = passed
 		rr.UserFailed = bugFound
@@ -321,68 +437,16 @@ func TestBench_Targeted(t *testing.T) {
 	runID, record := outcomes.beginRun()
 
 	orch := orchestrator.New()
-	addQuorumReadRepairScenarioWithRecorder(orch, record, false)
+	addQuorumReadRepairScenarioWithRecorderAndChecker(orch, record, func(t *testing.T) {
+		if outcomes.bugFound(runID) {
+			t.Errorf("lost concurrent sibling or divergent replicas: want every replica [A B]")
+		}
+	})
 
 	logBenchStart(t, "Targeted")
 	runStart := time.Now()
 	rr := orch.RunWith(t, func(dp orchestrator.DecisionPoint) int {
-		if dp.Kind == orchestrator.Global && dp.N() > 1 {
-			if idx := chooseGlobal(dp, "C1", "R1", "Put"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C1", "R2", "Put"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C2", "R2", "Put"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C2", "R3", "Put"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "R1", "C1", "PutAck"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "R2", "C1", "PutAck"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "R2", "C2", "PutAck"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "R3", "C2", "PutAck"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C1", "C2", "Control"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C1", "Reader", "Control"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C2", "Reader", "Control"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "Reader", "R1", "Get"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "Reader", "R2", "Get"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "R1", "Reader", "GetResp"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "R2", "Reader", "GetResp"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "Reader", "R1", "Repair"); idx >= 0 {
-				return idx
-			}
-			if idx := chooseGlobal(dp, "C2", "R1", "Put"); idx >= 0 {
-				return idx
-			}
-		}
-		if dp.Kind == orchestrator.Local && dp.N() > 1 && dp.Node == "R1" {
-			return dp.N() - 1
-		}
-		return 0
+		return chooseTargetedQuorumDecision(dp)
 	})
 	rr.Elapsed = time.Since(runStart)
 	bugFound := outcomes.bugFound(runID) && completeQuorumBugTrace(rr)

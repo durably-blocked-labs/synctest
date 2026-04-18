@@ -80,6 +80,18 @@ func addQuorumReadRepairScenario(orch *orchestrator.Orchestrator, checked bool) 
 }
 
 func addQuorumReadRepairScenarioWithRecorder(orch *orchestrator.Orchestrator, record func(string, []VersionedValue), checked bool) {
+	var checkBug func(*testing.T)
+	if checked {
+		checkBug = func(t *testing.T) {
+			if observedBugFound() {
+				t.Errorf("lost concurrent sibling or divergent replicas: got %v want every replica [A B]", lastObservedValues())
+			}
+		}
+	}
+	addQuorumReadRepairScenarioWithRecorderAndChecker(orch, record, checkBug)
+}
+
+func addQuorumReadRepairScenarioWithRecorderAndChecker(orch *orchestrator.Orchestrator, record func(string, []VersionedValue), checkBug func(*testing.T)) {
 	all := append([]string{}, replicaAddrs...)
 	all = append(all, clientAddrs...)
 	transports := setupCluster(all)
@@ -128,8 +140,8 @@ func addQuorumReadRepairScenarioWithRecorder(orch *orchestrator.Orchestrator, re
 		}
 		record("reader", final)
 		recordReplicaOutcomesWithRecorder(replicas, record)
-		if checked && observedBugFound() {
-			t.Errorf("lost concurrent sibling or divergent replicas: got %v want every replica [A B]", lastObservedValues())
+		if checkBug != nil {
+			checkBug(t)
 		}
 	})
 }

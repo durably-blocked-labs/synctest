@@ -108,6 +108,8 @@ func (d *DPOR) AfterRun(result RunResult) {
 		BranchStep: d.current.branch,
 		NonFIFO:    countTraceNonFIFO(result.Trace),
 		Passed:     result.Passed,
+		UserFailed: result.UserFailed,
+		Diverged:   result.Diverged,
 		TraceLen:   len(result.Trace),
 	})
 
