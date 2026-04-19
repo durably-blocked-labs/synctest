@@ -121,10 +121,22 @@ different path based on a non-deterministic choice.
 | Channel send (blocking) | Goroutine parks on channel wait queue |
 | Channel receive (blocking) | Goroutine parks on channel wait queue |
 | Select (multiple ready cases) | Pollorder determined by seed; goroutine does not park |
-| Mutex.Lock (contended) | Goroutine parks on semaphore |
+| `sync.Mutex.Lock` / `sync.RWMutex.Lock` / `sync.RWMutex.RLock` (contended) | Goroutine parks on semaphore; treated as durably blocked |
 | WaitGroup.Wait | Goroutine parks on semaphore |
 | Goroutine exit | Goroutine removed from live set |
 | `runtime.Gosched()` | Voluntary yield |
+
+All of the above park waits count toward bubble idleness — the runtime's
+`isIdleInSynctest` table (`runtime/runtime2.go`) includes
+`waitReasonSyncMutexLock`, `waitReasonSyncRWMutexRLock`, and
+`waitReasonSyncRWMutexLock` alongside the channel/select wait reasons, so
+a bubble whose only running goroutines are parked on `sync`-package
+locks will decrement `running` to zero and trigger idle resolution. This
+is a change from upstream Go's `testing/synctest`, which treats mutex
+waits as non-durable. The consequence: programs that use `sync.Mutex` to
+coordinate between goroutines in the same bubble can rely on idle
+resolution (message delivery via the orchestrator, or time advancement)
+to break lock contention deadlocks, rather than hanging.
 
 Most yield points park the goroutine, creating a scheduling decision
 (which goroutine runs next). Select is different: the goroutine does
