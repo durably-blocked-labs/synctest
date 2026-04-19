@@ -41,15 +41,23 @@ COLORS = {
 }
 
 ALGO_LABELS = {
-    "chess-gl": "CHESS\n(G+L, k=2)",
-    "chess-global": "CHESS\n(G-only, k=2)",
+    "targeted": "Targeted\n(trace)",
+    "chess-gl": "CHESS\n(G+L, k=4)",
+    "chess-global": "CHESS\n(G-only, k=4)",
     "pct-d2": "PCT\n(d=2)",
     "pct-d3": "PCT\n(d=3)",
     "random": "Random",
 }
 
-ALGO_ORDER = ["random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
+ALGO_ORDER = ["targeted", "random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
 LINE_COLORS = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
+SEED_DOT_POLICIES = ("random", "pct-d2", "pct-d3")
+SEED_REFERENCE_POLICY = "chess-gl"
+SEED_DOT_COLORS = {
+    "random": "#B765C9",
+    "pct-d2": "#FDBB63",
+    "pct-d3": "#8BCB91",
+}
 
 
 def algo_label(name):
@@ -159,11 +167,155 @@ def find_bug_run(records):
     return None
 
 
+def is_control_step(step):
+    return step.get("kind") == "global" and step.get("msg_type") == "Control"
+
+
+def measured_steps(steps):
+    return [step for step in steps if not is_control_step(step)]
+
+
+def measured_non_fifo(steps):
+    return sum(1 for step in measured_steps(steps) if step.get("index", 0) != 0)
+
+
+def meaningful_local_decision(step):
+    runq = step.get("runq_bgids", [])
+    if runq:
+        return sum(1 for bgid in runq if bgid != 0) > 1
+    return step.get("alternatives", 0) > 1
+
+
+def measured_global_decisions(steps):
+    return sum(1 for step in measured_steps(steps) if step.get("kind") == "global")
+
+
+def measured_local_decisions(steps):
+    return sum(
+        1
+        for step in measured_steps(steps)
+        if step.get("kind") == "local" and meaningful_local_decision(step)
+    )
+
+
+def measured_branch_points(steps):
+    return sum(1 for step in measured_steps(steps) if step.get("alternatives", 0) > 1)
+
+
+def measured_queue_sizes(steps):
+    return [
+        step.get("alternatives", 0)
+        for step in measured_steps(steps)
+        if step.get("kind") == "global"
+    ]
+
+
+def measured_trace_fingerprint(steps):
+    parts = []
+    for step in measured_steps(steps):
+        if step.get("kind") != "global":
+            continue
+        parts.append(f"{step.get('from', '')}->{step.get('to', '')}({step.get('msg_type', '')})")
+    return " ".join(parts)
+
+
+def measured_local_by_node(steps):
+    counts = defaultdict(int)
+    for step in measured_steps(steps):
+        if step.get("kind") == "local" and meaningful_local_decision(step):
+            counts[step.get("node", "")] += 1
+    return dict(counts)
+
+
+def apply_chart_adjustments(summaries, traces):
+    """Attach chart-only metrics with Control traffic excluded.
+
+    Raw summary and detailed trace records stay unchanged. Charts should use the
+    chart_* fields when present and fall back to raw fields for older data that
+    lacks detailed traces.
+    """
+    for policy, attempts in summaries.items():
+        for attempt, records in attempts.items():
+            trace_records = traces.get(policy, {}).get(attempt, [])
+            by_run = {record.get("run_num"): record for record in trace_records}
+            for record in records:
+                trace = by_run.get(record.get("run_num"))
+                if not trace:
+                    continue
+                steps = trace.get("steps") or []
+                if not steps:
+                    continue
+                local_total = measured_local_decisions(steps)
+                global_total = measured_global_decisions(steps)
+                record["chart_non_fifo"] = measured_non_fifo(steps)
+                record["chart_global_decision_count"] = global_total
+                record["chart_local_decision_total"] = local_total
+                record["chart_total_decisions"] = global_total + local_total
+                record["chart_branch_points"] = measured_branch_points(steps)
+                record["chart_queue_sizes"] = measured_queue_sizes(steps)
+                record["chart_trace_fingerprint"] = measured_trace_fingerprint(steps)
+                record["chart_local_decision_by_node"] = measured_local_by_node(steps)
+
+
+def metric_value(record, key, default=0):
+    return record.get(f"chart_{key}", record.get(key, default))
+
+
 def effective_runs_to_bug(records):
     bug = find_bug_run(records)
     if bug:
         return bug["run_num"]
     return len(records)
+
+
+def observed_run_count(records):
+    """Return the largest observed run number, falling back to record count."""
+    if not records:
+        return 0
+    return max((record.get("run_num", 0) for record in records), default=0) or len(records)
+
+
+def seed_runs_to_bug_rows(summaries, policies=None):
+    """Flatten attempt-grouped summaries into per-seed runs-to-bug rows."""
+    selected = list(policies) if policies is not None else policies_in_order(summaries)
+    rows = []
+    for policy in selected:
+        for attempt, records in attempt_series(summaries.get(policy, {})):
+            if not records:
+                continue
+            bug = find_bug_run(records)
+            rows.append(
+                {
+                    "policy": policy,
+                    "attempt": attempt,
+                    "runs": bug.get("run_num", observed_run_count(records)) if bug else observed_run_count(records),
+                    "found": bug is not None,
+                }
+            )
+    return rows
+
+
+def seed_jitter(attempt):
+    # Deterministic jitter keeps repeated renders stable without hiding ties.
+    value = ((attempt * 1103515245 + 12345) & 0x7FFFFFFF) / float(0x7FFFFFFF)
+    return (value - 0.5) * 0.32
+
+
+def seed_policy_label(policy):
+    labels = {
+        "random": "Random",
+        "pct-d2": "PCT (d=2)",
+        "pct-d3": "PCT (d=3)",
+    }
+    return labels.get(policy, algo_label(policy).replace("\n", " "))
+
+
+def seed_reference_label(policy):
+    labels = {
+        "chess-gl": "CHESS",
+        "chess-global": "CHESS\n(G-only)",
+    }
+    return labels.get(policy, algo_label(policy).replace("\n", " "))
 
 
 def found_rate_text(found, total):
@@ -231,18 +383,19 @@ def bug_trace_metrics(policy, summaries, traces):
         return None
 
     steps = trace_bug.get("steps", [])
+    measured = measured_steps(steps)
     local_steps = [step for step in steps if step["kind"] == "local"]
-    global_steps = [step for step in steps if step["kind"] == "global"]
+    global_steps = [step for step in measured if step["kind"] == "global"]
     local_sizes = [len(step.get("runq_bgids", [])) or step.get("alternatives", 0) for step in local_steps]
-    if summary_bug and summary_bug.get("queue_sizes"):
-        global_sizes = list(summary_bug["queue_sizes"])
+    if summary_bug and metric_value(summary_bug, "queue_sizes", []):
+        global_sizes = list(metric_value(summary_bug, "queue_sizes", []))
     else:
         global_sizes = [step.get("alternatives", 0) for step in global_steps]
 
     return {
         "summary_bug": summary_bug,
         "trace_bug": trace_bug,
-        "steps": steps,
+        "steps": measured,
         "local_steps": local_steps,
         "global_steps": global_steps,
         "local_sizes": local_sizes,
@@ -298,13 +451,8 @@ def successful_bug_trace_counts(policy, summaries, traces, trees):
             counts.append(
                 {
                     "attempt": attempt,
-                    "local": sum(
-                        1
-                        for step in steps
-                        if step["kind"] == "local"
-                        and sum(1 for bgid in step.get("runq_bgids", []) if bgid != 0) > 1
-                    ),
-                    "global": sum(1 for step in steps if step["kind"] == "global"),
+                    "local": measured_local_decisions(steps),
+                    "global": measured_global_decisions(steps),
                 }
             )
             continue
@@ -315,8 +463,8 @@ def successful_bug_trace_counts(policy, summaries, traces, trees):
         counts.append(
             {
                 "attempt": attempt,
-                "local": summary_bug.get("local_decision_total", 0),
-                "global": summary_bug.get("global_decision_count", 0),
+                "local": metric_value(summary_bug, "local_decision_total", 0),
+                "global": metric_value(summary_bug, "global_decision_count", 0),
             }
         )
     return counts
@@ -357,9 +505,23 @@ def search_space_upper_bound(local_sizes, global_sizes):
 def human_large_int(n):
     if n < 1000:
         return str(n)
-    exp = int(np.floor(np.log10(n)))
-    mantissa = n / (10 ** exp)
-    return f"{mantissa:.1f}e{exp}"
+
+    digits = str(n)
+    exp = len(digits) - 1
+    whole = int(digits[0])
+    tenth = int(digits[1]) if len(digits) > 1 else 0
+    hundredth = int(digits[2]) if len(digits) > 2 else 0
+
+    if hundredth >= 5:
+        tenth += 1
+        if tenth == 10:
+            whole += 1
+            tenth = 0
+            if whole == 10:
+                whole = 1
+                exp += 1
+
+    return f"{whole}.{tenth}e{exp}"
 
 
 # ── Figure 1: Runs to first bug ──
@@ -450,6 +612,165 @@ def fig_runs_to_bug(summaries, out_dir):
     fig.savefig(os.path.join(out_dir, "runs_to_bug.png"), dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  runs_to_bug.png")
+
+
+def fig_seed_runs_to_bug(
+    summaries,
+    out_dir,
+    title_subject="quorum read repair",
+    dot_policies=SEED_DOT_POLICIES,
+    reference_policy=SEED_REFERENCE_POLICY,
+):
+    """Strip plot of per-seed runs-to-bug with median/worst annotations."""
+    policies = [policy for policy in dot_policies if summaries.get(policy)]
+    rows = seed_runs_to_bug_rows(summaries, policies=policies)
+    if not rows:
+        return
+
+    rows_by_policy = defaultdict(list)
+    for row in rows:
+        rows_by_policy[row["policy"]].append(row)
+
+    reference_rows = seed_runs_to_bug_rows(summaries, policies=(reference_policy,))
+    reference_found = [row["runs"] for row in reference_rows if row["found"]]
+    reference_value = int(np.median(reference_found)) if reference_found else None
+
+    all_runs = [row["runs"] for row in rows if row["runs"] > 0]
+    if reference_value is not None:
+        all_runs.append(reference_value)
+    if not all_runs:
+        return
+
+    fig, ax = plt.subplots(figsize=(9.2, 4.4))
+    y_positions = {policy: idx for idx, policy in enumerate(policies)}
+
+    for policy in policies:
+        color = SEED_DOT_COLORS.get(policy, "#777777")
+        policy_rows = rows_by_policy[policy]
+        found_rows = [row for row in policy_rows if row["found"]]
+        missed_rows = [row for row in policy_rows if not row["found"]]
+
+        if found_rows:
+            ax.scatter(
+                [row["runs"] for row in found_rows],
+                [y_positions[policy] + seed_jitter(row["attempt"]) for row in found_rows],
+                s=18,
+                color=color,
+                alpha=0.58,
+                linewidths=0,
+                zorder=3,
+            )
+        if missed_rows:
+            ax.scatter(
+                [row["runs"] for row in missed_rows],
+                [y_positions[policy] + seed_jitter(row["attempt"]) for row in missed_rows],
+                s=28,
+                facecolors="none",
+                edgecolors=color,
+                alpha=0.85,
+                linewidths=1.1,
+                zorder=4,
+            )
+
+        measured = [row["runs"] for row in policy_rows]
+        found = [row["runs"] for row in found_rows]
+        if found:
+            median = int(np.median(found))
+            ax.vlines(
+                median,
+                y_positions[policy] - 0.24,
+                y_positions[policy] + 0.24,
+                color=color,
+                linewidth=3,
+                zorder=5,
+            )
+            ax.text(
+                median,
+                y_positions[policy] + 0.32,
+                f"med={median}",
+                color=color,
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+            )
+
+        worst = max(measured)
+        worst_label = f"worst={worst}"
+        if len(missed_rows) > 0:
+            worst_label = f"miss={len(missed_rows)}"
+        ax.scatter(
+            [worst],
+            [y_positions[policy]],
+            s=55,
+            marker="x",
+            color=color,
+            linewidths=1.8,
+            zorder=6,
+        )
+        ax.text(
+            worst + max(1.0, 0.015 * max(all_runs)),
+            y_positions[policy] + 0.32,
+            worst_label,
+            color="#888888",
+            ha="left",
+            va="bottom",
+            fontsize=8,
+        )
+
+    if reference_value is not None:
+        ax.axvline(reference_value, color="#4A90D9", linewidth=2.0, alpha=0.8, zorder=1)
+        label_y = max(y_positions.values()) / 2 if y_positions else 0
+        ax.text(
+            reference_value + max(1.0, 0.018 * max(all_runs)),
+            label_y,
+            f"{seed_reference_label(reference_policy)}\n({reference_value} runs)",
+            color="#2A6FBB",
+            ha="left",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+        )
+
+    policy_counts = [len(rows_by_policy[policy]) for policy in policies]
+    if len(set(policy_counts)) == 1:
+        seed_count = policy_counts[0]
+        seed_phrase = f"{seed_count} {'seed' if seed_count == 1 else 'seeds'} per strategy"
+    else:
+        seed_count = sum(policy_counts)
+        seed_phrase = f"{seed_count} {'seed' if seed_count == 1 else 'seeds'} across strategies"
+    ax.set_title(
+        f"{title_subject}: each dot = one seed ({seed_phrase})",
+        fontsize=12,
+        fontweight="bold",
+        pad=8,
+    )
+    ax.set_xlabel(f"Runs to find {title_subject} bug", fontsize=11)
+    ax.set_yticks([y_positions[policy] for policy in policies])
+    ax.set_yticklabels([seed_policy_label(policy) for policy in policies], fontsize=10)
+    ax.set_ylim(-0.55, len(policies) - 0.45)
+    ax.set_xlim(0, max(all_runs) * 1.12 + 2)
+    ax.grid(axis="x", color="#EEEEEE", linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if any(not row["found"] for row in rows):
+        handle = Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="#777777",
+            markerfacecolor="none",
+            linestyle="",
+            label="Bug not found within observed runs",
+        )
+        ax.legend(handles=[handle], loc="lower right", fontsize=8, frameon=False)
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "seed_runs_to_bug.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  seed_runs_to_bug.png")
 
 
 # ── Figure 2: Bug-finding trace swimlane ──
@@ -655,13 +976,14 @@ def fig_nonfifo_from_traces(traces, summaries, out_dir):
             if bug and bug.get("steps"):
                 steps = bug["steps"]
                 policies.append(policy)
-                g_nonfifo.append(sum(1 for step in steps if step["kind"] == "global" and step["index"] != 0))
-                l_nonfifo.append(sum(1 for step in steps if step["kind"] == "local" and step["index"] != 0))
+                measured = measured_steps(steps)
+                g_nonfifo.append(sum(1 for step in measured if step["kind"] == "global" and step["index"] != 0))
+                l_nonfifo.append(sum(1 for step in measured if step["kind"] == "local" and step["index"] != 0))
         elif policy in summaries:
             bug = find_bug_run(summaries[policy])
             if bug:
                 policies.append(policy)
-                g_nonfifo.append(bug.get("non_fifo", 0))
+                g_nonfifo.append(metric_value(bug, "non_fifo", 0))
                 l_nonfifo.append(0)
 
     if not policies:
@@ -767,7 +1089,7 @@ def fig_chess_tree(tree_files, out_dir, rep_attempts, multi_attempt):
                 mpatches.Patch(color=COLORS["passed"], label=f"Passed ({n_passed})"),
                 mpatches.Patch(color=COLORS["failed"], label=f"Bug found ({n_failed})"),
             ],
-            loc="lower right",
+            loc="upper right",
             fontsize=8,
         )
 
@@ -790,7 +1112,7 @@ def fig_nonfifo_over_runs(summaries, out_dir):
         values_by_attempt = []
         for _, records in attempt_series(summaries[policy]):
             ordered = sorted(records, key=lambda record: record.get("run_num", 0))
-            values_by_attempt.append([record.get("non_fifo", 0) for record in ordered])
+            values_by_attempt.append([metric_value(record, "non_fifo", 0) for record in ordered])
         aggregated = aggregate_series(values_by_attempt)
         if aggregated is None:
             continue
@@ -835,11 +1157,13 @@ def fig_search_space_vs_explored(summaries, traces, out_dir):
 
     x = np.arange(len(policies))
     width = 0.35
+    theoretical_plot = np.array([float(value) for value in theoretical], dtype=float)
+    explored_plot = np.array([float(value) for value in explored], dtype=float)
     fig, ax = plt.subplots(figsize=(9, 4.8))
-    bars_theoretical = ax.bar(x - width / 2, theoretical, width,
+    bars_theoretical = ax.bar(x - width / 2, theoretical_plot, width,
                               label="Theoretical interleavings", color="#D9E8F7",
                               edgecolor="#333", linewidth=0.5)
-    bars_explored = ax.bar(x + width / 2, explored, width,
+    bars_explored = ax.bar(x + width / 2, explored_plot, width,
                            label="Runs explored", color=COLORS["found"],
                            edgecolor="#333", linewidth=0.5)
 
@@ -1115,8 +1439,8 @@ def fig_summary_table(summaries, out_dir):
         attempts = attempt_series(summaries[policy])
         effective_runs = [effective_runs_to_bug(records) for _, records in attempts]
         found = sum(1 for _, records in attempts if find_bug_run(records))
-        avg_nf = np.mean([record.get("non_fifo", 0) for _, records in attempts for record in records])
-        avg_td = np.mean([record.get("total_decisions", 0) for _, records in attempts for record in records])
+        avg_nf = np.mean([metric_value(record, "non_fifo", 0) for _, records in attempts for record in records])
+        avg_td = np.mean([metric_value(record, "total_decisions", 0) for _, records in attempts for record in records])
         rows.append([
             algo_label(policy).replace("\n", " "),
             str(len(attempts)),
@@ -1169,7 +1493,7 @@ def fig_cumulative_unique_traces(summaries, out_dir):
             seen = set()
             cumulative = []
             for record in sorted(records, key=lambda r: r.get("run_num", 0)):
-                fingerprint = record.get("trace_fingerprint")
+                fingerprint = metric_value(record, "trace_fingerprint", "")
                 if fingerprint:
                     seen.add(fingerprint)
                 cumulative.append(len(seen))
@@ -1215,7 +1539,7 @@ def fig_queue_pressure_profile(summaries, out_dir):
         bug = find_bug_run(summaries.get(policy, []))
         if bug is None:
             continue
-        queue_sizes = list(bug.get("queue_sizes") or [])
+        queue_sizes = list(metric_value(bug, "queue_sizes", []) or [])
         if queue_sizes:
             series.append((policy, queue_sizes))
 
@@ -1262,7 +1586,7 @@ def fig_local_decision_burden(summaries, out_dir):
         bug = find_bug_run(summaries.get(policy, []))
         if bug is None:
             continue
-        counts = bug.get("local_decision_by_node") or {}
+        counts = metric_value(bug, "local_decision_by_node", {}) or {}
         rows.append([counts.get(node, 0) for node in all_nodes])
         policies.append(policy)
 
@@ -1309,8 +1633,16 @@ def fig_nonfifo_position_profile(traces, out_dir):
         rows.append(
             (
                 policy,
-                [(idx + 1) / total_steps for idx, step in enumerate(steps) if step["kind"] == "local" and step["index"] != 0],
-                [(idx + 1) / total_steps for idx, step in enumerate(steps) if step["kind"] == "global" and step["index"] != 0],
+                [
+                    (idx + 1) / total_steps
+                    for idx, step in enumerate(steps)
+                    if not is_control_step(step) and step["kind"] == "local" and step["index"] != 0
+                ],
+                [
+                    (idx + 1) / total_steps
+                    for idx, step in enumerate(steps)
+                    if not is_control_step(step) and step["kind"] == "global" and step["index"] != 0
+                ],
                 total_steps,
             )
         )
@@ -1366,12 +1698,16 @@ def main():
 
     summaries = load_all_summaries(args.data)
     traces = load_all_traces(args.data)
+    apply_chart_adjustments(summaries, traces)
     trees = load_tree_files(args.data)
     multi_attempt = has_multi_attempt_data(summaries, traces, trees)
     rep_summaries, rep_traces, rep_trees, rep_attempts = representative_views(summaries, traces, trees)
 
     print("Figure 1: Runs to first bug")
     fig_runs_to_bug(summaries, args.out)
+
+    print("\nFigure 1b: Seed runs to first bug")
+    fig_seed_runs_to_bug(summaries, args.out)
 
     print("\nFigure 2: Bug-finding swimlane")
     fig_swimlane(rep_traces, args.out, rep_attempts, multi_attempt)
