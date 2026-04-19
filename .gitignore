@@ -3,3 +3,7 @@
 charts/debug
 tmp/
 bugs/**/data/attempt-*/
+
+# Python caches
+__pycache__/
+*.pyc
