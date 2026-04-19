@@ -47,7 +47,9 @@ type NewStep struct {
 	Index        int32  // which alternative was chosen (0 = default/FIFO)
 	Alternatives int32  // how many choices existed
 	ChosenID     string // Alt.ID of the chosen alternative
-	Resource     string // for DPOR: Alt.To for global, "" for local
+	Resource     string // for DPOR: "from|to" for global, node for local
+	AltIDs       []string
+	AltResources []string
 
 	// -- Global detail (populated only for Global steps) --
 	From    string // sender node

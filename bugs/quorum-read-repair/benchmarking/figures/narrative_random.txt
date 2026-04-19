@@ -1,5 +1,5 @@
 ======================================================================
-Bug-Finding Trace: random, Run 79 (attempt 10)
+Bug-Finding Trace: random, Run 88
 Total decisions: 140
 ======================================================================
 
@@ -145,7 +145,7 @@ Step 138: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
 Step 139: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
 
 ======================================================================
-RESULT: BUG FOUND on run 79
+RESULT: BUG FOUND on run 88
   Global decisions: 33
   Local decisions:  107
   Non-FIFO choices: 28
