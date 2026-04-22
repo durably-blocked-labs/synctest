@@ -1,0 +1,1 @@
+{"policy":"istio16224-pct-d3","attempt":1,"run_num":1,"non_fifo":0,"elapsed_ns":27583,"logical_time_ns":0,"passed":false,"user_failed":true,"total_decisions":2,"global_decision_count":0,"local_decision_total":0,"branch_points":0,"local_trace_total":2,"local_trace_by_node_count":{"local":2},"queue_sizes":null,"trace_fingerprint":"","deliver_seq":null}

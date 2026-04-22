@@ -1,0 +1,1 @@
+{"policy":"istio16224-pct-d3","attempt":1,"run_num":1,"passed":false,"user_failed":true,"elapsed_ns":27583,"steps":[{"kind":"local","node":"local","index":0,"alternatives":1,"chosen_id":"B3","chosen_bgid":3,"runq_bgids":[3]},{"kind":"local","node":"local","index":0,"alternatives":1,"chosen_id":"B2","chosen_bgid":2,"runq_bgids":[2]}]}

@@ -1,0 +1,1802 @@
+[
+  {
+    "seed": 1,
+    "strategy": "random",
+    "first_bug": 8,
+    "runs": 8
+  },
+  {
+    "seed": 2,
+    "strategy": "random",
+    "first_bug": 7,
+    "runs": 7
+  },
+  {
+    "seed": 3,
+    "strategy": "random",
+    "first_bug": 6,
+    "runs": 6
+  },
+  {
+    "seed": 4,
+    "strategy": "random",
+    "first_bug": 5,
+    "runs": 5
+  },
+  {
+    "seed": 5,
+    "strategy": "random",
+    "first_bug": 4,
+    "runs": 4
+  },
+  {
+    "seed": 6,
+    "strategy": "random",
+    "first_bug": 3,
+    "runs": 3
+  },
+  {
+    "seed": 7,
+    "strategy": "random",
+    "first_bug": 2,
+    "runs": 2
+  },
+  {
+    "seed": 8,
+    "strategy": "random",
+    "first_bug": 1,
+    "runs": 1
+  },
+  {
+    "seed": 9,
+    "strategy": "random",
+    "first_bug": 56,
+    "runs": 56
+  },
+  {
+    "seed": 10,
+    "strategy": "random",
+    "first_bug": 55,
+    "runs": 55
+  },
+  {
+    "seed": 11,
+    "strategy": "random",
+    "first_bug": 54,
+    "runs": 54
+  },
+  {
+    "seed": 12,
+    "strategy": "random",
+    "first_bug": 53,
+    "runs": 53
+  },
+  {
+    "seed": 13,
+    "strategy": "random",
+    "first_bug": 52,
+    "runs": 52
+  },
+  {
+    "seed": 14,
+    "strategy": "random",
+    "first_bug": 51,
+    "runs": 51
+  },
+  {
+    "seed": 15,
+    "strategy": "random",
+    "first_bug": 50,
+    "runs": 50
+  },
+  {
+    "seed": 16,
+    "strategy": "random",
+    "first_bug": 49,
+    "runs": 49
+  },
+  {
+    "seed": 17,
+    "strategy": "random",
+    "first_bug": 48,
+    "runs": 48
+  },
+  {
+    "seed": 18,
+    "strategy": "random",
+    "first_bug": 47,
+    "runs": 47
+  },
+  {
+    "seed": 19,
+    "strategy": "random",
+    "first_bug": 46,
+    "runs": 46
+  },
+  {
+    "seed": 20,
+    "strategy": "random",
+    "first_bug": 45,
+    "runs": 45
+  },
+  {
+    "seed": 21,
+    "strategy": "random",
+    "first_bug": 44,
+    "runs": 44
+  },
+  {
+    "seed": 22,
+    "strategy": "random",
+    "first_bug": 43,
+    "runs": 43
+  },
+  {
+    "seed": 23,
+    "strategy": "random",
+    "first_bug": 42,
+    "runs": 42
+  },
+  {
+    "seed": 24,
+    "strategy": "random",
+    "first_bug": 41,
+    "runs": 41
+  },
+  {
+    "seed": 25,
+    "strategy": "random",
+    "first_bug": 40,
+    "runs": 40
+  },
+  {
+    "seed": 26,
+    "strategy": "random",
+    "first_bug": 39,
+    "runs": 39
+  },
+  {
+    "seed": 27,
+    "strategy": "random",
+    "first_bug": 38,
+    "runs": 38
+  },
+  {
+    "seed": 28,
+    "strategy": "random",
+    "first_bug": 37,
+    "runs": 37
+  },
+  {
+    "seed": 29,
+    "strategy": "random",
+    "first_bug": 36,
+    "runs": 36
+  },
+  {
+    "seed": 30,
+    "strategy": "random",
+    "first_bug": 35,
+    "runs": 35
+  },
+  {
+    "seed": 31,
+    "strategy": "random",
+    "first_bug": 34,
+    "runs": 34
+  },
+  {
+    "seed": 32,
+    "strategy": "random",
+    "first_bug": 33,
+    "runs": 33
+  },
+  {
+    "seed": 33,
+    "strategy": "random",
+    "first_bug": 32,
+    "runs": 32
+  },
+  {
+    "seed": 34,
+    "strategy": "random",
+    "first_bug": 31,
+    "runs": 31
+  },
+  {
+    "seed": 35,
+    "strategy": "random",
+    "first_bug": 30,
+    "runs": 30
+  },
+  {
+    "seed": 36,
+    "strategy": "random",
+    "first_bug": 29,
+    "runs": 29
+  },
+  {
+    "seed": 37,
+    "strategy": "random",
+    "first_bug": 28,
+    "runs": 28
+  },
+  {
+    "seed": 38,
+    "strategy": "random",
+    "first_bug": 27,
+    "runs": 27
+  },
+  {
+    "seed": 39,
+    "strategy": "random",
+    "first_bug": 26,
+    "runs": 26
+  },
+  {
+    "seed": 40,
+    "strategy": "random",
+    "first_bug": 25,
+    "runs": 25
+  },
+  {
+    "seed": 41,
+    "strategy": "random",
+    "first_bug": 24,
+    "runs": 24
+  },
+  {
+    "seed": 42,
+    "strategy": "random",
+    "first_bug": 23,
+    "runs": 23
+  },
+  {
+    "seed": 43,
+    "strategy": "random",
+    "first_bug": 22,
+    "runs": 22
+  },
+  {
+    "seed": 44,
+    "strategy": "random",
+    "first_bug": 21,
+    "runs": 21
+  },
+  {
+    "seed": 45,
+    "strategy": "random",
+    "first_bug": 20,
+    "runs": 20
+  },
+  {
+    "seed": 46,
+    "strategy": "random",
+    "first_bug": 19,
+    "runs": 19
+  },
+  {
+    "seed": 47,
+    "strategy": "random",
+    "first_bug": 18,
+    "runs": 18
+  },
+  {
+    "seed": 48,
+    "strategy": "random",
+    "first_bug": 17,
+    "runs": 17
+  },
+  {
+    "seed": 49,
+    "strategy": "random",
+    "first_bug": 16,
+    "runs": 16
+  },
+  {
+    "seed": 50,
+    "strategy": "random",
+    "first_bug": 15,
+    "runs": 15
+  },
+  {
+    "seed": 51,
+    "strategy": "random",
+    "first_bug": 14,
+    "runs": 14
+  },
+  {
+    "seed": 52,
+    "strategy": "random",
+    "first_bug": 13,
+    "runs": 13
+  },
+  {
+    "seed": 53,
+    "strategy": "random",
+    "first_bug": 12,
+    "runs": 12
+  },
+  {
+    "seed": 54,
+    "strategy": "random",
+    "first_bug": 11,
+    "runs": 11
+  },
+  {
+    "seed": 55,
+    "strategy": "random",
+    "first_bug": 10,
+    "runs": 10
+  },
+  {
+    "seed": 56,
+    "strategy": "random",
+    "first_bug": 9,
+    "runs": 9
+  },
+  {
+    "seed": 57,
+    "strategy": "random",
+    "first_bug": 8,
+    "runs": 8
+  },
+  {
+    "seed": 58,
+    "strategy": "random",
+    "first_bug": 7,
+    "runs": 7
+  },
+  {
+    "seed": 59,
+    "strategy": "random",
+    "first_bug": 6,
+    "runs": 6
+  },
+  {
+    "seed": 60,
+    "strategy": "random",
+    "first_bug": 5,
+    "runs": 5
+  },
+  {
+    "seed": 61,
+    "strategy": "random",
+    "first_bug": 4,
+    "runs": 4
+  },
+  {
+    "seed": 62,
+    "strategy": "random",
+    "first_bug": 3,
+    "runs": 3
+  },
+  {
+    "seed": 63,
+    "strategy": "random",
+    "first_bug": 2,
+    "runs": 2
+  },
+  {
+    "seed": 64,
+    "strategy": "random",
+    "first_bug": 1,
+    "runs": 1
+  },
+  {
+    "seed": 65,
+    "strategy": "random",
+    "first_bug": 6,
+    "runs": 6
+  },
+  {
+    "seed": 66,
+    "strategy": "random",
+    "first_bug": 5,
+    "runs": 5
+  },
+  {
+    "seed": 67,
+    "strategy": "random",
+    "first_bug": 4,
+    "runs": 4
+  },
+  {
+    "seed": 68,
+    "strategy": "random",
+    "first_bug": 3,
+    "runs": 3
+  },
+  {
+    "seed": 69,
+    "strategy": "random",
+    "first_bug": 2,
+    "runs": 2
+  },
+  {
+    "seed": 70,
+    "strategy": "random",
+    "first_bug": 1,
+    "runs": 1
+  },
+  {
+    "seed": 71,
+    "strategy": "random",
+    "first_bug": 6,
+    "runs": 6
+  },
+  {
+    "seed": 72,
+    "strategy": "random",
+    "first_bug": 5,
+    "runs": 5
+  },
+  {
+    "seed": 73,
+    "strategy": "random",
+    "first_bug": 4,
+    "runs": 4
+  },
+  {
+    "seed": 74,
+    "strategy": "random",
+    "first_bug": 3,
+    "runs": 3
+  },
+  {
+    "seed": 75,
+    "strategy": "random",
+    "first_bug": 2,
+    "runs": 2
+  },
+  {
+    "seed": 76,
+    "strategy": "random",
+    "first_bug": 1,
+    "runs": 1
+  },
+  {
+    "seed": 77,
+    "strategy": "random",
+    "first_bug": 111,
+    "runs": 111
+  },
+  {
+    "seed": 78,
+    "strategy": "random",
+    "first_bug": 110,
+    "runs": 110
+  },
+  {
+    "seed": 79,
+    "strategy": "random",
+    "first_bug": 109,
+    "runs": 109
+  },
+  {
+    "seed": 80,
+    "strategy": "random",
+    "first_bug": 108,
+    "runs": 108
+  },
+  {
+    "seed": 81,
+    "strategy": "random",
+    "first_bug": 107,
+    "runs": 107
+  },
+  {
+    "seed": 82,
+    "strategy": "random",
+    "first_bug": 106,
+    "runs": 106
+  },
+  {
+    "seed": 83,
+    "strategy": "random",
+    "first_bug": 105,
+    "runs": 105
+  },
+  {
+    "seed": 84,
+    "strategy": "random",
+    "first_bug": 104,
+    "runs": 104
+  },
+  {
+    "seed": 85,
+    "strategy": "random",
+    "first_bug": 103,
+    "runs": 103
+  },
+  {
+    "seed": 86,
+    "strategy": "random",
+    "first_bug": 102,
+    "runs": 102
+  },
+  {
+    "seed": 87,
+    "strategy": "random",
+    "first_bug": 101,
+    "runs": 101
+  },
+  {
+    "seed": 88,
+    "strategy": "random",
+    "first_bug": 100,
+    "runs": 100
+  },
+  {
+    "seed": 89,
+    "strategy": "random",
+    "first_bug": 99,
+    "runs": 99
+  },
+  {
+    "seed": 90,
+    "strategy": "random",
+    "first_bug": 98,
+    "runs": 98
+  },
+  {
+    "seed": 91,
+    "strategy": "random",
+    "first_bug": 97,
+    "runs": 97
+  },
+  {
+    "seed": 92,
+    "strategy": "random",
+    "first_bug": 96,
+    "runs": 96
+  },
+  {
+    "seed": 93,
+    "strategy": "random",
+    "first_bug": 95,
+    "runs": 95
+  },
+  {
+    "seed": 94,
+    "strategy": "random",
+    "first_bug": 94,
+    "runs": 94
+  },
+  {
+    "seed": 95,
+    "strategy": "random",
+    "first_bug": 93,
+    "runs": 93
+  },
+  {
+    "seed": 96,
+    "strategy": "random",
+    "first_bug": 92,
+    "runs": 92
+  },
+  {
+    "seed": 97,
+    "strategy": "random",
+    "first_bug": 91,
+    "runs": 91
+  },
+  {
+    "seed": 98,
+    "strategy": "random",
+    "first_bug": 90,
+    "runs": 90
+  },
+  {
+    "seed": 99,
+    "strategy": "random",
+    "first_bug": 89,
+    "runs": 89
+  },
+  {
+    "seed": 100,
+    "strategy": "random",
+    "first_bug": 88,
+    "runs": 88
+  },
+  {
+    "seed": 1,
+    "strategy": "pct-d2",
+    "first_bug": 26,
+    "runs": 26
+  },
+  {
+    "seed": 2,
+    "strategy": "pct-d2",
+    "first_bug": 25,
+    "runs": 25
+  },
+  {
+    "seed": 3,
+    "strategy": "pct-d2",
+    "first_bug": 24,
+    "runs": 24
+  },
+  {
+    "seed": 4,
+    "strategy": "pct-d2",
+    "first_bug": 23,
+    "runs": 23
+  },
+  {
+    "seed": 5,
+    "strategy": "pct-d2",
+    "first_bug": 22,
+    "runs": 22
+  },
+  {
+    "seed": 6,
+    "strategy": "pct-d2",
+    "first_bug": 21,
+    "runs": 21
+  },
+  {
+    "seed": 7,
+    "strategy": "pct-d2",
+    "first_bug": 20,
+    "runs": 20
+  },
+  {
+    "seed": 8,
+    "strategy": "pct-d2",
+    "first_bug": 19,
+    "runs": 19
+  },
+  {
+    "seed": 9,
+    "strategy": "pct-d2",
+    "first_bug": 18,
+    "runs": 18
+  },
+  {
+    "seed": 10,
+    "strategy": "pct-d2",
+    "first_bug": 17,
+    "runs": 17
+  },
+  {
+    "seed": 11,
+    "strategy": "pct-d2",
+    "first_bug": 16,
+    "runs": 16
+  },
+  {
+    "seed": 12,
+    "strategy": "pct-d2",
+    "first_bug": 15,
+    "runs": 15
+  },
+  {
+    "seed": 13,
+    "strategy": "pct-d2",
+    "first_bug": 14,
+    "runs": 14
+  },
+  {
+    "seed": 14,
+    "strategy": "pct-d2",
+    "first_bug": 13,
+    "runs": 13
+  },
+  {
+    "seed": 15,
+    "strategy": "pct-d2",
+    "first_bug": 12,
+    "runs": 12
+  },
+  {
+    "seed": 16,
+    "strategy": "pct-d2",
+    "first_bug": 11,
+    "runs": 11
+  },
+  {
+    "seed": 17,
+    "strategy": "pct-d2",
+    "first_bug": 10,
+    "runs": 10
+  },
+  {
+    "seed": 18,
+    "strategy": "pct-d2",
+    "first_bug": 9,
+    "runs": 9
+  },
+  {
+    "seed": 19,
+    "strategy": "pct-d2",
+    "first_bug": 8,
+    "runs": 8
+  },
+  {
+    "seed": 20,
+    "strategy": "pct-d2",
+    "first_bug": 7,
+    "runs": 7
+  },
+  {
+    "seed": 21,
+    "strategy": "pct-d2",
+    "first_bug": 6,
+    "runs": 6
+  },
+  {
+    "seed": 22,
+    "strategy": "pct-d2",
+    "first_bug": 5,
+    "runs": 5
+  },
+  {
+    "seed": 23,
+    "strategy": "pct-d2",
+    "first_bug": 4,
+    "runs": 4
+  },
+  {
+    "seed": 24,
+    "strategy": "pct-d2",
+    "first_bug": 3,
+    "runs": 3
+  },
+  {
+    "seed": 25,
+    "strategy": "pct-d2",
+    "first_bug": 2,
+    "runs": 2
+  },
+  {
+    "seed": 26,
+    "strategy": "pct-d2",
+    "first_bug": 1,
+    "runs": 1
+  },
+  {
+    "seed": 27,
+    "strategy": "pct-d2",
+    "first_bug": 83,
+    "runs": 83
+  },
+  {
+    "seed": 28,
+    "strategy": "pct-d2",
+    "first_bug": 82,
+    "runs": 82
+  },
+  {
+    "seed": 29,
+    "strategy": "pct-d2",
+    "first_bug": 81,
+    "runs": 81
+  },
+  {
+    "seed": 30,
+    "strategy": "pct-d2",
+    "first_bug": 80,
+    "runs": 80
+  },
+  {
+    "seed": 31,
+    "strategy": "pct-d2",
+    "first_bug": 79,
+    "runs": 79
+  },
+  {
+    "seed": 32,
+    "strategy": "pct-d2",
+    "first_bug": 78,
+    "runs": 78
+  },
+  {
+    "seed": 33,
+    "strategy": "pct-d2",
+    "first_bug": 77,
+    "runs": 77
+  },
+  {
+    "seed": 34,
+    "strategy": "pct-d2",
+    "first_bug": 76,
+    "runs": 76
+  },
+  {
+    "seed": 35,
+    "strategy": "pct-d2",
+    "first_bug": 75,
+    "runs": 75
+  },
+  {
+    "seed": 36,
+    "strategy": "pct-d2",
+    "first_bug": 74,
+    "runs": 74
+  },
+  {
+    "seed": 37,
+    "strategy": "pct-d2",
+    "first_bug": 73,
+    "runs": 73
+  },
+  {
+    "seed": 38,
+    "strategy": "pct-d2",
+    "first_bug": 72,
+    "runs": 72
+  },
+  {
+    "seed": 39,
+    "strategy": "pct-d2",
+    "first_bug": 71,
+    "runs": 71
+  },
+  {
+    "seed": 40,
+    "strategy": "pct-d2",
+    "first_bug": 70,
+    "runs": 70
+  },
+  {
+    "seed": 41,
+    "strategy": "pct-d2",
+    "first_bug": 69,
+    "runs": 69
+  },
+  {
+    "seed": 42,
+    "strategy": "pct-d2",
+    "first_bug": 68,
+    "runs": 68
+  },
+  {
+    "seed": 43,
+    "strategy": "pct-d2",
+    "first_bug": 67,
+    "runs": 67
+  },
+  {
+    "seed": 44,
+    "strategy": "pct-d2",
+    "first_bug": 66,
+    "runs": 66
+  },
+  {
+    "seed": 45,
+    "strategy": "pct-d2",
+    "first_bug": 65,
+    "runs": 65
+  },
+  {
+    "seed": 46,
+    "strategy": "pct-d2",
+    "first_bug": 64,
+    "runs": 64
+  },
+  {
+    "seed": 47,
+    "strategy": "pct-d2",
+    "first_bug": 63,
+    "runs": 63
+  },
+  {
+    "seed": 48,
+    "strategy": "pct-d2",
+    "first_bug": 62,
+    "runs": 62
+  },
+  {
+    "seed": 49,
+    "strategy": "pct-d2",
+    "first_bug": 61,
+    "runs": 61
+  },
+  {
+    "seed": 50,
+    "strategy": "pct-d2",
+    "first_bug": 60,
+    "runs": 60
+  },
+  {
+    "seed": 51,
+    "strategy": "pct-d2",
+    "first_bug": 59,
+    "runs": 59
+  },
+  {
+    "seed": 52,
+    "strategy": "pct-d2",
+    "first_bug": 58,
+    "runs": 58
+  },
+  {
+    "seed": 53,
+    "strategy": "pct-d2",
+    "first_bug": 57,
+    "runs": 57
+  },
+  {
+    "seed": 54,
+    "strategy": "pct-d2",
+    "first_bug": 56,
+    "runs": 56
+  },
+  {
+    "seed": 55,
+    "strategy": "pct-d2",
+    "first_bug": 55,
+    "runs": 55
+  },
+  {
+    "seed": 56,
+    "strategy": "pct-d2",
+    "first_bug": 54,
+    "runs": 54
+  },
+  {
+    "seed": 57,
+    "strategy": "pct-d2",
+    "first_bug": 53,
+    "runs": 53
+  },
+  {
+    "seed": 58,
+    "strategy": "pct-d2",
+    "first_bug": 52,
+    "runs": 52
+  },
+  {
+    "seed": 59,
+    "strategy": "pct-d2",
+    "first_bug": 51,
+    "runs": 51
+  },
+  {
+    "seed": 60,
+    "strategy": "pct-d2",
+    "first_bug": 50,
+    "runs": 50
+  },
+  {
+    "seed": 61,
+    "strategy": "pct-d2",
+    "first_bug": 49,
+    "runs": 49
+  },
+  {
+    "seed": 62,
+    "strategy": "pct-d2",
+    "first_bug": 48,
+    "runs": 48
+  },
+  {
+    "seed": 63,
+    "strategy": "pct-d2",
+    "first_bug": 47,
+    "runs": 47
+  },
+  {
+    "seed": 64,
+    "strategy": "pct-d2",
+    "first_bug": 46,
+    "runs": 46
+  },
+  {
+    "seed": 65,
+    "strategy": "pct-d2",
+    "first_bug": 45,
+    "runs": 45
+  },
+  {
+    "seed": 66,
+    "strategy": "pct-d2",
+    "first_bug": 44,
+    "runs": 44
+  },
+  {
+    "seed": 67,
+    "strategy": "pct-d2",
+    "first_bug": 43,
+    "runs": 43
+  },
+  {
+    "seed": 68,
+    "strategy": "pct-d2",
+    "first_bug": 42,
+    "runs": 42
+  },
+  {
+    "seed": 69,
+    "strategy": "pct-d2",
+    "first_bug": 41,
+    "runs": 41
+  },
+  {
+    "seed": 70,
+    "strategy": "pct-d2",
+    "first_bug": 40,
+    "runs": 40
+  },
+  {
+    "seed": 71,
+    "strategy": "pct-d2",
+    "first_bug": 39,
+    "runs": 39
+  },
+  {
+    "seed": 72,
+    "strategy": "pct-d2",
+    "first_bug": 38,
+    "runs": 38
+  },
+  {
+    "seed": 73,
+    "strategy": "pct-d2",
+    "first_bug": 37,
+    "runs": 37
+  },
+  {
+    "seed": 74,
+    "strategy": "pct-d2",
+    "first_bug": 36,
+    "runs": 36
+  },
+  {
+    "seed": 75,
+    "strategy": "pct-d2",
+    "first_bug": 35,
+    "runs": 35
+  },
+  {
+    "seed": 76,
+    "strategy": "pct-d2",
+    "first_bug": 34,
+    "runs": 34
+  },
+  {
+    "seed": 77,
+    "strategy": "pct-d2",
+    "first_bug": 33,
+    "runs": 33
+  },
+  {
+    "seed": 78,
+    "strategy": "pct-d2",
+    "first_bug": 32,
+    "runs": 32
+  },
+  {
+    "seed": 79,
+    "strategy": "pct-d2",
+    "first_bug": 31,
+    "runs": 31
+  },
+  {
+    "seed": 80,
+    "strategy": "pct-d2",
+    "first_bug": 30,
+    "runs": 30
+  },
+  {
+    "seed": 81,
+    "strategy": "pct-d2",
+    "first_bug": 29,
+    "runs": 29
+  },
+  {
+    "seed": 82,
+    "strategy": "pct-d2",
+    "first_bug": 28,
+    "runs": 28
+  },
+  {
+    "seed": 83,
+    "strategy": "pct-d2",
+    "first_bug": 27,
+    "runs": 27
+  },
+  {
+    "seed": 84,
+    "strategy": "pct-d2",
+    "first_bug": 26,
+    "runs": 26
+  },
+  {
+    "seed": 85,
+    "strategy": "pct-d2",
+    "first_bug": 25,
+    "runs": 25
+  },
+  {
+    "seed": 86,
+    "strategy": "pct-d2",
+    "first_bug": 24,
+    "runs": 24
+  },
+  {
+    "seed": 87,
+    "strategy": "pct-d2",
+    "first_bug": 23,
+    "runs": 23
+  },
+  {
+    "seed": 88,
+    "strategy": "pct-d2",
+    "first_bug": 22,
+    "runs": 22
+  },
+  {
+    "seed": 89,
+    "strategy": "pct-d2",
+    "first_bug": 21,
+    "runs": 21
+  },
+  {
+    "seed": 90,
+    "strategy": "pct-d2",
+    "first_bug": 20,
+    "runs": 20
+  },
+  {
+    "seed": 91,
+    "strategy": "pct-d2",
+    "first_bug": 19,
+    "runs": 19
+  },
+  {
+    "seed": 92,
+    "strategy": "pct-d2",
+    "first_bug": 18,
+    "runs": 18
+  },
+  {
+    "seed": 93,
+    "strategy": "pct-d2",
+    "first_bug": 17,
+    "runs": 17
+  },
+  {
+    "seed": 94,
+    "strategy": "pct-d2",
+    "first_bug": 16,
+    "runs": 16
+  },
+  {
+    "seed": 95,
+    "strategy": "pct-d2",
+    "first_bug": 15,
+    "runs": 15
+  },
+  {
+    "seed": 96,
+    "strategy": "pct-d2",
+    "first_bug": 14,
+    "runs": 14
+  },
+  {
+    "seed": 97,
+    "strategy": "pct-d2",
+    "first_bug": 13,
+    "runs": 13
+  },
+  {
+    "seed": 98,
+    "strategy": "pct-d2",
+    "first_bug": 12,
+    "runs": 12
+  },
+  {
+    "seed": 99,
+    "strategy": "pct-d2",
+    "first_bug": 11,
+    "runs": 11
+  },
+  {
+    "seed": 100,
+    "strategy": "pct-d2",
+    "first_bug": 10,
+    "runs": 10
+  },
+  {
+    "seed": 1,
+    "strategy": "pct-d3",
+    "first_bug": 26,
+    "runs": 26
+  },
+  {
+    "seed": 2,
+    "strategy": "pct-d3",
+    "first_bug": 25,
+    "runs": 25
+  },
+  {
+    "seed": 3,
+    "strategy": "pct-d3",
+    "first_bug": 24,
+    "runs": 24
+  },
+  {
+    "seed": 4,
+    "strategy": "pct-d3",
+    "first_bug": 23,
+    "runs": 23
+  },
+  {
+    "seed": 5,
+    "strategy": "pct-d3",
+    "first_bug": 22,
+    "runs": 22
+  },
+  {
+    "seed": 6,
+    "strategy": "pct-d3",
+    "first_bug": 21,
+    "runs": 21
+  },
+  {
+    "seed": 7,
+    "strategy": "pct-d3",
+    "first_bug": 20,
+    "runs": 20
+  },
+  {
+    "seed": 8,
+    "strategy": "pct-d3",
+    "first_bug": 19,
+    "runs": 19
+  },
+  {
+    "seed": 9,
+    "strategy": "pct-d3",
+    "first_bug": 18,
+    "runs": 18
+  },
+  {
+    "seed": 10,
+    "strategy": "pct-d3",
+    "first_bug": 17,
+    "runs": 17
+  },
+  {
+    "seed": 11,
+    "strategy": "pct-d3",
+    "first_bug": 16,
+    "runs": 16
+  },
+  {
+    "seed": 12,
+    "strategy": "pct-d3",
+    "first_bug": 15,
+    "runs": 15
+  },
+  {
+    "seed": 13,
+    "strategy": "pct-d3",
+    "first_bug": 14,
+    "runs": 14
+  },
+  {
+    "seed": 14,
+    "strategy": "pct-d3",
+    "first_bug": 13,
+    "runs": 13
+  },
+  {
+    "seed": 15,
+    "strategy": "pct-d3",
+    "first_bug": 12,
+    "runs": 12
+  },
+  {
+    "seed": 16,
+    "strategy": "pct-d3",
+    "first_bug": 11,
+    "runs": 11
+  },
+  {
+    "seed": 17,
+    "strategy": "pct-d3",
+    "first_bug": 10,
+    "runs": 10
+  },
+  {
+    "seed": 18,
+    "strategy": "pct-d3",
+    "first_bug": 9,
+    "runs": 9
+  },
+  {
+    "seed": 19,
+    "strategy": "pct-d3",
+    "first_bug": 8,
+    "runs": 8
+  },
+  {
+    "seed": 20,
+    "strategy": "pct-d3",
+    "first_bug": 7,
+    "runs": 7
+  },
+  {
+    "seed": 21,
+    "strategy": "pct-d3",
+    "first_bug": 6,
+    "runs": 6
+  },
+  {
+    "seed": 22,
+    "strategy": "pct-d3",
+    "first_bug": 5,
+    "runs": 5
+  },
+  {
+    "seed": 23,
+    "strategy": "pct-d3",
+    "first_bug": 4,
+    "runs": 4
+  },
+  {
+    "seed": 24,
+    "strategy": "pct-d3",
+    "first_bug": 3,
+    "runs": 3
+  },
+  {
+    "seed": 25,
+    "strategy": "pct-d3",
+    "first_bug": 2,
+    "runs": 2
+  },
+  {
+    "seed": 26,
+    "strategy": "pct-d3",
+    "first_bug": 1,
+    "runs": 1
+  },
+  {
+    "seed": 27,
+    "strategy": "pct-d3",
+    "first_bug": 83,
+    "runs": 83
+  },
+  {
+    "seed": 28,
+    "strategy": "pct-d3",
+    "first_bug": 82,
+    "runs": 82
+  },
+  {
+    "seed": 29,
+    "strategy": "pct-d3",
+    "first_bug": 81,
+    "runs": 81
+  },
+  {
+    "seed": 30,
+    "strategy": "pct-d3",
+    "first_bug": 80,
+    "runs": 80
+  },
+  {
+    "seed": 31,
+    "strategy": "pct-d3",
+    "first_bug": 79,
+    "runs": 79
+  },
+  {
+    "seed": 32,
+    "strategy": "pct-d3",
+    "first_bug": 78,
+    "runs": 78
+  },
+  {
+    "seed": 33,
+    "strategy": "pct-d3",
+    "first_bug": 77,
+    "runs": 77
+  },
+  {
+    "seed": 34,
+    "strategy": "pct-d3",
+    "first_bug": 76,
+    "runs": 76
+  },
+  {
+    "seed": 35,
+    "strategy": "pct-d3",
+    "first_bug": 75,
+    "runs": 75
+  },
+  {
+    "seed": 36,
+    "strategy": "pct-d3",
+    "first_bug": 74,
+    "runs": 74
+  },
+  {
+    "seed": 37,
+    "strategy": "pct-d3",
+    "first_bug": 73,
+    "runs": 73
+  },
+  {
+    "seed": 38,
+    "strategy": "pct-d3",
+    "first_bug": 72,
+    "runs": 72
+  },
+  {
+    "seed": 39,
+    "strategy": "pct-d3",
+    "first_bug": 71,
+    "runs": 71
+  },
+  {
+    "seed": 40,
+    "strategy": "pct-d3",
+    "first_bug": 70,
+    "runs": 70
+  },
+  {
+    "seed": 41,
+    "strategy": "pct-d3",
+    "first_bug": 69,
+    "runs": 69
+  },
+  {
+    "seed": 42,
+    "strategy": "pct-d3",
+    "first_bug": 68,
+    "runs": 68
+  },
+  {
+    "seed": 43,
+    "strategy": "pct-d3",
+    "first_bug": 67,
+    "runs": 67
+  },
+  {
+    "seed": 44,
+    "strategy": "pct-d3",
+    "first_bug": 66,
+    "runs": 66
+  },
+  {
+    "seed": 45,
+    "strategy": "pct-d3",
+    "first_bug": 65,
+    "runs": 65
+  },
+  {
+    "seed": 46,
+    "strategy": "pct-d3",
+    "first_bug": 64,
+    "runs": 64
+  },
+  {
+    "seed": 47,
+    "strategy": "pct-d3",
+    "first_bug": 63,
+    "runs": 63
+  },
+  {
+    "seed": 48,
+    "strategy": "pct-d3",
+    "first_bug": 62,
+    "runs": 62
+  },
+  {
+    "seed": 49,
+    "strategy": "pct-d3",
+    "first_bug": 61,
+    "runs": 61
+  },
+  {
+    "seed": 50,
+    "strategy": "pct-d3",
+    "first_bug": 60,
+    "runs": 60
+  },
+  {
+    "seed": 51,
+    "strategy": "pct-d3",
+    "first_bug": 59,
+    "runs": 59
+  },
+  {
+    "seed": 52,
+    "strategy": "pct-d3",
+    "first_bug": 58,
+    "runs": 58
+  },
+  {
+    "seed": 53,
+    "strategy": "pct-d3",
+    "first_bug": 57,
+    "runs": 57
+  },
+  {
+    "seed": 54,
+    "strategy": "pct-d3",
+    "first_bug": 56,
+    "runs": 56
+  },
+  {
+    "seed": 55,
+    "strategy": "pct-d3",
+    "first_bug": 55,
+    "runs": 55
+  },
+  {
+    "seed": 56,
+    "strategy": "pct-d3",
+    "first_bug": 54,
+    "runs": 54
+  },
+  {
+    "seed": 57,
+    "strategy": "pct-d3",
+    "first_bug": 53,
+    "runs": 53
+  },
+  {
+    "seed": 58,
+    "strategy": "pct-d3",
+    "first_bug": 52,
+    "runs": 52
+  },
+  {
+    "seed": 59,
+    "strategy": "pct-d3",
+    "first_bug": 51,
+    "runs": 51
+  },
+  {
+    "seed": 60,
+    "strategy": "pct-d3",
+    "first_bug": 50,
+    "runs": 50
+  },
+  {
+    "seed": 61,
+    "strategy": "pct-d3",
+    "first_bug": 49,
+    "runs": 49
+  },
+  {
+    "seed": 62,
+    "strategy": "pct-d3",
+    "first_bug": 48,
+    "runs": 48
+  },
+  {
+    "seed": 63,
+    "strategy": "pct-d3",
+    "first_bug": 47,
+    "runs": 47
+  },
+  {
+    "seed": 64,
+    "strategy": "pct-d3",
+    "first_bug": 46,
+    "runs": 46
+  },
+  {
+    "seed": 65,
+    "strategy": "pct-d3",
+    "first_bug": 45,
+    "runs": 45
+  },
+  {
+    "seed": 66,
+    "strategy": "pct-d3",
+    "first_bug": 44,
+    "runs": 44
+  },
+  {
+    "seed": 67,
+    "strategy": "pct-d3",
+    "first_bug": 43,
+    "runs": 43
+  },
+  {
+    "seed": 68,
+    "strategy": "pct-d3",
+    "first_bug": 42,
+    "runs": 42
+  },
+  {
+    "seed": 69,
+    "strategy": "pct-d3",
+    "first_bug": 41,
+    "runs": 41
+  },
+  {
+    "seed": 70,
+    "strategy": "pct-d3",
+    "first_bug": 40,
+    "runs": 40
+  },
+  {
+    "seed": 71,
+    "strategy": "pct-d3",
+    "first_bug": 39,
+    "runs": 39
+  },
+  {
+    "seed": 72,
+    "strategy": "pct-d3",
+    "first_bug": 38,
+    "runs": 38
+  },
+  {
+    "seed": 73,
+    "strategy": "pct-d3",
+    "first_bug": 37,
+    "runs": 37
+  },
+  {
+    "seed": 74,
+    "strategy": "pct-d3",
+    "first_bug": 36,
+    "runs": 36
+  },
+  {
+    "seed": 75,
+    "strategy": "pct-d3",
+    "first_bug": 35,
+    "runs": 35
+  },
+  {
+    "seed": 76,
+    "strategy": "pct-d3",
+    "first_bug": 34,
+    "runs": 34
+  },
+  {
+    "seed": 77,
+    "strategy": "pct-d3",
+    "first_bug": 33,
+    "runs": 33
+  },
+  {
+    "seed": 78,
+    "strategy": "pct-d3",
+    "first_bug": 32,
+    "runs": 32
+  },
+  {
+    "seed": 79,
+    "strategy": "pct-d3",
+    "first_bug": 31,
+    "runs": 31
+  },
+  {
+    "seed": 80,
+    "strategy": "pct-d3",
+    "first_bug": 30,
+    "runs": 30
+  },
+  {
+    "seed": 81,
+    "strategy": "pct-d3",
+    "first_bug": 29,
+    "runs": 29
+  },
+  {
+    "seed": 82,
+    "strategy": "pct-d3",
+    "first_bug": 28,
+    "runs": 28
+  },
+  {
+    "seed": 83,
+    "strategy": "pct-d3",
+    "first_bug": 27,
+    "runs": 27
+  },
+  {
+    "seed": 84,
+    "strategy": "pct-d3",
+    "first_bug": 26,
+    "runs": 26
+  },
+  {
+    "seed": 85,
+    "strategy": "pct-d3",
+    "first_bug": 25,
+    "runs": 25
+  },
+  {
+    "seed": 86,
+    "strategy": "pct-d3",
+    "first_bug": 24,
+    "runs": 24
+  },
+  {
+    "seed": 87,
+    "strategy": "pct-d3",
+    "first_bug": 23,
+    "runs": 23
+  },
+  {
+    "seed": 88,
+    "strategy": "pct-d3",
+    "first_bug": 22,
+    "runs": 22
+  },
+  {
+    "seed": 89,
+    "strategy": "pct-d3",
+    "first_bug": 21,
+    "runs": 21
+  },
+  {
+    "seed": 90,
+    "strategy": "pct-d3",
+    "first_bug": 20,
+    "runs": 20
+  },
+  {
+    "seed": 91,
+    "strategy": "pct-d3",
+    "first_bug": 19,
+    "runs": 19
+  },
+  {
+    "seed": 92,
+    "strategy": "pct-d3",
+    "first_bug": 18,
+    "runs": 18
+  },
+  {
+    "seed": 93,
+    "strategy": "pct-d3",
+    "first_bug": 17,
+    "runs": 17
+  },
+  {
+    "seed": 94,
+    "strategy": "pct-d3",
+    "first_bug": 16,
+    "runs": 16
+  },
+  {
+    "seed": 95,
+    "strategy": "pct-d3",
+    "first_bug": 15,
+    "runs": 15
+  },
+  {
+    "seed": 96,
+    "strategy": "pct-d3",
+    "first_bug": 14,
+    "runs": 14
+  },
+  {
+    "seed": 97,
+    "strategy": "pct-d3",
+    "first_bug": 13,
+    "runs": 13
+  },
+  {
+    "seed": 98,
+    "strategy": "pct-d3",
+    "first_bug": 12,
+    "runs": 12
+  },
+  {
+    "seed": 99,
+    "strategy": "pct-d3",
+    "first_bug": 11,
+    "runs": 11
+  },
+  {
+    "seed": 100,
+    "strategy": "pct-d3",
+    "first_bug": 10,
+    "runs": 10
+  }
+]

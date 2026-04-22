@@ -1,0 +1,18 @@
+[
+  {
+    "Run": 1,
+    "Parent": -1,
+    "BranchStep": -1,
+    "NonFIFO": 0,
+    "Passed": true,
+    "TraceLen": 4
+  },
+  {
+    "Run": 2,
+    "Parent": 0,
+    "BranchStep": 0,
+    "NonFIFO": 1,
+    "Passed": false,
+    "TraceLen": 2
+  }
+]

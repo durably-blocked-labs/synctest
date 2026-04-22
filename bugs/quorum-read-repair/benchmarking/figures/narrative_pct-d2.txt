@@ -1,0 +1,190 @@
+======================================================================
+Bug-Finding Trace: pct-d2, Run 12
+Total decisions: 144
+======================================================================
+
+Step   0: [LOCAL  R1]     Run B4  from [B1, B3, B4, B5, B6]  [chose 2 of 5] ** NON-FIFO **
+Step   1: [LOCAL  R1]     Run B5  from [B1, B3, B5, B6]  [chose 2 of 4] ** NON-FIFO **
+Step   2: [LOCAL  R1]     Run B1  from [B1, B3, B6]  [chose 0 of 3]
+Step   3: [LOCAL  R1]     Run B3  from [B3, B6]  [chose 0 of 2]
+Step   4: [LOCAL  R1]     Run B6  from [B6]  [chose 0 of 1]
+Step   5: [LOCAL  R2]     Run B4  from [B1, B3, B4, B5, B6]  [chose 2 of 5] ** NON-FIFO **
+Step   6: [LOCAL  R2]     Run B5  from [B1, B3, B5, B6]  [chose 2 of 4] ** NON-FIFO **
+Step   7: [LOCAL  R2]     Run B1  from [B1, B3, B6]  [chose 0 of 3]
+Step   8: [LOCAL  R2]     Run B3  from [B3, B6]  [chose 0 of 2]
+Step   9: [LOCAL  R2]     Run B6  from [B6]  [chose 0 of 1]
+Step  10: [LOCAL  R3]     Run B4  from [B1, B3, B4, B5, B6]  [chose 2 of 5] ** NON-FIFO **
+Step  11: [LOCAL  R3]     Run B5  from [B1, B3, B5, B6]  [chose 2 of 4] ** NON-FIFO **
+Step  12: [LOCAL  R3]     Run B1  from [B1, B3, B6]  [chose 0 of 3]
+Step  13: [LOCAL  R3]     Run B3  from [B3, B6]  [chose 0 of 2]
+Step  14: [LOCAL  R3]     Run B6  from [B6]  [chose 0 of 1]
+Step  15: [LOCAL  C1]     Run B3  from [B3]  [chose 0 of 1]
+Step  16: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
+Step  17: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  18: [GLOBAL #1]  Deliver C1→R2(Put)  [chose 1 of 3] ** NON-FIFO **
+Step  19: [LOCAL  R2]     Run B3  from [B3]  [chose 0 of 1]
+Step  20: [LOCAL  R2]     Run B4  from [B4]  [chose 0 of 1]
+Step  21: [LOCAL  R2]     Run B5  from [B5]  [chose 0 of 1]
+Step  22: [GLOBAL #2]  Deliver R2→C1(PutAck)  [chose 2 of 3] ** NON-FIFO **
+Step  23: [LOCAL  C1]     Run B3  from [B3]  [chose 0 of 1]
+Step  24: [LOCAL  C1]     Run B2  from [B2]  [chose 0 of 1]
+Step  25: [GLOBAL #3]  Deliver C1→R3(Put)  [chose 1 of 2] ** NON-FIFO **
+Step  26: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step  27: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step  28: [LOCAL  R3]     Run B5  from [B5]  [chose 0 of 1]
+Step  29: [GLOBAL #4]  Deliver R3→C1(PutAck)  [chose 1 of 2] ** NON-FIFO **
+Step  30: [LOCAL  C1]     Run B3  from [B3]  [chose 0 of 1]
+Step  31: [LOCAL  C1]     Run B2  from [B2]  [chose 0 of 1]
+Step  32: [GLOBAL #5]  Deliver C1→R1(Put)  [chose 0 of 1]
+Step  33: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step  34: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step  35: [LOCAL  R1]     Run B5  from [B5]  [chose 0 of 1]
+Step  36: [GLOBAL #6]  Deliver R1→C1(PutAck)  [chose 0 of 1]
+Step  37: [LOCAL  C1]     Run B3  from [B3]  [chose 0 of 1]
+Step  38: [LOCAL  C1]     Run B2  from [B2]  [chose 0 of 1]
+Step  39: [LOCAL  C1]     Run B1  from [B1]  [chose 0 of 1]
+Step  40: [GLOBAL #7]  Deliver C1→Reader(Control)  [chose 1 of 2] ** NON-FIFO **
+Step  41: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  42: [LOCAL  Reader]     Run B2  from [B2]  [chose 0 of 1]
+Step  43: [GLOBAL #8]  Deliver C1→C2(Control)  [chose 0 of 1]
+Step  44: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
+Step  45: [LOCAL  C2]     Run B2  from [B2]  [chose 0 of 1]
+Step  46: [GLOBAL #9]  Deliver C2→R2(Put)  [chose 0 of 2]
+Step  47: [LOCAL  R2]     Run B3  from [B3]  [chose 0 of 1]
+Step  48: [LOCAL  R2]     Run B4  from [B4]  [chose 0 of 1]
+Step  49: [LOCAL  R2]     Run B5  from [B5]  [chose 0 of 1]
+Step  50: [GLOBAL #10]  Deliver R2→C2(PutAck)  [chose 1 of 2] ** NON-FIFO **
+Step  51: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
+Step  52: [LOCAL  C2]     Run B2  from [B2]  [chose 0 of 1]
+Step  53: [GLOBAL #11]  Deliver C2→R3(Put)  [chose 0 of 1]
+Step  54: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step  55: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step  56: [LOCAL  R3]     Run B5  from [B5]  [chose 0 of 1]
+Step  57: [GLOBAL #12]  Deliver R3→C2(PutAck)  [chose 0 of 1]
+Step  58: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
+Step  59: [LOCAL  C2]     Run B2  from [B2]  [chose 0 of 1]
+Step  60: [LOCAL  C2]     Run B1  from [B1]  [chose 0 of 1]
+Step  61: [GLOBAL #13]  Deliver C2→Reader(Control)  [chose 0 of 2]
+Step  62: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  63: [LOCAL  Reader]     Run B2  from [B2]  [chose 0 of 1]
+Step  64: [GLOBAL #14]  Deliver Reader→R1(Get)  [chose 1 of 4] ** NON-FIFO **
+Step  65: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step  66: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step  67: [GLOBAL #15]  Deliver R1→Reader(GetResp)  [chose 3 of 4] ** NON-FIFO **
+Step  68: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  69: [LOCAL  Reader]     Run B2  from [B2]  [chose 0 of 1]
+Step  70: [GLOBAL #16]  Deliver Reader→R2(Get)  [chose 1 of 3] ** NON-FIFO **
+Step  71: [LOCAL  R2]     Run B3  from [B3]  [chose 0 of 1]
+Step  72: [LOCAL  R2]     Run B4  from [B4]  [chose 0 of 1]
+Step  73: [GLOBAL #17]  Deliver R2→Reader(GetResp)  [chose 2 of 3] ** NON-FIFO **
+Step  74: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  75: [LOCAL  Reader]     Run B2  from [B2]  [chose 0 of 1]
+Step  76: [GLOBAL #18]  Deliver Reader→R1(Get)  [chose 4 of 7] ** NON-FIFO **
+Step  77: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step  78: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step  79: [GLOBAL #19]  Deliver R1→Reader(GetResp)  [chose 6 of 7] ** NON-FIFO **
+Step  80: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  81: [LOCAL  Reader]     Run B2  from [B2]  [chose 0 of 1]
+Step  82: [GLOBAL #20]  Deliver Reader→R2(Get)  [chose 4 of 6] ** NON-FIFO **
+Step  83: [LOCAL  R2]     Run B3  from [B3]  [chose 0 of 1]
+Step  84: [LOCAL  R2]     Run B4  from [B4]  [chose 0 of 1]
+Step  85: [GLOBAL #21]  Deliver R2→Reader(GetResp)  [chose 5 of 6] ** NON-FIFO **
+Step  86: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  87: [LOCAL  Reader]     Run B2  from [B2]  [chose 0 of 1]
+Step  88: [LOCAL  Reader]     Run B1  from [B1]  [chose 0 of 1]
+Step  89: [GLOBAL #22]  Deliver Reader→R3(Repair)  [chose 3 of 7] ** NON-FIFO **
+Step  90: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step  91: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step  92: [LOCAL  R3]     Run B6  from [B6]  [chose 0 of 1]
+Step  93: [GLOBAL #23]  Deliver R3→Reader(RepairAck)  [chose 6 of 7] ** NON-FIFO **
+Step  94: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step  95: [GLOBAL #24]  Deliver Reader→R3(Repair)  [chose 5 of 6] ** NON-FIFO **
+Step  96: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step  97: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step  98: [LOCAL  R3]     Run B6  from [B6]  [chose 0 of 1]
+Step  99: [GLOBAL #25]  Deliver R3→Reader(RepairAck)  [chose 5 of 6] ** NON-FIFO **
+Step 100: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step 101: [GLOBAL #26]  Deliver Reader→R1(Repair)  [chose 2 of 5] ** NON-FIFO **
+Step 102: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step 103: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step 104: [LOCAL  R1]     Run B6  from [B6]  [chose 0 of 1]
+Step 105: [GLOBAL #27]  Deliver R1→Reader(RepairAck)  [chose 4 of 5] ** NON-FIFO **
+Step 106: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step 107: [GLOBAL #28]  Deliver Reader→R1(Repair)  [chose 3 of 4] ** NON-FIFO **
+Step 108: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step 109: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step 110: [LOCAL  R1]     Run B6  from [B6]  [chose 0 of 1]
+Step 111: [GLOBAL #29]  Deliver R1→Reader(RepairAck)  [chose 3 of 4] ** NON-FIFO **
+Step 112: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step 113: [GLOBAL #30]  Deliver Reader→R3(Get)  [chose 1 of 3] ** NON-FIFO **
+Step 114: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step 115: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step 116: [GLOBAL #31]  Deliver R3→Reader(GetResp)  [chose 2 of 3] ** NON-FIFO **
+Step 117: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step 118: [GLOBAL #32]  Deliver Reader→R3(Get)  [chose 1 of 2] ** NON-FIFO **
+Step 119: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step 120: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step 121: [GLOBAL #33]  Deliver R3→Reader(GetResp)  [chose 1 of 2] ** NON-FIFO **
+Step 122: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+Step 123: [GLOBAL #34]  Deliver C2→R1(Put)  [chose 0 of 1]
+Step 124: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step 125: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step 126: [LOCAL  R1]     Run B5  from [B5]  [chose 0 of 1]
+Step 127: [GLOBAL #35]  Deliver R1→C2(PutAck)  [chose 0 of 1]
+Step 128: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
+Step 129: [LOCAL  R1]     Run B3  from [B3]  [chose 0 of 1]
+Step 130: [LOCAL  R1]     Run B4  from [B4]  [chose 0 of 1]
+Step 131: [LOCAL  R1]     Run B5  from [B5, B6]  [chose 0 of 2]
+Step 132: [LOCAL  R1]     Run B6  from [B6]  [chose 0 of 1]
+Step 133: [LOCAL  R2]     Run B3  from [B3]  [chose 0 of 1]
+Step 134: [LOCAL  R2]     Run B4  from [B4]  [chose 0 of 1]
+Step 135: [LOCAL  R2]     Run B5  from [B5, B6]  [chose 0 of 2]
+Step 136: [LOCAL  R2]     Run B6  from [B6]  [chose 0 of 1]
+Step 137: [LOCAL  R3]     Run B3  from [B3]  [chose 0 of 1]
+Step 138: [LOCAL  R3]     Run B4  from [B4]  [chose 0 of 1]
+Step 139: [LOCAL  R3]     Run B5  from [B5, B6]  [chose 0 of 2]
+Step 140: [LOCAL  R3]     Run B6  from [B6]  [chose 0 of 1]
+Step 141: [LOCAL  C1]     Run B3  from [B3]  [chose 0 of 1]
+Step 142: [LOCAL  C2]     Run B3  from [B3]  [chose 0 of 1]
+Step 143: [LOCAL  Reader]     Run B3  from [B3]  [chose 0 of 1]
+
+======================================================================
+RESULT: BUG FOUND on run 12
+  Global decisions: 35
+  Local decisions:  109
+  Non-FIFO choices: 32
+
+Key non-FIFO decisions:
+  Step 0: LOCAL   node=R1  B4 from [B1, B3, B4, B5, B6]  [index 2 of 5]
+  Step 1: LOCAL   node=R1  B5 from [B1, B3, B5, B6]  [index 2 of 4]
+  Step 5: LOCAL   node=R2  B4 from [B1, B3, B4, B5, B6]  [index 2 of 5]
+  Step 6: LOCAL   node=R2  B5 from [B1, B3, B5, B6]  [index 2 of 4]
+  Step 10: LOCAL   node=R3  B4 from [B1, B3, B4, B5, B6]  [index 2 of 5]
+  Step 11: LOCAL   node=R3  B5 from [B1, B3, B5, B6]  [index 2 of 4]
+  Step 18: GLOBAL  Deliver C1→R2(Put)  [index 1 of 3]
+  Step 22: GLOBAL  Deliver R2→C1(PutAck)  [index 2 of 3]
+  Step 25: GLOBAL  Deliver C1→R3(Put)  [index 1 of 2]
+  Step 29: GLOBAL  Deliver R3→C1(PutAck)  [index 1 of 2]
+  Step 40: GLOBAL  Deliver C1→Reader(Control)  [index 1 of 2]
+  Step 50: GLOBAL  Deliver R2→C2(PutAck)  [index 1 of 2]
+  Step 64: GLOBAL  Deliver Reader→R1(Get)  [index 1 of 4]
+  Step 67: GLOBAL  Deliver R1→Reader(GetResp)  [index 3 of 4]
+  Step 70: GLOBAL  Deliver Reader→R2(Get)  [index 1 of 3]
+  Step 73: GLOBAL  Deliver R2→Reader(GetResp)  [index 2 of 3]
+  Step 76: GLOBAL  Deliver Reader→R1(Get)  [index 4 of 7]
+  Step 79: GLOBAL  Deliver R1→Reader(GetResp)  [index 6 of 7]
+  Step 82: GLOBAL  Deliver Reader→R2(Get)  [index 4 of 6]
+  Step 85: GLOBAL  Deliver R2→Reader(GetResp)  [index 5 of 6]
+  Step 89: GLOBAL  Deliver Reader→R3(Repair)  [index 3 of 7]
+  Step 93: GLOBAL  Deliver R3→Reader(RepairAck)  [index 6 of 7]
+  Step 95: GLOBAL  Deliver Reader→R3(Repair)  [index 5 of 6]
+  Step 99: GLOBAL  Deliver R3→Reader(RepairAck)  [index 5 of 6]
+  Step 101: GLOBAL  Deliver Reader→R1(Repair)  [index 2 of 5]
+  Step 105: GLOBAL  Deliver R1→Reader(RepairAck)  [index 4 of 5]
+  Step 107: GLOBAL  Deliver Reader→R1(Repair)  [index 3 of 4]
+  Step 111: GLOBAL  Deliver R1→Reader(RepairAck)  [index 3 of 4]
+  Step 113: GLOBAL  Deliver Reader→R3(Get)  [index 1 of 3]
+  Step 116: GLOBAL  Deliver R3→Reader(GetResp)  [index 2 of 3]
+  Step 118: GLOBAL  Deliver Reader→R3(Get)  [index 1 of 2]
+  Step 121: GLOBAL  Deliver R3→Reader(GetResp)  [index 1 of 2]
+======================================================================

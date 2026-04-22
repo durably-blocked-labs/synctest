@@ -68,6 +68,30 @@ cd $GOROOT/src/testing/synctest
 go test -v
 ```
 
+## Benchmarking And Charts
+
+Run package-local benchmarks and render charts in one command:
+
+```bash
+make benchmark-charts pkg=bugs/ra-gate
+```
+
+This runs all `TestBench_` tests in the target package and writes output under that package:
+
+```text
+<pkg>/benchmarking/data
+<pkg>/benchmarking/figures
+```
+
+Example output paths for `bugs/ra-gate`:
+
+```text
+bugs/ra-gate/benchmarking/data
+bugs/ra-gate/benchmarking/figures
+```
+
+The target is package-path based, so it is agnostic to the specific benchmark test file name as long as the package contains `TestBench_` tests.
+
 ## Research Phases
 
 | Phase | Weeks | Goal |
