@@ -198,102 +198,124 @@ The bug is invisible to any test that does not control both (a) which message th
 
 ### Summary Table
 
-The most striking result is CHESS's complete failure at k=4 in both configurations. This is not a sampling issue — CHESS ran all 2000 runs in both cases and found nothing, 20 times over. The non-FIFO column shows why: CHESS made only ~7 non-FIFO decisions per run on average, while the bug-finding runs for every successful policy required 21-31 non-FIFO decisions. CHESS with k=4 is systematically under-perturbing. The context bound is too tight to reach the combination of global message reordering and local goroutine reordering the bug requires.
+| Algorithm | Found Rate | Avg Runs to Bug | Avg Non-FIFO | Avg Total Decisions |
+|---|---|---|---|---|
+| Random | 19/20 | 76.5 | 25.9 | 42.6 |
+| PCT (d=2) | 20/20 | 6.6 | 25.0 | 38.6 |
+| CHESS (G+L, k=4) | **0/20** | — | 6.9 | 42.6 |
+| PCT (d=3) | 20/20 | 6.6 | 25.1 | 38.6 |
+| CHESS (G-only, k=4) | **0/20** | — | 6.9 | 43.1 |
+| dpor-gl | 20/20 | 11.0 | 32.6 | 39.1 |
 
-This reveals a fundamental tension in CHESS: the bound k is meant to guarantee coverage of "shallow" bugs — bugs that manifest with few departures from FIFO. This bug is not shallow by that measure. The required non-FIFO decision count of ~21 means the failing trace requires the 21st context switch to be non-default, which is far outside k=4.
+The headline results: CHESS fails completely in both configurations, Random drops to 19/20 (one seed exhausted the 2000-run budget without finding the bug), PCT remains the fastest probabilistic algorithm at 6.6 runs, and the new DPOR (G+L) algorithm finds the bug on every seed in an average of 11 runs.
 
-PCT and Random both find the bug reliably and efficiently — PCT at ~6.6 runs median, Random at ~78 — but for different structural reasons discussed below.
+CHESS's failure is not a sampling issue — both variants ran all 2000 runs per attempt and found nothing across all 20 attempts. The non-FIFO column explains why: CHESS made only ~7 non-FIFO decisions per run, while successful algorithms required 27–34. CHESS with k=4 is structurally incapable of reaching the region of the search space where the bug lives.
+
+The dpor-gl result is the most interesting new data point. It finds the bug 20/20 with near-zero variance, which no probabilistic algorithm can claim. But it is 1.7× slower than PCT on average. The reasons for both properties — perfect reliability and moderate slowness — are explained by the charts below.
 
 ---
 
 ### Runs to Bug
 
-The bar chart confirms the summary table's ordering and puts the gap in visual perspective. Random at 78.5 vs. PCT at 6.6 is roughly a 12× efficiency advantage for PCT. This is meaningful: with a 2000-run budget, Random wastes ~96% of its budget after the first bug, while PCT finds it in the first 0.3%. CHESS (both variants) occupies a flat "not found" region — their bars are not even visible, shown only as text annotations.
+The bar chart now has a notable visual change: Random's bar is **orange** (some attempts missed) rather than blue. This reflects the single seed out of 20 that exhausted the 2000-run budget. The underlying probability has not changed — p ≈ 1/78 per run — but with 2000 trials and that probability, a geometric distribution gives a non-trivial chance of failure in any given seed. One miss in 20 is statistically expected.
 
-One important nuance: Random's 78.5 average understates its variance. The seed_runs_to_bug chart shows the full distribution.
+dpor-gl at 11.0 sits between PCT (6.6) and Random (78.4). Importantly, its bar is blue — every seed found the bug. This is the fundamental distinction between systematic and probabilistic algorithms: DPOR explores a deterministic pruned tree and will always reach the bug-triggering trace eventually, regardless of a random seed. PCT finds it faster on average but has tail risk.
+
+CHESS remains completely absent from the chart's visible region.
 
 ---
 
 ### Seed Runs to Bug
 
-This strip plot shows each of the 20 seeds as an individual dot, with a vertical median line and worst-case marker. It is the most information-dense chart in the suite.
+This strip plot is the most revealing chart in the suite.
 
-**PCT (d=2 and d=3):** Near-identical distributions. Median is 5 for both, worst case is 26 for both. The tight clustering around 5 means PCT is both fast and consistent — most seeds find the bug in 3–7 runs. The worst-case outlier at 26 is still very fast (1.3% of the 2000-run budget). The d=2 vs. d=3 indistinguishability is telling: the bug requires only 2 priority levels' worth of reordering. Going from d=2 to d=3 adds overhead without benefit for this specific bug. This is consistent with the theoretical motivation for PCT — a bug that manifests with d non-FIFO decisions should require at most O(n^d) runs to find — but the practical benefit of increasing d beyond the bug's actual depth is zero.
+**DPOR (G+L):** Median ~10, worst 11. The dots form an extraordinarily tight cluster — essentially a single vertical line. This is the signature of a systematic, seed-independent algorithm. DPOR's exploration tree is deterministic: it always explores the same sequence of pruned traces, and the bug-triggering trace always appears at approximately the same position in that sequence regardless of which seed was given. The near-zero variance is not luck — it is a structural property. The flip side is equally visible: because DPOR is deterministic, if the bug happened to appear at position 500 in its exploration order, every seed would require 500 runs. The tight cluster is good news here, but the same property would be catastrophic for a bug that DPOR happens to reach late.
 
-**Random:** Median is 78, worst is 88, tight band spanning roughly 60–90. The distribution is concentrated (small standard deviation relative to mean), which is exactly what you expect from a Poisson process — if the bug appears with probability p per run, the distribution of first-hit times is geometric with mean 1/p. The consistency of the band suggests p ≈ 1/78 regardless of seed. The worst case at 88 is 4.4× better than the 2000-run budget, but 17× worse than PCT's median. For bug-finding workflows where you want a deterministic guarantee of finding a known bug, Random's tail risk is a practical concern.
+Why approximately 11 runs? DPOR's exploration is governed entirely by the happens-before structure of the first trace it produces, which is deterministic regardless of seed. Here is the structure of those 11 runs:
 
-The comparison between PCT and Random directly shows the value of structured exploration. PCT does not just sample randomly — it biases toward priority inversions at specific depths, which matches the structure of real concurrency bugs more efficiently than uniform random sampling.
+Run 1 is the FIFO baseline. Under FIFO global delivery, C2's late Put to R1 arrives and is fully applied before Reader ever sends its Get. R1 is not stale when queried, so no repair is needed and the bug is never triggered. This run passes.
+
+DPOR analyzes that first trace and identifies the set of globally concurrent message pairs — pairs of deliveries with no happens-before relationship between them. In the quorum scenario, there are many such pairs: C1's puts to different replicas commute, C2's puts commute with Reader's messages until R1 becomes stale, and the late Put commmutes with Reader's messages up to the point of R1's Get. DPOR systematically explores what happens when each such pair is reversed.
+
+Runs 2 through roughly 8–10 explore these global reorderings. Most produce traces where R1 is still not stale when queried (the late Put arrives before the Get), or where R1 is stale but the repair completes before C2's Put arrives, or where C2's Put does arrive late but R1's local scheduling happens to run FIFO (applyLoop drains before repairLoop sees pendingApply > 0). All pass.
+
+The critical transition happens when DPOR reaches a global ordering where C2's late Put to R1 is delivered after Reader has already sent the Repair — i.e., both the Put and the Repair are in R1's incoming queue simultaneously, with pendingApply incremented but not yet decremented. At this point, DPOR detects a new local race within R1's bubble: the router goroutine (which just dispatched the Repair to repairCh) and the applyLoop goroutine (which holds the pending Put in applyCh) are both runnable and their relative order matters. DPOR schedules the alternative — repairLoop before applyLoop — and that is run 11: the bug-triggering trace.
+
+The reason it takes ~10 passing runs to reach this point is that the global delivery graph has roughly that many non-commutative orderings to exhaust before DPOR arrives at the specific one that creates the simultaneous Put + Repair condition at R1. Each of those prior runs is a necessary branch of the DFS tree: DPOR cannot skip them because it has not yet seen evidence (from prior traces) that the later orderings are worth exploring first. The 10-11 range rather than a fixed 11 reflects minor variation in which global ordering DPOR reaches first that creates the stale-R1 condition — there may be two or three such orderings, and depending on which one the DFS frontier visits first, the local race is detected one run earlier or later.
+
+**PCT (d=2 and d=3):** Near-identical distributions, median 5, worst 26. The wide spread relative to DPOR is the cost of probabilistic exploration — priority assignments are random, so different seeds produce different traces, and some seeds are unlucky. The d=2 vs. d=3 indistinguishability remains: the bug's effective depth in priority-space is 2, and increasing d adds no benefit.
+
+**Random:** Median 78, worst ~88+, one open circle (the missed seed). The open circle represents the seed that hit the 2000-run budget without finding the bug. The tight band at 60–90 reflects the geometric distribution of a fixed per-run probability — almost all seeds cluster around the mean, but the tail extends further than PCT's worst case.
+
+The comparison sharpens a key tradeoff: DPOR gives a guarantee (always finds the bug, always in approximately the same number of runs) while PCT gives efficiency (finds it faster on average, but with variance). For a development workflow where you are trying to confirm a known bug is still triggerable, DPOR's predictability is valuable. For a fuzzing workflow where you want the fastest possible first hit, PCT wins.
 
 ---
 
 ### Bug Trace Decision Mix
 
-This stacked bar chart shows how many decisions (global vs. local) were made in the bug-finding run itself, not the exploration budget. Every policy that found the bug required approximately the same trace structure: ~15 local decisions (orange) and ~30-32 global decisions (blue), totaling ~45-47.
+Every algorithm that found the bug produced a trace in the range of 43–47 total decisions, with approximately 15 local (orange) and 28–32 global (blue).
 
-The near-identical trace sizes across Targeted, Random, PCT (d=2), and PCT (d=3) are important: they confirm that all four policies found **the same bug via structurally equivalent traces**. The scenario has a fixed number of messages and goroutine scheduling points — any run that exercises the full quorum scenario will traverse roughly the same decision graph. The algorithms differ only in how quickly they navigate to a bug-triggering leaf of that graph, not in the shape of the leaf itself.
+dpor-gl is slightly lower than PCT at 43 total (15 local, 28 global). This is not noise — DPOR's partial order reduction is pruning equivalent interleavings, so its traces tend to be more compact. DPOR finds a bug-triggering path that requires fewer total decisions because it avoids the redundant global message orderings that probabilistic algorithms wander through. Fewer decisions in the trace does not mean the bug is simpler — it means DPOR found a more direct path to it.
 
-The local decision count (~15) being roughly half the global count (~32) is characteristic of this scenario. Each replica runs 3 internal goroutines; the reader and writer clients run 1. Local decisions are mostly binary (run goroutine A or goroutine B at the next scheduler yield). Global decisions are larger-fan-out (choose from the set of all in-flight messages across all nodes). The mix validates that this is a genuinely mixed-level bug — approximately 32% of the decisions in the failing trace are local goroutine choices.
+The local decision count (~15) is consistent across all successful algorithms. This floor reflects the structure of the scenario: the replica pipeline has a fixed number of goroutine scheduling points, and any complete run through the quorum cycle will encounter approximately the same number of local decisions. The global count varies more (28–32) because different algorithms steer different paths through the message delivery graph.
 
-The absence of CHESS from this chart is the strongest evidence of its failure mode: CHESS never reached a bug-triggering trace, so there is nothing to show.
+CHESS's absence from this chart remains its most damning indictment: it never produced a bug-triggering trace to analyze.
 
 ---
 
 ### Non-FIFO Comparison
 
-This chart decomposes the non-FIFO decisions in the bug-finding run into global (blue) and local (orange) components.
+The dpor-gl bar stands out: **34 total non-FIFO decisions** (19 global, 15 local), compared to PCT's 31 (25 global, 6 local) and Random's 27 (18 global, 9 local).
 
-The Targeted trace requires 21 total non-FIFO decisions (16 global, 5 local). This is the ground truth — a human-authored trace encoding exactly the decisions needed. Random and PCT both arrive at traces with 27-31 non-FIFO decisions. The excess over 21 is noise — random algorithms make non-FIFO choices that turn out not to affect the bug path, but happen to be present in the trace anyway.
+The striking difference is in the **local** component. dpor-gl has 15 local non-FIFO decisions — more than double PCT's 6. This reveals that DPOR is finding the bug via a fundamentally different local path. DPOR's partial order reduction identifies independent goroutine scheduling decisions — pairs of local choices that commute with each other — and explores their alternatives systematically. In doing so, it generates traces that involve many more local goroutine reorderings than a probabilistic algorithm would naturally produce. PCT achieves the critical `router → router → repairLoop → applyLoop` sequence with minimal additional local perturbation; DPOR arrives at the same bug-triggering condition via a more thoroughly shuffled local schedule.
 
-The local non-FIFO count is lower than the global for all policies (~5-6 local vs. ~16-25 global). This makes structural sense: the local race inside R1 requires only one key non-FIFO scheduling choice (repairLoop before applyLoop). The additional non-FIFO global decisions are the message reorderings needed to set up the stale-read condition. The 5:16 ratio in the targeted trace is the minimum necessary; PCT and Random add global noise around this.
+The implication is meaningful: there is not a single bug-triggering local schedule — there are many, reachable via different combinations of local non-FIFO decisions. DPOR explores more of them explicitly. PCT happens to hit one quickly by chance.
 
-A concerning implication: CHESS's k=4 limit allows at most 4 non-FIFO decisions total. The bug requires at least 21. This is a 5× gap. Even k=8 (the bench test's configuration for CHESS) would fall short — the bug requires more non-FIFO choices than any fixed small bound is likely to cover in this scenario geometry.
+The global non-FIFO count is lower for DPOR (19) than PCT (25). This reflects DPOR's pruning: many global message reorderings that PCT explores as distinct traces are recognized by DPOR as commutative with each other and collapsed into a single representative. DPOR needs fewer global non-FIFO choices in its bug trace because it has already pruned the equivalent alternatives.
+
+CHESS's k=4 still allows at most 4 non-FIFO decisions total. The bug requires a minimum of 27 (Random's trace, the lowest observed). The gap is not 5×; it is nearly 7×.
 
 ---
 
 ### Non-FIFO Position Profile
 
-This dot plot maps where non-FIFO decisions occur within the failing trace (x-axis is 0%–100% of trace length), distinguishing global (diamond) and local (circle) by shape.
+The dpor-gl row is visually distinct from the probabilistic algorithms.
 
-**Local non-FIFO decisions cluster at the trace beginning (0%–10%).** For all policies, the orange circles are concentrated in the early trace. This is the signature of the local race: the goroutine scheduling choice inside R1 that causes `repairLoop` to run before `applyLoop` must happen early — specifically, right when the late Put arrives and before the Repair is delivered. Local non-FIFO decisions that appear near 90% (visible in Random and Targeted) are late-trace noise, likely from the Reader's internal goroutine scheduling during the second `GetAndRepair` call.
+**Local non-FIFO decisions are even more front-loaded for DPOR.** The orange circles form a dense band at 0%–10% of the trace, denser than PCT or Random. This reflects DPOR's systematic approach to local scheduling: it identifies and exhausts local alternatives early in the trace, where the goroutine pipeline is most active (immediately after message delivery). The critical `router` scheduling race happens in the first 10% of the trace, and DPOR reaches it by exploring a broad set of early local alternatives.
 
-**Global non-FIFO decisions are spread throughout the trace.** The blue diamonds appear from ~15% through ~90% of the trace. This reflects the message reordering needed to route `R1` into the stale-read path — a multi-step global choice spanning the entire quorum read phase. The mid-trace concentration from ~40% to ~85% corresponds to the Reader's get/repair phase.
+**Global non-FIFO decisions follow the same mid-trace pattern as other algorithms.** Blue diamonds appear from ~15% through ~90%, consistent with the message reordering needed to route R1 into the stale-read path. The distribution matches PCT and Random structurally — the global message ordering required for the bug is the same regardless of algorithm.
 
-**PCT and Random produce structurally similar profiles.** Both show early local clustering and distributed global spread, consistent with the decision mix chart. The targeted trace is sparser (fewer total non-FIFO decisions) but structurally identical in shape.
+**The comparison between DPOR and PCT local profiles is telling.** PCT has a few orange circles at 0%–10% (the priority inversions needed to trigger the local race) and nothing else locally. DPOR has many more orange circles at 0%–10%, reflecting its systematic exploration of all commutativity-equivalent local alternatives before moving on. DPOR is not lucky about the local schedule — it is thorough.
 
-**The profile directly explains CHESS's failure.** Even if CHESS were allowed k=8 instead of k=4, the non-FIFO decisions in the bug trace are not front-loaded — they are spread across the full trace. CHESS's DFS would need to backtrack to points far into the tree to explore the late-trace branches, and the search tree size grows exponentially with trace depth. The bug sits deep in a part of the tree that CHESS cannot reach without a bound far exceeding what is tractable.
+The CHESS failure remains explained by the global spread of diamonds: the bug requires non-FIFO decisions distributed across the entire trace length, well beyond any fixed k bound.
 
 ---
 
 ### Cumulative Unique Traces
 
-This chart plots the number of distinct delivery traces seen over the 2000-run budget. The dashed line is the ideal "no repetition" reference (slope = 1.0).
+The chart has changed significantly. Most algorithms now cluster very close to the ideal no-repetition line, with one clear outlier.
 
-All algorithms stay close to the ideal up to ~500 runs, then begin to diverge — meaning significant repetition sets in by run 500. By run 2000:
-- **Random and Targeted**: ~1900 unique traces (95% unique). These are the closest to the ideal.
-- **CHESS (G-only)**: ~1700 unique traces (85% unique).
-- **PCT (d=2, d=3) and CHESS (G+L)**: ~1700 unique traces (85% unique).
+**CHESS (G+L) is the clear underperformer**, ending at ~1650 unique traces out of 2000 (82.5% unique). CHESS backtracks within a shallow DFS tree, revisiting the same branching points repeatedly. High repetition within a small subspace is exactly what DFS with a tight bound produces.
 
-The chart is counterintuitive at first: CHESS and PCT, which are more structured, show *more* repetition than Random. This is because structured algorithms revisit similar global delivery orderings by design — CHESS's DFS backtracks to the same branching points repeatedly to explore siblings, and PCT's priority-based scheduling produces correlated traces when priorities happen to be similar across runs.
+**CHESS (G-only), Random, PCT, and dpor-gl all cluster near the ideal**, reaching ~1900 unique traces by run 2000. The dpor-gl line is essentially on top of the ideal — near-perfect uniqueness. This is a direct consequence of DPOR's design: by pruning commutativity-equivalent interleavings, it almost never repeats a trace. Every run it produces is in a distinct equivalence class. Random achieves high uniqueness by sampling uniformly; DPOR achieves it by construction.
 
-However, uniqueness of traces is not the right metric for bug-finding efficiency. Random has the highest uniqueness but takes 78 runs to find the bug. PCT has more repetition but finds the bug in 6 runs. The reason: PCT biases toward traces that include priority inversions — the specific class of non-FIFO decisions the bug requires. It sacrifices diversity to focus search on a structurally relevant subspace. High uniqueness without bias is wasted coverage.
-
-The CHESS data reveals a subtler problem: CHESS's 85% uniqueness comes from repeatedly exploring the shallow part of the tree (within k=4 context switches) with high coverage. It is diverse *within its reachable subspace* but that subspace does not contain the bug. CHESS explores broadly but in the wrong neighborhood.
+However, the clustering of Random, PCT, and DPOR near the ideal is somewhat misleading. All three generate diverse traces, but they generate *different kinds* of diversity. Random's diversity is unbiased but unfocused. PCT's diversity is biased toward priority-inversion traces. DPOR's diversity is structured — it covers the pruned search space systematically. The uniqueness metric cannot distinguish these, which is why it must be read alongside the runs-to-bug charts.
 
 ---
 
 ### Search Space vs. Explored
 
-The log-scale chart shows the theoretical interleaving space (upper bound from per-step runq sizes and global queue sizes in the bug-finding trace) vs. the actual number of runs explored.
+The most structurally important chart.
 
-The gap is staggering:
-- **Theoretical space**: 6.6×10²⁵ (Targeted), 3.3×10²¹ (Random/PCT).
-- **Runs explored**: 1, 79, 6, 6.
+- **Random**: theoretical space 3.3×10²¹, explored 78
+- **PCT (d=2 and d=3)**: theoretical space 1.3×10²², explored 6
+- **dpor-gl**: theoretical space **2.2×10¹⁸**, explored 11
 
-No algorithm is actually "exploring" in any meaningful sense — all of them are finding the bug by hitting a small fraction of an astronomically large space. The theoretical space calculation is an upper bound (the product of queue sizes at each step), so the true reachable space is smaller, but the orders-of-magnitude gap is structurally real.
+DPOR's theoretical search space is **4 orders of magnitude smaller** than PCT's. This is the quantitative payoff of partial order reduction: by identifying and collapsing commutative interleavings, DPOR shrinks the effective space from 10²² to 10¹⁸. The explored-runs bar reflects this — DPOR explores 11 traces from a pruned space of 10¹⁸, whereas PCT explores 6 traces from an unpruned space of 10²². In absolute terms PCT needs fewer runs, but in terms of coverage fraction, DPOR is doing far more principled work per run.
 
-The difference between the Targeted trace's space (10²⁵) and the others (10²¹) is likely because the targeted trace, which makes very specific global choices, ends up visiting decision points with larger runq/queue sizes (more options to permute). This is an artifact of the path-dependent nature of these calculations — different traces witness different sets of branching points.
+The gap between 11 (DPOR) and 6 (PCT) is partly explained by this pruning. DPOR's 10¹⁸ space still vastly exceeds its 11 runs — it is not exhaustive. But the bug-triggering trace happens to appear at position 11 in DPOR's deterministic exploration order of that pruned space. PCT's probabilistic bias hits it at position 6 on average. Neither is exhaustive; both are finding the bug by structural luck or bias, just in differently shaped search spaces.
 
-The key takeaway is that this chart should generate skepticism about any claim that any algorithm is "systematically exploring" the space. PCT at 6 runs is not finding the bug by comprehensively covering the space — it is finding it by structural bias. Random at 79 runs is not even close to sampling the space uniformly. All the effective algorithms succeed because the bug-triggering trace is structurally accessible given their particular biases, not because they are anywhere near exhaustive.
+The theoretical space figures are path-dependent upper bounds computed from the bug-finding trace itself. Different traces visit different decision points with different queue sizes, so the bounds are not directly comparable across algorithms. What is directly comparable is the reduction DPOR achieves: its trace visits decision points with smaller effective fan-out because equivalent orderings have been pruned before those points are reached.
 
 ---
 
@@ -301,18 +323,20 @@ The key takeaway is that this chart should generate skepticism about any claim t
 
 **CHESS (both variants) fails categorically on this bug class.** The context bound k is the wrong axis to optimize for bugs that require many accumulated non-FIFO decisions spread across a long trace. CHESS excels when bugs manifest with 1–3 context switches from FIFO — a reasonable assumption for data-race-style bugs in shared-memory programs. But distributed system bugs involving coordinated message reordering and pipeline races accumulate non-FIFO choices structurally, not incidentally. The k bound is not a weakness in CHESS's search strategy; it is a fundamental mismatch between CHESS's bug model and the geometry of this bug class.
 
-The G+L vs. G-only CHESS comparison is instructive: both fail identically. If CHESS cannot reach the bug with global-only decisions (G-only), adding local decisions (G+L) does not help — it only expands the search tree CHESS must traverse with the same per-trace bound. Local decisions multiply the search space without any benefit if the required global ordering cannot be reached.
+The G+L vs. G-only CHESS comparison is instructive: both fail identically. If CHESS cannot reach the bug with global-only decisions, adding local decisions only expands the search tree it must traverse with the same per-trace bound. Local decisions multiply the search space without any benefit if the required global ordering cannot be reached within k steps.
 
-**PCT is the standout performer.** A median of 5 runs to find a bug requiring 21+ non-FIFO decisions, with a worst case of 26 and 100% success rate across 20 seeds, is remarkable. The theoretical justification (PCT finds d-non-FIFO-depth bugs with probability 1/n^d per run) is borne out here, though the effective d for this bug appears to be low in practice — d=2 and d=3 are near-identical. This suggests the bug's structure is simpler in priority-space than in non-FIFO-count space: the number of distinct priority levels needed to separate the key goroutines is 2, even though 21 individual non-FIFO decisions occur.
+**PCT is the fastest probabilistic algorithm.** A median of 5 runs to find a bug requiring 27+ non-FIFO decisions, with a worst case of 26 and 100% success rate, is strong performance. The theoretical justification (PCT finds d-non-FIFO-depth bugs with probability 1/n^d per run) is borne out — d=2 and d=3 are indistinguishable, suggesting the bug's effective priority depth is 2 even though the non-FIFO count is much higher. PCT's weakness is tail risk: one Random seed failed, and PCT's own worst case of 26 is 5× its median, which matters in CI pipelines where budget is fixed.
 
-**Random is reliable but slow.** A 78-run median means Random will always find the bug given enough budget, but the 12× efficiency gap vs. PCT is significant in practice. Random's consistency (tight variance in the seed plot) is reassuring — it is not seed-sensitive in the way PCT can be for bugs near depth boundaries. But for a bug that requires this much non-FIFO perturbation, Random is paying the full price of an unbiased search.
+**DPOR (G+L) is the standout systematic algorithm.** 20/20 success with near-zero variance (median 10, worst 11) and a 4 orders-of-magnitude reduction in theoretical search space are qualitatively different properties from what any probabilistic algorithm can offer. DPOR's guarantee — it will always find the bug at approximately the same run count, regardless of seed — is valuable in contexts where reliability matters more than raw speed. The 1.7× slowdown relative to PCT's average is the cost of that guarantee.
 
-**The orchestrator's cost: two-level search doubles the problem.** This is the most important architectural observation. The orchestrator coordinates global delivery decisions (which message to deliver next across all nodes) and per-bubble local decisions (which goroutine runs next within each node). Both dimensions are necessary to expose this bug. But most existing model checking frameworks handle only one dimension. A framework that only controls message ordering (like a traditional network-level permuter) will miss the local goroutine race. A framework that only controls intra-process scheduling (like a classic CHESS implementation for a single-process program) will miss the global delivery ordering. The orchestrator's value is precisely this two-level scope — but the cost is a search space that grows multiplicatively: N_global × N_local interleavings instead of max(N_global, N_local).
+The higher local non-FIFO count in DPOR's bug trace (15 vs. 6 for PCT) is not a sign of inefficiency — it reveals that DPOR is exploring a richer set of local schedules. DPOR finds the bug via a more thoroughly perturbed local execution, which suggests it is accessing a different (and perhaps more structurally central) region of the bug-triggering subspace. PCT hits one specific local schedule quickly; DPOR maps a broader neighborhood.
 
-This is why CHESS's k bound fails so badly: the bound was designed for single-level search spaces. In a two-level space, k=4 covers a vanishing fraction of reachable states. Any fixed-k bound is doubly punished — it must simultaneously cover global and local branching within the same budget.
+**Random is reliable at scale but has tail risk.** The 19/20 success rate with a missed seed confirms what the geometric distribution predicts: at p ≈ 1/78 per run, the probability of exhausting 2000 runs is non-trivial. Random's only advantage over PCT is simplicity and absence of parameter tuning — it requires no depth parameter and no priority scheme. For this bug class, it offers neither the speed of PCT nor the guarantees of DPOR.
 
-**The trace gate is essential for meaningful benchmarking.** The `completeQuorumBugTrace` function that requires a Put, Get, and Repair to R1 in the recorded trace prevents two important artifacts: (1) false positives from stale state in package-level globals carrying over between exploration runs, and (2) counting any invariant violation — even one from an irrelevant trace that happened to observe a partial state — as a bug find. Without this gate, a policy that ran a trace where Reader read from R2+R3 only (never touching R1) could still appear to "find" the bug if R1's state happened to be inspected by the recorder from a previous run. The gate ensures that bugs counted in charts are genuine, complete, causally coherent instances of the failure mode under study.
+**The orchestrator's two-level search space is the fundamental challenge.** Both global (message delivery) and local (goroutine scheduling) dimensions are necessary to expose this bug. A framework controlling only message ordering misses the local pipeline race; a framework controlling only intra-process scheduling misses the global delivery ordering. The orchestrator's value is precisely this two-level scope — but the cost is a search space that grows multiplicatively. This is why CHESS's k bound fails so badly in both configurations: the bound was designed for single-level search spaces, and in a two-level space, k=4 covers a vanishing fraction of reachable states.
 
-**The per-run recorder isolation is equally critical.** The `benchmarkOutcome.beginRun()` pattern — allocating a fresh recorder function per exploration run — ensures that observations from one run cannot be attributed to another. A naive implementation using a package-level `outcome` variable would allow a failing run's `bug = true` state to persist into subsequent runs, making every later run appear to also find the bug. The isolation means the "runs to bug" metric is causally clean: a bug is counted only for the run that actually caused the invariant violation.
+DPOR is particularly well-suited to two-level spaces because its pruning applies independently at both levels — it identifies commutativity both among global message deliveries and among local goroutine scheduling choices, reducing the effective search space at each level before multiplying them. This is reflected in the 4 orders-of-magnitude space reduction and the higher local non-FIFO count in the bug trace.
 
-**Implication for tooling.** The CHESS failure suggests that context-bounding, while theoretically appealing, needs to be accompanied by dynamic bound estimation — or replaced by algorithms like PCT that do not have a fixed bound. For two-level distributed system exploration, a promising direction is budget-adaptive bounds: start with k=2, and if the bug is not found, double k. But this converges poorly if the required k is large (as here). PCT's probability-theoretic guarantee — that it finds bugs with bounded probability regardless of depth — is more robust in the face of unknown bug geometry. The practical recommendation: use PCT as the default exploration algorithm for distributed simulation, and reserve CHESS for targeted "shallow bug" verification passes where the bound k can be justified by domain knowledge.
+**The trace gate and per-run recorder isolation are essential for meaningful benchmarking.** `completeQuorumBugTrace` prevents false positives from traces that never exercise the R1 stale-read path. `benchmarkOutcome.beginRun()` prevents stale recorder state from one run contaminating another. Without both, chart results would be meaningless — any invariant violation, including those from incomplete or irrelevant traces, would appear as a found bug, inflating found rates and distorting runs-to-bug figures for every algorithm.
+
+**Practical recommendation.** Use PCT as the default first-pass algorithm — it finds this class of mixed local/global bug with the lowest average run count and negligible parameter sensitivity (d=2 is sufficient). Use DPOR when you need reproducibility guarantees or when you want systematic coverage of the pruned space for regression testing. Avoid CHESS for distributed simulation bugs unless domain knowledge establishes that the bug manifests within a very small k; the data here show that k=4 is insufficient and that the required k scales with the non-FIFO depth of the bug, which is unknowable in advance.

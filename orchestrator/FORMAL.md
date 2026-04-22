@@ -1,6 +1,6 @@
 # Formal Model of the Global Orchestrator
 
-This document gives mathematical definitions for the global orchestrator in `orchestrator`. The goal is to make the invariants and correctness conditions precise.
+This document gives mathematical definitions for the global orchestrator in `orchestrator/`. The goal is to make the invariants and correctness conditions precise.
 
 ---
 
@@ -16,21 +16,19 @@ Each node $n_i$ executes inside a **bubble** $B_i$ — an isolated synctest envi
 
 Let $G(B_i)$ denote the set of goroutines in bubble $B_i$.
 
-A goroutine $g \in G(B_i)$ is **durable-blocked** if it is waiting on:
-- A bubble-internal channel or select statement, or
-- `synctest.ExternalWait`.
+A goroutine $g \in G(B_i)$ is **durable-blocked** if it is waiting on a bubble-internal channel, a select statement, or `synctest.ExternalWait`.
 
 The bubble is **idle** when every goroutine is durable-blocked:
 
 $$\text{Idle}(B_i) \iff \forall\, g \in G(B_i) : \text{durableBlocked}(g)$$
 
-When $\text{Idle}(B_i)$ becomes true, the synctest runtime calls the bubble's decision hook, which transmits an $\text{IdleState}$ to the orchestrator and blocks until a $\text{Resume}$ is received.
+When $\text{Idle}(B_i)$ becomes true, the synctest runtime calls the bubble's decision hook, which transmits an `IdleState` to the orchestrator and blocks until a `Resume` message is received.
 
 ### 1.3 Fake clock
 
-Each bubble $B_i$ maintains a fake clock value $c_i \in \mathbb{R}_{\geq 0}$. The orchestrator advances it by sending $\text{Resume}\{t'\}$, setting $c_i \leftarrow t'$.
+Each bubble $B_i$ maintains a fake clock $c_i \in \mathbb{Z}_{\geq 0}$ (nanoseconds). The orchestrator advances it by sending `Resume{AdvanceTimeTo: τ'}`, setting $c_i \leftarrow \tau'$.
 
-Let $\text{nextTimer}(B_i)$ denote the earliest pending timer deadline inside bubble $B_i$ at the moment it becomes idle ($\infty$ if no timers are pending).
+Let $\text{nextTimer}(B_i)$ denote the earliest pending timer deadline (nanoseconds) inside bubble $B_i$ at the moment it becomes idle. $\text{nextTimer}(B_i) = 0$ when no timers are pending.
 
 ---
 
@@ -38,60 +36,92 @@ Let $\text{nextTimer}(B_i)$ denote the earliest pending timer deadline inside bu
 
 The global state is the tuple
 
-$$S = \bigl(\tau,\; \Sigma,\; Q,\; P\bigr)$$
+$$S = (\tau,\; \Sigma,\; Q,\; P,\; \mathcal{U},\; \mathcal{G})$$
 
 | Symbol | Type | Meaning |
-|---|---|---|
-| $\tau$ | $\mathbb{R}_{\geq 0}$ | Current global fake time |
-| $\Sigma$ | $N \to \{\texttt{running},\, \texttt{idle},\, \texttt{done}\}$ | Per-node execution status |
-| $Q$ | $\text{PendingOp}^*$ | Ordered queue of schedulable operations |
-| $P$ | $N \rightharpoonup \text{IdleState}$ | Partial map: idle nodes $\to$ their reported idle state |
+|--------|------|---------|
+| $\tau$ | $\mathbb{Z}_{\geq 0}$ | Current global fake time (nanoseconds) |
+| $\Sigma$ | $N \to \\\{\texttt{running},\, \texttt{idle},\, \texttt{done}\\\}$ | Per-node execution status |
+| $Q$ | $\text{PendingOp}^*$ | Ordered list of schedulable operations |
+| $P$ | $N \rightharpoonup \text{IdleState}$ | Partial map: idle nodes to their reported idle state |
+| $\mathcal{U}$ | $\text{NewStep}^*$ | Unified trace: all recorded decisions (local + global) |
+| $\mathcal{G}$ | $\text{GlobalStep}^*$ | Event log: delivery, advance, and done events (for metrics) |
 
-**Active nodes**: $A = \{n_i \in N \mid \Sigma(n_i) \neq \texttt{done}\}$
+**Active nodes**: $A = \\\{n_i \in N \mid \Sigma(n_i) \neq \texttt{done}\\\}$
 
-**Fully idle**: all active nodes have reported idle, $\text{dom}(P) = A$.
+**Fully idle**: all active nodes have reported idle, i.e., $\text{dom}(P) = A$.
 
 ---
 
-## 3. Operations
+## 3. Decision Points and Algorithms
 
-### 3.1 Pending operation
+### 3.1 Decision kinds
+
+The orchestrator makes two kinds of scheduling decisions:
+
+- **Local** (`Kind = Local`): which goroutine runs next inside bubble $B_i$, when multiple goroutines are simultaneously runnable.
+- **Global** (`Kind = Global`): which pending operation to deliver next, when all active nodes are idle and $Q \neq \emptyset$.
+
+A **decision point** is a tuple
+
+$$d = (\text{kind},\; \text{step},\; \text{node},\; \text{alts})$$
+
+where $\text{kind} \in \\\{\text{Local}, \text{Global}\\\}$, $\text{step} \in \mathbb{N}$ is the 0-indexed position in $\mathcal{U}$, $\text{node} \in N$ is the active bubble (empty string for Global), and $\text{alts}$ is the non-empty list of choosable alternatives.
+
+Each alternative $a \in \text{alts}$ carries a stable string ID, and for Global decisions the sender/receiver node names and RPC type.
+
+### 3.2 Algorithm interface
+
+An **algorithm** $\mathcal{A}$ is a stateful object satisfying:
+
+- $\mathcal{A}.\text{BeforeRun}() \to \text{bool}$ — called before each run; returns false to stop exploration.
+- $\mathcal{A}.\text{Decide}(d) \to \mathbb{N}$ — called at each decision point; returns the 0-indexed choice from $\text{alts}$.
+- $\mathcal{A}.\text{AfterRun}(\text{result})$ — called after each run with the run outcome.
+
+`Decide` may panic with `replayDivergenceError` to signal that the execution has diverged from an expected prefix. The orchestrator catches this panic, marks the run as `Diverged`, and calls `AfterRun`.
+
+Concrete algorithms:
+
+| Algorithm | Strategy |
+|-----------|----------|
+| **FIFO** | Always returns 0 (no exploration). Used by `Run`. |
+| **CHESS** | Context-bounded DFS over Local and/or Global decisions. |
+| **PCT** | Randomized priority assignment (Priority-based Concurrency Testing). |
+| **DPOR** | Dynamic partial-order reduction, pruning equivalent interleavings. |
+
+### 3.3 Pending operation
 
 A **pending operation** is a tuple
 
 $$p = (\text{from},\; \text{to},\; \text{type},\; \text{exec})$$
 
-where $\text{from}, \text{to} \in N$ identify sender and receiver, $\text{type} \in \Sigma^*$ is the RPC name, and $\text{exec} : () \to ()$ is the delivery closure (writes to the receiver's mailbox).
+where $\text{from}, \text{to} \in N$ identify sender and receiver, $\text{type}$ is the RPC name, and $\text{exec} : () \to ()$ is the delivery closure (writes to the receiver's mailbox).
 
-Each node $n_i$ exposes an outbox $\text{out}_i$ from which the orchestrator drains pending operations. Let $\text{head}(\text{out}_i)$ take at most one element non-blockingly (returning $\varepsilon$ if empty). The drain step appends each non-empty head in $N$-order:
+Each node $n_i$ exposes an outbox channel. The drain step non-blockingly reads **all** available operations from each outbox in $N$-order and appends them to $Q$:
 
-$$\text{Drain}(S) : Q \leftarrow Q \cdot \bigl(\text{head}(\text{out}_1),\; \ldots,\; \text{head}(\text{out}_k)\bigr)$$
+$$\text{Drain}(S) : Q \leftarrow Q \cdot \bigl(\text{all}(\text{out}_1) \cdot \ldots \cdot \text{all}(\text{out}_k)\bigr)$$
 
-where $\cdot$ denotes sequence concatenation (empty results are dropped).
-
-### 3.2 Selection function
-
-The orchestrator picks the next operation via a **selection function** $\text{sel} : \text{PendingOp}^* \to \text{PendingOp}$:
-
-$$\text{sel}_{\text{FIFO}}(Q) = Q[0]$$
-
-$$\text{sel}_{\text{replay}}(Q,\, j) = \arg\min_{p \in Q}\;\text{rank}(p,\, \mathcal{T}_{\text{rec}},\, j)$$
-
-where $j$ is the index of the next unmatched $\text{Deliver}$ step in the recorded trace $\mathcal{T}_{\text{rec}}$, and $\text{rank}$ returns the position of the first step in $\mathcal{T}_{\text{rec}}[j:]$ whose $(\text{from}, \text{to}, \text{type})$ matches $p$, or $\infty$ if no match exists (triggering FIFO fallback).
+where $\text{all}(\text{out}_i)$ is the sequence of all ops currently buffered in $n_i$'s outbox channel.
 
 ---
 
-## 4. Global Trace
+## 4. Unified Trace and Event Log
 
-A **global trace** is a finite sequence of labelled events:
+### 4.1 Unified trace
 
-$$\mathcal{T} = (s_1,\, s_2,\, \ldots,\, s_m)$$
+The **unified trace** $\mathcal{U} = (u_1,\, u_2,\, \ldots,\, u_m)$ records every scheduling decision from one run as `NewStep` records:
 
-Each event $s_j$ has one of three forms:
+$$u_j = (\text{kind},\; \text{node},\; \text{index},\; \text{alternatives},\; \text{chosenID},\; \text{resource},\; \ldots)$$
 
-$$s_j \in \bigl\{\;\text{Deliver}(\text{from},\, \text{to},\, \text{type},\, \tau),\;\;\text{Advance}(\tau),\;\;\text{Done}(n_i)\;\bigr\}$$
+where $\text{index}$ is the chosen alternative (0 = FIFO/default) and $\text{alternatives}$ is how many choices existed. This trace is used by `ExploreWith` for systematic prefix replay.
 
-Two traces are **equivalent**, $\mathcal{T}_1 \sim \mathcal{T}_2$, if they are equal as sequences. Equivalence is the correctness condition for replay.
+### 4.2 Global event log
+
+The **global event log** $\mathcal{G}$ is a separate sequence used only for metrics and compatibility:
+
+$$e_j \in \\\{\;\text{Deliver}(\text{from},\, \text{to},\, \text{type},\, \tau),\;\;\text{Advance}(\tau),\;\;\text{Done}(n_i)\;\\\}$$
+
+$\mathcal{G}$ is not used for replay.
 
 ---
 
@@ -104,58 +134,76 @@ The orchestrator is a labelled transition system $(\mathcal{S}, S_0, \Delta)$ wh
 For $i = 1, \ldots, k$ in registration order:
 
 - **Precondition**: $\Sigma(n_i) = \texttt{init}$
-- **Effect**: start bubble $B_i$; await $\text{Idle}(B_i)$ or $\text{done}(n_i)$.
-  - If $\text{Idle}(B_i)$: set $P \leftarrow P[n_i \mapsto \text{idleState}(B_i)]$.
-  - If $\text{done}(n_i)$: set $A \leftarrow A \setminus \{n_i\}$, append $\text{Done}(n_i)$ to $\mathcal{T}$.
+- **Effect**: attach local scheduler hook to $B_i$; start $B_i$; await `IdleState` or `done(n_i)`.
+  - If `IdleState` received: set $P \leftarrow P[n_i \mapsto \text{idleState}(B_i)]$.
+  - If `done(n_i)`: set $A \leftarrow A \setminus \\\{n_i\\\}$, append $\text{Done}(n_i)$ to $\mathcal{G}$.
 
-After this phase every active node satisfies $n_i \in \text{dom}(P)$, i.e., all are idle.
+After this phase every active node satisfies $n_i \in \text{dom}(P)$.
 
 ### 5.2 Collect idle states
 
 Wait until $\text{dom}(P) = A$. For any $n_i \in A \setminus \text{dom}(P)$, fire the matching rule:
 
-- If $\text{Idle}(B_i)$: set $P \leftarrow P[n_i \mapsto \text{idleState}(B_i)]$.
-- If $\text{done}(n_i)$: set $A \leftarrow A \setminus \{n_i\}$, append $\text{Done}(n_i)$ to $\mathcal{T}$.
+- If `IdleState` received: drain local steps from $B_i$'s hook buffer; set $P \leftarrow P[n_i \mapsto \text{idleState}(B_i)]$.
+- If `done(n_i)`: drain local steps and outbox; set $A \leftarrow A \setminus \\\{n_i\\\}$; append $\text{Done}(n_i)$ to $\mathcal{G}$.
 
-### 5.3 Drain and deliver
+### 5.3 Local decisions (synchronous)
+
+Local decisions are made **synchronously** inside each bubble's hook callback. When bubble $B_i$ reaches a goroutine scheduling point with $r \geq 1$ runnable goroutines, the callback fires while the orchestrator goroutine is blocked in `waitNodeEvent`:
+
+1. Construct decision point $d = (\text{Local},\; \text{traceStep},\; n_i,\; \text{alts})$ where $\text{alts}$ lists all runnable goroutines by bubble goroutine ID.
+2. Call $\text{idx} \leftarrow \mathcal{A}.\text{Decide}(d)$.
+3. Append corresponding `NewStep` with $\text{kind} = \text{Local}$ to $\mathcal{U}$; increment $\text{traceStep}$.
+4. Return $\text{idx}$ to the runtime — the goroutine at position $\text{idx}$ in the run queue runs next.
+
+Because local callbacks fire synchronously inside the hook (no channel send), they do not interleave with the orchestrator's main loop.
+
+### 5.4 Drain and deliver
 
 **Precondition**: $\text{dom}(P) = A$ and $Q \neq \emptyset$ (after $\text{Drain}(S)$).
 
-Let $p = \text{sel}(Q)$. Then:
+1. Construct decision point $d = (\text{Global},\; \text{traceStep},\; \emptyset,\; \text{alts}(Q))$.
+2. Call $\text{idx} \leftarrow \mathcal{A}.\text{Decide}(d)$ — or panic with `replayDivergenceError` if diverged.
+3. Let $p = Q[\text{idx}]$; remove $p$ from $Q$.
+4. Append `NewStep` with $\text{kind} = \text{Global}$, $\text{index} = \text{idx}$, to $\mathcal{U}$; increment $\text{traceStep}$.
+5. $p.\text{exec}()$ — write message to target mailbox (safe because $B_{p.\text{to}}$ is frozen idle).
+6. Append $\text{Deliver}(p.\text{from}, p.\text{to}, p.\text{type}, \tau)$ to $\mathcal{G}$.
+7. If $n_{p.\text{to}} \in \text{dom}(P)$:
+   - Delete $n_{p.\text{to}}$ from $P$.
+   - Send `Resume{}` to $B_{p.\text{to}}$.
+   - Await `IdleState` or `done(n_{p.\text{to}})`.
+   - Retry loop: if the bridge goroutine (in `ExternalWait`) has not yet reattached, a spurious idle arrives. Resume again until `HasNewLocal()` confirms the message was processed, with a 1 ms wall-clock deadline.
 
-1. $Q \leftarrow Q \setminus \{p\}$
-2. $p.\text{exec}()$ — write message to target mailbox
-3. $\mathcal{T} \leftarrow \mathcal{T} \cdot \text{Deliver}(p)$
-4. $\text{Resume}(B_{p.\text{to}})$
-5. $P \leftarrow P \setminus \{p.\text{to}\}$
+### 5.5 Time advance (sequential)
 
-### 5.4 Time advance (sequential)
-
-**Precondition**: $Q = \emptyset$ and $\exists\, n_i \in A : \text{nextTimer}(P[n_i]) < \infty$.
+**Precondition**: $Q = \emptyset$ and $\exists\, n_i \in A : \text{nextTimer}(P[n_i]) > 0$.
 
 Compute the target time:
 
-$$\tau' = \min_{n_i \in A}\, \text{nextTimer}(P[n_i])$$
+$$\tau' = \min_{\substack{n_i \in A \\ \text{nextTimer}(P[n_i]) > 0}} \text{nextTimer}(P[n_i])$$
 
-Append $\text{Advance}(\tau')$ to $\mathcal{T}$ and set $\tau \leftarrow \tau'$.
+Set $\tau \leftarrow \tau'$ and append $\text{Advance}(\tau')$ to $\mathcal{G}$.
 
 Then, for $i = 1, \ldots, k$ in registration order, if $n_i \in \text{dom}(P)$:
 
-1. $\text{Resume}(B_i,\, \tau')$
-2. Await $\text{Idle}(B_i)$ or $\text{done}(n_i)$.
-3. Update $P$ accordingly (same rules as §5.2).
+1. Delete $n_i$ from $P$.
+2. Send `Resume{AdvanceTimeTo: τ'}` to $B_i$.
+3. Await `IdleState` or `done(n_i)`.
+4. Update $P$ accordingly (same rules as §5.2).
 
-### 5.5 Drain (no timers)
+### 5.6 Drain (no timers, no pending ops)
 
-**Precondition**: $Q = \emptyset$ and $\forall\, n_i \in A : \text{nextTimer}(P[n_i]) = \infty$.
+**Precondition**: $Q = \emptyset$ and $\forall\, n_i \in A : \text{nextTimer}(P[n_i]) = 0$.
 
 For $i = 1, \ldots, k$ in registration order, if $n_i \in \text{dom}(P)$:
 
-1. $\text{Resume}(B_i)$
-2. Await $\text{Idle}(B_i)$ or $\text{done}(n_i)$.
-3. Update $P$ accordingly (same rules as §5.2).
+1. If $P[n_i].\text{ExternalWait} > 0$: call `Shutdown()` on $n_i$'s transport to unblock goroutines waiting in `ExternalWait`.
+2. Delete $n_i$ from $P$.
+3. Send `Resume{DelegateIdle: true}` to $B_i$ — delegates idle handling to the synctest runtime so it can advance its own clock or detect deadlock.
+4. Await `IdleState` or `done(n_i)`.
+5. Update $P$ accordingly (same rules as §5.2).
 
-### 5.6 Termination
+### 5.7 Termination
 
 The orchestrator terminates when $A = \emptyset$.
 
@@ -163,52 +211,47 @@ The orchestrator terminates when $A = \emptyset$.
 
 ## 6. Determinism
 
-### 6.1 Rand sequence
+### 6.1 Conditions for trace equality
 
-Let $\rho : \mathbb{N} \to \mathbb{Z}$ be the sequence produced by `math/rand` seeded with value $s$:
+Let $R_1$ and $R_2$ be two runs of the same test with the same algorithm and initial configuration. Their unified traces $\mathcal{U}_1$ and $\mathcal{U}_2$ are equal if and only if:
 
-$$\rho_s = \bigl(\rho_s(1),\; \rho_s(2),\; \ldots\bigr)$$
+1. **Local schedule identity**: for every node $n_i$, `Algorithm.Decide` returns the same index at every Local decision point.
 
-Let $\phi(n_i, r)$ denote the $r$-th call to `rand.Int63()` made by goroutines in bubble $B_i$ across the entire run. The orchestrator's sequential resumption rule enforces a strict **inter-bubble ordering** on these calls.
+2. **Global delivery identity**: `Algorithm.Decide` returns the same index at every Global decision point, selecting the same message $(\text{from}, \text{to}, \text{type})$ at the same queue position.
 
-**Proposition**: Under sequential startup and sequential time advance in registration order, the global call sequence is:
+3. **Application randomness identity**: any `math/rand` calls made by application code use the same seed and occur in the same order.
 
-$$\phi(n_1, 1),\; \ldots,\; \phi(n_1, r_1),\; \phi(n_2, 1),\; \ldots,\; \phi(n_k, r_k),\; \phi(n_1, r_1 + 1),\; \ldots$$
+If any condition fails, $\mathcal{U}_1 \neq \mathcal{U}_2$ in general. Condition (3) is not enforced by the orchestrator; callers must seed `math/rand` deterministically in the `setup` callback.
 
-i.e., each node's calls are fully serialized relative to every other node's calls at each time-advance boundary. The exact value assigned to call $\phi(n_i, r)$ is therefore a deterministic function of the seed $s$ and the position of that call in the global sequence.
+### 6.2 Replay
 
-### 6.2 Conditions for $\mathcal{T}_1 = \mathcal{T}_2$
+`Replay(rec)` re-runs the system following only the Global decisions from `rec.GlobalDecisions`. For each Global decision point the replay function:
 
-Let $R_1$ and $R_2$ be two runs of the same test with the same initial configuration. Their global traces are equal if and only if the following three conditions hold simultaneously:
+- Checks that the recorded `QueueSize` matches the current $|Q|$; panics with `replayDivergenceError` on mismatch.
+- Returns the recorded index.
 
-1. **Seed identity**: both runs use `rand.Seed(s)` for the same $s$, with `randseednop=0`.
+Local decisions always return 0 (FIFO) during replay. Replay is **sound** when conditions (1)–(3) hold. When a `replayDivergenceError` is caught, `RunResult.Diverged = true` and the run is discarded.
 
-2. **Local schedule identity**: for every node $n_i$, the intra-bubble goroutine scheduling decisions are identical. In `Run` this is guaranteed by FIFO. In `Replay` it is enforced by replaying the recorded `Decision.Index` sequence via `WithPrefix`.
+### 6.3 Context-bounded exploration (CHESS)
 
-3. **Global delivery identity**: for every $\text{Deliver}$ step, the same operation $({\text{from}}, {\text{to}}, {\text{type}})$ is chosen at the same position in $Q$.
+CHESS enumerates scheduling interleavings by DFS over prefixes. A prefix is a `Trace` — a sequence of `NewStep` records. At each step in the replay phase CHESS checks that `Kind` and `Node` match; on mismatch it panics with `replayDivergenceError`, pruning that branch.
 
-If any condition fails, $\mathcal{T}_1 \neq \mathcal{T}_2$ in general:
+In **GlobalOnly** mode the prefix contains only Global steps; Local decisions always return 0. This is cheaper but misses intra-bubble concurrency bugs. In full mode the prefix contains all steps (Local and Global); divergences due to non-deterministic local step counts are pruned automatically.
 
-- Violating (1) changes timer jitter, potentially changing which node wins an election.
-- Violating (2) changes the intra-bubble code path, altering when and how many times `rand.Int63()` is called per node.
-- Violating (3) changes the order messages are processed, changing application state and subsequent decisions.
-
-### 6.3 Replay soundness
-
-Let $\mathcal{T}_{\text{rec}}$ be the trace produced by `Run` and $\mathcal{T}_{\text{rep}}$ be the trace produced by `Replay(rec)`. Replay is **sound** if conditions (1)–(3) hold, giving $\mathcal{T}_{\text{rep}} = \mathcal{T}_{\text{rec}}$.
-
-Replay is **best-effort** when condition (3) fails to match a recorded op (i.e., $\text{rank}(p, \mathcal{T}_{\text{rec}}, j) = \infty$ for all $p \in Q$): the selection falls back to FIFO and the replay is considered diverged, logging a warning. The run still completes but $\mathcal{T}_{\text{rep}} \neq \mathcal{T}_{\text{rec}}$ is possible.
+The **context bound** $b$ limits the number of non-zero indices in any prefix. Most concurrency bugs manifest with $b \leq 2$.
 
 ---
 
 ## 7. Key Invariants
 
-**I1 — At most one active bubble**: At any point in the delivery or time-advance phase, at most one bubble has $\Sigma(n_i) = \texttt{running}$.
+**I1 — At most one active bubble**: At any point in the delivery or time-advance phase, at most one bubble has $\Sigma(n_i) = \texttt{running}$. Local decisions fire synchronously inside the hook while the orchestrator goroutine is blocked, preserving this property.
 
-**I2 — Sequential rand access**: No two goroutines from distinct bubbles call `rand.Int63()` concurrently. This follows from I1 and the sequential resumption rule.
+**I2 — Sequential rand access**: No two goroutines from distinct bubbles call `rand` functions concurrently. This follows from I1 and the sequential resumption rule.
 
 **I3 — Message causality**: A message $p$ is only delivered after the sender's bubble has gone idle with $p$ in its outbox, ensuring no message is observed before it is sent.
 
-**I4 — Monotone clock**: $\tau$ is non-decreasing. Each `Resume{t'}` sends $t' \geq \tau$.
+**I4 — Monotone clock**: $\tau$ is non-decreasing. Each `Resume{AdvanceTimeTo: τ'}` satisfies $\tau' \geq \tau$.
 
-**I5 — No concurrent cross-bubble writes**: `Execute()` is called by the orchestrator goroutine while the target bubble is frozen (idle), so the write to the target's mailbox is safe without additional synchronisation.
+**I5 — No concurrent cross-bubble writes**: `p.exec()` is called by the orchestrator goroutine while the target bubble is frozen idle, so the write to the target's mailbox is safe without additional synchronisation.
+
+**I6 — Algorithm controls all decisions**: Every scheduling choice — both Local (goroutine order within a bubble) and Global (message delivery order across bubbles) — flows through `Algorithm.Decide`. This is the single point of control for systematic exploration.

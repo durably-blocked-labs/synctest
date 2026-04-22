@@ -44,19 +44,21 @@ ALGO_LABELS = {
     "targeted": "Targeted\n(trace)",
     "chess-gl": "CHESS\n(G+L, k=4)",
     "chess-global": "CHESS\n(G-only, k=4)",
+    "dpor-gl": "DPOR\n(G+L)",
     "pct-d2": "PCT\n(d=2)",
     "pct-d3": "PCT\n(d=3)",
     "random": "Random",
 }
 
-ALGO_ORDER = ["targeted", "random", "pct-d2", "chess-gl", "pct-d3", "chess-global"]
-LINE_COLORS = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548"]
-SEED_DOT_POLICIES = ("random", "pct-d2", "pct-d3")
+ALGO_ORDER = ["targeted", "random", "pct-d2", "chess-gl", "pct-d3", "chess-global", "dpor-gl"]
+LINE_COLORS = [COLORS["node_A"], COLORS["node_B"], COLORS["node_C"], "#9C27B0", "#795548", "#E64A19"]
+SEED_DOT_POLICIES = ("random", "pct-d2", "pct-d3", "dpor-gl")
 SEED_REFERENCE_POLICY = "chess-gl"
 SEED_DOT_COLORS = {
     "random": "#B765C9",
     "pct-d2": "#FDBB63",
     "pct-d3": "#8BCB91",
+    "dpor-gl": "#E64A19",
 }
 
 
@@ -306,6 +308,7 @@ def seed_policy_label(policy):
         "random": "Random",
         "pct-d2": "PCT (d=2)",
         "pct-d3": "PCT (d=3)",
+        "dpor-gl": "DPOR (G+L)",
     }
     return labels.get(policy, algo_label(policy).replace("\n", " "))
 
@@ -1677,7 +1680,8 @@ def fig_nonfifo_position_profile(traces, out_dir):
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     if local_labeled or global_labeled:
-        ax.legend(fontsize=8, loc="upper right")
+        ax.legend(fontsize=8, loc="lower right", bbox_to_anchor=(1.0, 1.01),
+                    borderaxespad=0)
 
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "nonfifo_position_profile.png"), dpi=200, bbox_inches="tight")

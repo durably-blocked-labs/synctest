@@ -282,8 +282,8 @@ func quorumRepairDPORFrontier(dp orchestrator.DecisionPoint) (int, bool) {
 }
 
 func TestBench_CHESS_GlobalOnly(t *testing.T) {
-	algo := &orchestrator.CHESS{Bound: 8, GlobalOnly: true}
-	runBenchmark(t, "CHESS(G-only,k=8)", "chess-global", algo)
+	algo := &orchestrator.CHESS{Bound: 4, GlobalOnly: true}
+	runBenchmark(t, "CHESS(G-only,k=4)", "chess-global", algo)
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/chess-global-tree.json"); err == nil {
 			orchestrator.WriteTreeJSON(f, algo.Tree())
@@ -293,8 +293,8 @@ func TestBench_CHESS_GlobalOnly(t *testing.T) {
 }
 
 func TestBench_CHESS_GL(t *testing.T) {
-	algo := &orchestrator.CHESS{Bound: 8}
-	_, firstBug := runBenchmark(t, "CHESS(G+L,k=8)", "chess-gl", algo)
+	algo := &orchestrator.CHESS{Bound: 4}
+	_, firstBug := runBenchmark(t, "CHESS(G+L,k=4)", "chess-gl", algo)
 	_ = firstBug
 	if dir := benchDir(); dir != "" {
 		if f, err := os.Create(dir + "/chess-gl-tree.json"); err == nil {
