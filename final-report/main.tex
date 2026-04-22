@@ -1,0 +1,124 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{caption, subcaption}
+\usepackage{xcolor}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{theorem}{Theorem}[section]
+
+\title{CPSC 448 Directed Studies Final Report\\
+  Deterministic Scheduling and Systematic Exploration of
+  Goroutine Interleavings in Go}
+\author{Shubhaankar Sharma}
+\date{Winter 2025 Term 2\\Supervisors: Arpan Gujarati, Ivan Beschastnikh}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% TODO
+\end{abstract}
+
+\section{Introduction}
+% TARGET: 1.5pp
+% SOURCES: dump §§1-373 (compress), docs/generated/introduction.md,
+%   docs/research/related-work.md (one-paragraph pointer)
+% STRUCTURE: 5 paragraphs --- problem, gap, contribution (4 bullets),
+%   split-with-Allan, roadmap.
+
+\section{Overview}
+% TARGET: 4pp
+% 2.1 Go scheduler primer (M,P,G, runq, cheaprand, findRunnable/goready/gopark)
+% 2.2 synctest primer (bubbles, fake time, durable blocking, 11 runtime files)
+% 2.3 What we modified, at a glance
+% 2.4 Formal model --- Defs 1.1-1.6 (BGID, bubble state, decision point, sigma, trace, interleaving)
+% 2.5 Yield points table
+% 2.6 Guarantees: determinism + BGID stability
+% 2.7 External / ExternalWait contract
+% 2.8 Decision hook contract (bridge to Allan's report)
+% SOURCES: dump 604-822, docs/model.md, docs/generated/runtime-modifications.md
+% NOTATION: \mathcal{G}, \mathcal{R}, \mathcal{B} to match Allan's style.
+
+\section{Implementation}
+% TARGET: 3pp
+% 3.1 Runtime patches: cheaprand redirect, bubbleDecision, decision fence, frontier-hook signaling
+% 3.2 isIdleInSynctest table expansion (mutex/rwmutex --- our deliberate divergence)
+% 3.3 Public API: Test, Explore, External, CallExternal, ExternalWait, SetTime, SetDecisionHook
+% 3.4 Explorer package: DFS + context bounding
+% 3.5 Algorithm brief: CHESS, PCT, DPOR, Random (local flavor; defer global to Allan)
+% 3.6 Engineering challenges (ghost decisions, maybeWakeLocked bounce, cross-P goready,
+%      bubble-P release, non-bubble hook channels, idle-hook stranded goroutine)
+% SOURCES: docs/generated/runtime-modifications.md, docs/generated/algorithm-implementation.md,
+%   MEMORY.md bug-fixes section, live code at go/src/runtime/, explorer/, orchestrator/
+
+\section{Bugs Found}
+% TARGET: 2.5pp
+% 4.1 GoBench background + Li-thesis baseline (7/13 best prior)
+% 4.2 Our 10/13 result table; three undetected and why (granularity boundary)
+% 4.3 etcd\#7443 deep dive --- 3 non-FIFO decisions, CHESS 74 runs deterministic, tree shape
+% 4.4 One short walkthrough of another GoBench bug (TBD which)
+% SOURCES: dump 1149-1329, docs/generated/gobench-evaluation.md,
+%   docs/generated/etcd7443-case-study.md
+% FIGURES: charts/figures/gobench/{decision_anatomy_etcd7443,chess_tree_etcd7443}.png
+
+\section{Evaluation}
+% TARGET: 3pp
+% 5.1 Methodology (strategies, seeds, run budgets, stop criteria)
+% 5.2 Detection rate table: Li baseline vs us
+% 5.3 Runs-to-first-bug CDF
+% 5.4 Context-bound sufficiency (k=2 suffices for most)
+% 5.5 etcd\#7443 seed variance: CHESS=74 det, Random median 30 / worst 111, PCT median 34 / worst 78
+% 5.6 Runtime overhead: instrumented vs stock Go
+% 5.7 Cross-cutting unified_bug_matrix (shared with Allan --- cite)
+% SOURCES: dump 1247,1284; charts/figures/gobench/*, charts/figures/*;
+%   docs/generated/gobench-evaluation.md flakiness table
+% FIGURES: charts/figures/gobench/{tool_comparison.md,cdf_runs_to_bug.png,
+%   context_bound_sufficiency.png}, charts/figures/{runtime_overhead,
+%   strategy_comparison,unified_bug_matrix}.png
+
+\section{Related Work}
+% TARGET: 0.5pp
+% One paragraph per family:
+%   - Systematic exploration: CHESS, DPOR, Optimal DPOR, PCT
+%   - Model checkers: Coyote, Shuttle, Loom
+% (DST family dropped per scope decision.)
+% SOURCES: docs/research/paper-summaries.md, docs/research/related-work.md
+
+\section{Limitations}
+% TARGET: 1pp
+% - Granularity boundary (3 undetected GoBench bugs)
+% - No memory-dependency tracking (local DPOR only message-level)
+% - Deterministic select not implemented (ref: docs/TODO.md)
+% - Mutex-as-durably-blocked upstream divergence
+% - Scope: Channel+Lock only
+% - Single-P per bubble
+
+\section{Future Work}
+% TARGET: 1pp
+% - Memory-dependency DPOR (heap-access instrumentation, read/write sets, proper Flanagan-Godefroid)
+% - Instruction-level preemption (addresses k8s\#1321, serving\#2137)
+% - Deterministic select as yield point
+% - N-bubble parallelism on multiple Ps
+% - Upstream contribution of SetDecisionHook surface
+% - Schedule-aware fuzzing layer
+
+\section{Conclusion}
+% TARGET: 0.3pp
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}
