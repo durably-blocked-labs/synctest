@@ -28,7 +28,15 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-GOBENCH_DATA_DIR = Path(__file__).resolve().parent.parent / "bugs" / "gobench" / "charts" / "data"
+GOBENCH_DATA_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "archive"
+    / "legacy"
+    / "bugs"
+    / "gobench"
+    / "charts"
+    / "data"
+)
 DATA_DIR = GOBENCH_DATA_DIR  # alias used by load helpers
 FIG_DIR = Path(__file__).parent / "figures" / "gobench"
 

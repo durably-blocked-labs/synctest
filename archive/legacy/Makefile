@@ -9,7 +9,7 @@ export GOROOT := $(GO_ROOT)
 
 # Charts defaults (override on command line)
 TEST    ?= TestRaftThreeNodeElectionExplore
-PKG     ?= ./rafttest/...
+PKG     ?= ./archive/legacy/rafttest/...
 K       ?= 2
 KMAX    ?= 3
 OUTDIR  ?= charts/data
@@ -19,19 +19,18 @@ ATTEMPTS ?= 1
 help:
 	@echo "Synctest Development"
 	@echo ""
-	@echo "  make test pkg=bugs/ra-gate               Run one package"
-	@echo "  make test-all                           Run all packages"
-	@echo "  make benchmark-charts pkg=bugs/ra-gate  Run bench_test.go and render package-local charts"
-	@echo "  make build-go                           Build Go from source"
-	@echo "  make go-version                         Show custom Go version"
-	@echo "  make clean                              Clean build artifacts"
+	@echo "  make -f archive/legacy/Makefile test pkg=archive/legacy/bugs/ra-gate  Run one package"
+	@echo "  make -f archive/legacy/Makefile test-all  Run all packages"
+	@echo "  make -f archive/legacy/Makefile benchmark-charts pkg=archive/legacy/bugs/ra-gate  Run benchmarks and charts"
+	@echo "  make -f archive/legacy/Makefile build-go  Build Go from source"
+	@echo "  make -f archive/legacy/Makefile go-version  Show custom Go version"
+	@echo "  make -f archive/legacy/Makefile clean  Clean build artifacts"
 	@echo ""
 	@echo "Charts (requires NewJSONLObserver wired into test — see orchestrator/metrics.go)"
 	@echo ""
-	@echo "  make charts-collect TEST=TestFoo K=2    Single systematic run at k=K"
-	@echo "  make charts-collect TEST=TestFoo PKG=./some-package/... K=2"
-	@echo "  make charts-sweep   TEST=TestFoo KMAX=3 Sweep k=0..KMAX"
-	@echo "  make charts-plot                        Generate all figures from collected data"
+	@echo "  make -f archive/legacy/Makefile charts-collect TEST=TestFoo K=2"
+	@echo "  make -f archive/legacy/Makefile charts-sweep TEST=TestFoo KMAX=3"
+	@echo "  make -f archive/legacy/Makefile charts-plot"
 
 build-go:
 	cd $(GO_ROOT)/src && ./make.bash
@@ -40,7 +39,7 @@ go-version:
 	$(GO_BIN) version
 
 # === Tests ===
-# make test pkg=bugs/ra-gate
+# make test pkg=archive/legacy/bugs/ra-gate
 # make test-all
 
 ifdef pkg
@@ -48,15 +47,15 @@ test:
 	$(GO_BIN) test -v -count=1 ./$(pkg)/...
 else
 test:
-	@echo "usage: make test pkg=bugs/ra-gate"
+	@echo "usage: make test pkg=archive/legacy/bugs/ra-gate"
 	@echo "       make test-all"
 endif
 
 test-all:
-	$(GO_BIN) test -v -count=1 ./explorer/... ./experiments/... ./orchestrator/... ./rafttest/... ./bugs/...
+	$(GO_BIN) test -v -count=1 ./explorer/... ./orchestrator/... ./archive/legacy/...
 
 test-det:
-	GODEBUG=asyncpreemptoff=1 $(GO_BIN) test -v -count=1 ./experiments/...
+	GODEBUG=asyncpreemptoff=1 $(GO_BIN) test -v -count=1 ./archive/legacy/experiments/...
 
 clean:
 	cd $(GO_ROOT)/src && ./clean.bash
@@ -79,7 +78,7 @@ charts-collect:
 charts-sweep:
 	@for k in $(shell seq 0 $(KMAX)); do \
 		echo "--- sweep k=$$k ---"; \
-		$(MAKE) charts-collect TEST=$(TEST) PKG=$(PKG) K=$$k OUTDIR=$(OUTDIR); \
+		$(MAKE) -f archive/legacy/Makefile charts-collect TEST=$(TEST) PKG=$(PKG) K=$$k OUTDIR=$(OUTDIR); \
 	done
 
 # Generate all figures from collected data in charts/data/.
@@ -145,5 +144,5 @@ benchmark-charts:
 		--out "$$pkgdir/benchmarking/figures"
 else
 benchmark-charts:
-	@echo "usage: make benchmark-charts pkg=bugs/ra-gate"
+	@echo "usage: make benchmark-charts pkg=archive/legacy/bugs/ra-gate"
 endif

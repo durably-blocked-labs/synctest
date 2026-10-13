@@ -8,7 +8,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/shubhaankar/synctest/orchestrator"
-	"github.com/shubhaankar/synctest/rafttest"
+	"github.com/shubhaankar/synctest/archive/legacy/rafttest"
 )
 
 // TestStaleTermBug shows bug #1 (injected): SkipTermCheck disables the

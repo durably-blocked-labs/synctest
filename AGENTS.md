@@ -11,11 +11,9 @@ Research project exploring deterministic scheduling and systematic interleaving 
 All commands use a **custom-built Go toolchain** at `./go/bin/go` (a forked Go 1.27 runtime with synctest modifications). The `go/` directory is a git submodule pointing to `durably-blocked-labs/go` on the `synctest-explorer` branch.
 
 ```bash
-make build-go                    # Build custom Go runtime from go/src (required first time)
-make test                        # Run all experiment tests (preemption enabled)
-make test-det                    # Run all experiment tests (preemption disabled, deterministic)
-make test-one TEST=TestName      # Run a specific test by name (preemption disabled)
-make determinism                 # Run TestDeterminism1000 (validates deterministic scheduling)
+make -f archive/legacy/Makefile build-go
+make -f archive/legacy/Makefile test pkg=archive/legacy/experiments
+make -f archive/legacy/Makefile test-det
 ```
 
 Deterministic execution requires `GODEBUG=asyncpreemptoff=1` (set automatically by `test-det` and `test-one` targets). Tests set `GOMAXPROCS=1` in code.
@@ -25,7 +23,7 @@ Deterministic execution requires `GODEBUG=asyncpreemptoff=1` (set automatically 
 ### Three Go Modules
 
 - **`explorer/`** — The main library. `explorer.Test(t, f)` is a drop-in replacement for `synctest.Test(t, f)` that explores scheduling interleavings via DFS with context bounding. `RunWithHook` provides low-level control for custom scheduling strategies.
-- **`experiments/`** — Validation test suite proving that cheaprand() control enables deterministic scheduling. Tests decision recording/replay, frontier signaling, and race condition scenarios.
+- **`archive/legacy/experiments/`** — Archived validation tests for decision recording/replay, frontier signaling, and race condition scenarios.
 - **`examples/`** — Distributed simulation patterns (multi-bubble orchestration with `synctest.CallExternal()`).
 
 ### Forked Go Runtime (`go/` submodule)

@@ -20,7 +20,15 @@ def load_charts_module():
 class SearchSpaceFigureTest(unittest.TestCase):
     def test_search_space_plot_handles_large_theoretical_bounds(self):
         charts = load_charts_module()
-        data_dir = Path(__file__).resolve().parents[1] / "bugs" / "ra-priority-inversion" / "benchmarking" / "data"
+        data_dir = (
+            Path(__file__).resolve().parents[1]
+            / "archive"
+            / "legacy"
+            / "bugs"
+            / "ra-priority-inversion"
+            / "benchmarking"
+            / "data"
+        )
 
         summaries = charts.load_all_summaries(data_dir)
         traces = charts.load_all_traces(data_dir)

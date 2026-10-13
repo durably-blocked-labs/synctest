@@ -95,11 +95,11 @@ delivery (Explore), a stale message corrupts follower state.
 **Files:**
 - Flag: `raft/config.go:247` — `SkipTermCheck bool`
 - Guard: `raft/raft.go:1457` — `if !r.config().SkipTermCheck && ...`
-- Test: `rafttest/bug_demo_test.go` → `TestStaleTermConcept`
+- Test: `archive/legacy/rafttest/bug_demo_test.go` → `TestStaleTermConcept`
 
 **Run it:**
 ```bash
-./go/bin/go test -v -run TestStaleTermConcept ./rafttest/ -timeout 45s
+./go/bin/go test -v -run TestStaleTermConcept ./archive/legacy/rafttest/ -timeout 45s
 ```
 
 ---
@@ -129,7 +129,7 @@ the interleaving where applyCh beats commitCh.
 
 **Files:**
 - Runtime: `go/src/runtime/select.go:191` — deterministic select
-- Test: `rafttest/bug_demo_test.go` → `TestRemoveLeaderSeedSweep`
+- Test: `archive/legacy/rafttest/bug_demo_test.go` → `TestRemoveLeaderSeedSweep`
 - Bug location: `raft/raft.go` → `leaderLoop` select
 
 **Status:** WORKING. Test passes in ~45s. Under the default selectCounter,
@@ -138,7 +138,7 @@ value, applyCh would win the select and the bug triggers.
 
 **Run it:**
 ```bash
-./go/bin/go test -v -run TestRemoveLeaderConcept ./rafttest/ -timeout 90s
+./go/bin/go test -v -run TestRemoveLeaderConcept ./archive/legacy/rafttest/ -timeout 90s
 ```
 
 **Output:**
@@ -154,16 +154,16 @@ Bug not triggered. Different selectCounter value could trigger it.
 
 ### Raft Election Replay (Allan's test)
 ```bash
-./go/bin/go test -v -run TestRaftThreeNodeElectionReplay ./rafttest/ -timeout 45s
+./go/bin/go test -v -run TestRaftThreeNodeElectionReplay ./archive/legacy/rafttest/ -timeout 45s
 ```
 Records a 3-node election, replays with same global delivery order + local
 scheduling prefix. Bit-for-bit identical traces.
 
 ### Local Examples
 ```bash
-make test pkg=examples/local_replayer        # BGID determinism
-make test pkg=examples/replayer_scheduler    # DFS finds overdraft bug
-make test pkg=examples/distributed_replayer  # Two-bubble lost-update
+make -f archive/legacy/Makefile test pkg=examples/local_replayer
+make -f archive/legacy/Makefile test pkg=examples/replayer_scheduler
+make -f archive/legacy/Makefile test pkg=examples/distributed_replayer
 ```
 
 ---
@@ -196,8 +196,8 @@ reordering. Normal Go execution hides both.
 | Public API | `go/src/testing/synctest/synctest.go` |
 | Local orchestrator | `distributed/distributed.go` |
 | Design doc | `docs/distributed-model.md` |
-| Bug explanations | `rafttest/BUGS.md` |
-| Bug tests | `rafttest/bug_demo_test.go` |
-| Raft transport | `rafttest/transport.go` |
+| Bug explanations | `archive/legacy/rafttest/BUGS.md` |
+| Bug tests | `archive/legacy/rafttest/bug_demo_test.go` |
+| Raft transport | `archive/legacy/rafttest/transport.go` |
 | Global orchestrator | `orchestratorv2/orchestrator.go` |
 | Raft flag | `raft/config.go` (SkipTermCheck) |
