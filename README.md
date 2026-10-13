@@ -25,7 +25,7 @@ Validate whether controlling `cheaprand()` is sufficient for deterministic sched
 │   ├── pct-summary.md
 │   ├── chess-summary.md
 │   └── vitess-vstream-synctest-analysis.md
-├── papers/                  # Reference papers (PDFs)
+├── archive/legacy/          # Previous experiments, bugs, and papers
 ├── changelog/               # Weekly progress logs
 ├── go/                      # Forked Go runtime for experiments
 └── README.md
@@ -73,7 +73,7 @@ go test -v
 Run package-local benchmarks and render charts in one command:
 
 ```bash
-make benchmark-charts pkg=bugs/ra-gate
+make -f archive/legacy/Makefile benchmark-charts pkg=archive/legacy/bugs/ra-gate
 ```
 
 This runs all `TestBench_` tests in the target package and writes output under that package:
@@ -83,11 +83,11 @@ This runs all `TestBench_` tests in the target package and writes output under t
 <pkg>/benchmarking/figures
 ```
 
-Example output paths for `bugs/ra-gate`:
+Example output paths for `archive/legacy/bugs/ra-gate`:
 
 ```text
-bugs/ra-gate/benchmarking/data
-bugs/ra-gate/benchmarking/figures
+archive/legacy/bugs/ra-gate/benchmarking/data
+archive/legacy/bugs/ra-gate/benchmarking/figures
 ```
 
 The target is package-path based, so it is agnostic to the specific benchmark test file name as long as the package contains `TestBench_` tests.
@@ -113,6 +113,6 @@ The target is package-path based, so it is agnostic to the specific benchmark te
 ## References
 
 - [Go synctest package](https://pkg.go.dev/testing/synctest)
-- [PCT Paper (Burckhardt et al., ASPLOS 2010)](papers/pct-burckhardt-2010.pdf)
-- [CHESS Paper (Musuvathi et al., OSDI 2008)](papers/chess-musuvathi-2007.pdf)
-- [DPOR Paper (Flanagan & Godefroid, POPL 2005)](papers/dpor-flanagan-2005.pdf)
+- [PCT Paper (Burckhardt et al., ASPLOS 2010)](archive/legacy/papers/pct-burckhardt-2010.pdf)
+- [CHESS Paper (Musuvathi et al., OSDI 2008)](archive/legacy/papers/chess-musuvathi-2007.pdf)
+- [DPOR Paper (Flanagan & Godefroid, POPL 2005)](archive/legacy/papers/dpor-flanagan-2005.pdf)

@@ -25,9 +25,10 @@ FIG_DIR = Path(__file__).parent / "figures"
 
 # ── Data sources ──
 
-GOBENCH_DATA = ROOT / "bugs" / "gobench" / "charts" / "data"
-RAGATE_DATA = ROOT / "bugs" / "ra-gate" / "charts" / "data"
-RASTALE_DATA = ROOT / "bugs" / "ra-stale-reply" / "benchmarking" / "data"
+LEGACY_BUGS = ROOT / "archive" / "legacy" / "bugs"
+GOBENCH_DATA = LEGACY_BUGS / "gobench" / "charts" / "data"
+RAGATE_DATA = LEGACY_BUGS / "ra-gate" / "charts" / "data"
+RASTALE_DATA = LEGACY_BUGS / "ra-stale-reply" / "benchmarking" / "data"
 
 # Bug definitions: (bug_id, data_dir, strategies_map, group)
 # strategies_map: {display_name: file_stem}
