@@ -14,6 +14,7 @@ package distributed
 
 import (
 	"math/rand"
+	"sync"
 	"testing/synctest"
 )
 
@@ -51,8 +52,10 @@ type Bubble struct {
 	Resume chan<- Resume
 
 	// Internal.
-	idle   chan IdleState
-	resume chan Resume
+	idle       chan IdleState
+	resume     chan Resume
+	cancel     chan struct{}
+	cancelOnce sync.Once
 
 	// scheduleFn is called synchronously in the hook for every local
 	// scheduling decision. Set by the orchestrator to wrap Algorithm.Decide.
@@ -90,6 +93,7 @@ func NewBubble(name string, opts ...Option) *Bubble {
 		Resume: resume,
 		idle:   idle,
 		resume: resume,
+		cancel: make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -119,8 +123,17 @@ func (b *Bubble) Hook() func(BubbleState) int32 {
 			return b.schedule(state)
 		}
 		// Idle — ask the global orchestrator.
-		b.idle <- IdleState{Name: b.Name, State: state}
-		r := <-b.resume
+		select {
+		case b.idle <- IdleState{Name: b.Name, State: state}:
+		case <-b.cancel:
+			return -1
+		}
+		var r Resume
+		select {
+		case r = <-b.resume:
+		case <-b.cancel:
+			return -1
+		}
 		if r.AdvanceTimeTo > 0 {
 			synctest.SetTime(r.AdvanceTimeTo)
 		}
@@ -154,12 +167,14 @@ func (b *Bubble) schedule(state BubbleState) int32 {
 // DrainLocal returns local scheduling decisions recorded since the last drain.
 // Called by the orchestrator after each idle/done event to build the unified trace.
 func (b *Bubble) DrainLocal() []LocalStep {
-	steps := b.localLog[b.lastDrained:]
-	b.lastDrained = len(b.localLog)
-	out := make([]LocalStep, len(steps))
-	copy(out, steps)
-	return out
+	steps := b.localLog
+	b.localLog = nil
+	b.lastDrained = 0
+	return steps
 }
+
+// Cancel releases a parked idle hook during stop/join. It does not kill user code.
+func (b *Bubble) Cancel() { b.cancelOnce.Do(func() { close(b.cancel) }) }
 
 // HasNewLocal returns true if local scheduling decisions have been recorded
 // since the last drain. Used to detect spurious idle signals.

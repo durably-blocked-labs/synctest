@@ -1,9 +1,17 @@
 // Package rafttest provides a Raft transport that routes cross-node RPCs
 // through the orchestrator Orchestrator, enabling controlled message
 // delivery ordering for deterministic distributed systems testing.
+//
+// Qualified profile: attached-bounded/v1, schedule-only unified replay.
+// Select control over host-owned outbox/control channels is unsupported and
+// fails closed; bubble-owned selects can be qualified separately. Peer closure
+// after RPC publication is an unsupported whole-trial infrastructure stop, not
+// a modeled terminal response. Cancel the trial before ordinary teardown.
 package rafttest
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -13,6 +21,8 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/shubhaankar/synctest/orchestrator"
 )
+
+var ErrTransportClosed = errors.New("rafttest: transport closed")
 
 type envelopeKind int
 
@@ -29,9 +39,10 @@ type envelope struct {
 	to      raft.ServerAddress
 	rpcType string
 
-	command interface{}
-	reader  io.Reader
-	resp    raft.RPCResponse
+	command   interface{}
+	reader    io.Reader
+	resp      raft.RPCResponse
+	completed chan error
 }
 
 // RaftTransport implements raft.Transport (and raft.WithPreVote, raft.WithClose)
@@ -48,10 +59,18 @@ type envelope struct {
 type RaftTransport struct {
 	localAddr        raft.ServerAddress
 	outbox           chan *orchestrator.PendingOp // unbuffered; to orchestrator
-	internalConsumer chan raft.RPC                  // created inside bubble by StartBridge; Raft reads this
-	mailbox          chan envelope                  // buffered; orchestrator writes here
+	internalConsumer chan raft.RPC                // created inside bubble by StartBridge; Raft reads this
+	mailbox          chan envelope                // buffered; orchestrator writes here
 	peers            map[raft.ServerAddress]*RaftTransport
 	closeCh          chan struct{}
+	closeOnce        sync.Once
+	publications     orchestrator.Publications
+	bridgeReady      atomic.Pointer[synctest.Ready]
+	localStop        chan struct{} // created and closed only while attached
+	trialCtx         context.Context
+	failTrial        func(error)
+	closeMu          sync.Mutex
+	closeWatchers    map[string]func()
 
 	nextReqID uint64
 	pendingMu sync.Mutex
@@ -63,6 +82,7 @@ var _ raft.Transport = (*RaftTransport)(nil)
 var _ raft.WithPreVote = (*RaftTransport)(nil)
 var _ raft.WithClose = (*RaftTransport)(nil)
 var _ orchestrator.NodeTransport = (*RaftTransport)(nil)
+var _ orchestrator.AcknowledgedTransport = (*RaftTransport)(nil)
 
 // NewRaftTransport creates a transport for the given address.
 // internalConsumer is intentionally left nil here; it is created inside the
@@ -72,11 +92,12 @@ func NewRaftTransport(addr raft.ServerAddress) *RaftTransport {
 		localAddr: addr,
 		// Buffered to avoid deadlock when a bubble must report idle before the
 		// orchestrator starts draining outboxes.
-		outbox:  make(chan *orchestrator.PendingOp, 64),
-		mailbox: make(chan envelope, 16),
-		peers:   make(map[raft.ServerAddress]*RaftTransport),
-		closeCh: make(chan struct{}),
-		pending: make(map[uint64]chan raft.RPCResponse),
+		outbox:        make(chan *orchestrator.PendingOp, 64),
+		mailbox:       make(chan envelope, 16),
+		peers:         make(map[raft.ServerAddress]*RaftTransport),
+		closeCh:       make(chan struct{}),
+		pending:       make(map[uint64]chan raft.RPCResponse),
+		closeWatchers: make(map[string]func()),
 	}
 }
 
@@ -110,34 +131,44 @@ func (t *RaftTransport) StartBridge() {
 	// Create inside the bubble so raft goroutines blocking on Consumer() are
 	// durably blocked (bubble channel), enabling idle detection.
 	t.internalConsumer = make(chan raft.RPC, 16)
+	t.localStop = make(chan struct{})
 
 	go func() {
 		for {
 			var msg envelope
-			synctest.ExternalWait(func() {
+			ready := synctest.NewReady()
+			t.bridgeReady.Store(ready)
+			synctest.ExternalWaitReady(func() {
 				select {
 				case msg = <-t.mailbox:
 				case <-t.closeCh:
 					msg = envelope{kind: envelopeClose}
 				}
-			})
+			}, ready)
+			t.bridgeReady.Store(nil)
 			if msg.kind == envelopeClose {
+				close(t.localStop)
 				return
 			}
-			t.handleEnvelope(msg)
+			err := t.handleEnvelope(msg)
+			if msg.completed != nil {
+				msg.completed <- err
+			}
 		}
 	}()
 }
 
-func (t *RaftTransport) handleEnvelope(msg envelope) {
+func (t *RaftTransport) handleEnvelope(msg envelope) error {
 	switch msg.kind {
 	case envelopeRequest:
 		proxyRespCh := make(chan raft.RPCResponse, 1)
 		select {
 		case t.internalConsumer <- raft.RPC{Command: msg.command, Reader: msg.reader, RespChan: proxyRespCh}:
 			go t.forwardResponse(msg, proxyRespCh)
-		case <-t.closeCh:
-			return
+		case <-t.localStop:
+			return ErrTransportClosed
+		default:
+			return orchestrator.ResourceLimitError{Resource: "internal consumer", Limit: cap(t.internalConsumer)}
 		}
 
 	case envelopeResponse:
@@ -145,61 +176,49 @@ func (t *RaftTransport) handleEnvelope(msg envelope) {
 		respCh := t.pending[msg.reqID]
 		t.pendingMu.Unlock()
 		if respCh == nil {
-			return
+			return nil
 		}
 		// respCh is buffered(1) and created inside the bubble — durable send.
-		respCh <- msg.resp
+		select {
+		case respCh <- msg.resp:
+		case <-t.localStop:
+			return ErrTransportClosed
+		default:
+			return fmt.Errorf("rafttest: duplicate/full response channel for request %d", msg.reqID)
+		}
 	}
+	return nil
 }
 
 func (t *RaftTransport) forwardResponse(req envelope, proxyRespCh <-chan raft.RPCResponse) {
 	var resp raft.RPCResponse
 	select {
 	case resp = <-proxyRespCh:
-	case <-t.closeCh:
+	case <-t.localStop:
 		return
 	}
 
 	peer, ok := t.peers[req.from]
 	if !ok {
-		return
+		panic(fmt.Errorf("rafttest: no response peer for %q", req.from))
 	}
 
-	synctest.ExternalWait(func() {
-		select {
-		case t.outbox <- &orchestrator.PendingOp{
-			Dir:  orchestrator.OpSend,
-			From: string(t.localAddr),
-			To:   string(req.from),
-			Type: req.rpcType + "Response",
-			Execute: func() {
-				select {
-				case peer.mailbox <- envelope{
-					kind:  envelopeResponse,
-					reqID: req.reqID,
-					from:  t.localAddr,
-					to:    req.from,
-					resp:  resp,
-				}:
-				case <-peer.closeCh:
-					// Target transport closed — drop the response.
-				}
-			},
-		}:
-		case <-t.closeCh:
+	op := &orchestrator.PendingOp{Dir: orchestrator.OpSend, From: string(t.localAddr), To: string(req.from), Type: req.rpcType + "Response"}
+	op.Deliver = func(ctx context.Context) (orchestrator.DeliveryReceipt, error) {
+		return peer.deliver(ctx, envelope{kind: envelopeResponse, reqID: req.reqID, from: t.localAddr, to: req.from, resp: resp})
+	}
+	if err := t.publish(op); err != nil {
+		if errors.Is(err, ErrTransportClosed) {
+			return
 		}
-	})
+		panic(err)
+	}
+
 }
 
-// makeRPC sends an RPC to the target and waits for the orchestrator-delivered response.
-//
-// Phase 1: ExternalWait on the outbox send. The orchestrator reads the PendingOp,
-// calls Execute (delivering the envelope to the target's mailbox), then resumes
-// the target bubble. The sender's bubble stays frozen until the response arrives.
-//
-// Phase 2: ExternalWait on the response channel. The orchestrator delivers the
-// response envelope to this node's mailbox; the bridge goroutine processes it
-// and writes to respCh, completing this ExternalWait.
+// makeRPC publishes while attached using a bounded nonblocking outbox, then
+// waits on a bubble-owned response or bridge-owned local cancellation.
+// A full outbox is model exhaustion, never a silently dropped request.
 func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io.Reader) (raft.RPCResponse, error) {
 	peer, ok := t.peers[target]
 	if !ok {
@@ -224,6 +243,10 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 	respCh := make(chan raft.RPCResponse, 1)
 
 	t.pendingMu.Lock()
+	if len(t.pending) >= 256 {
+		t.pendingMu.Unlock()
+		panic(orchestrator.ResourceLimitError{Resource: "pending RPCs", Limit: 256})
+	}
 	t.pending[reqID] = respCh
 	t.pendingMu.Unlock()
 	defer func() {
@@ -234,81 +257,39 @@ func (t *RaftTransport) makeRPC(target raft.ServerAddress, cmd interface{}, r io
 
 	rpcType := rpcTypeName(cmd)
 
-	// Phase 1: deliver request to target via orchestrator.
-	synctest.ExternalWait(func() {
-		select {
-		case t.outbox <- &orchestrator.PendingOp{
-			Dir:  orchestrator.OpSend,
-			From: string(t.localAddr),
-			To:   string(target),
-			Type: rpcType,
-			Execute: func() {
-				select {
-				case peer.mailbox <- envelope{
-					kind:    envelopeRequest,
-					reqID:   reqID,
-					from:    t.localAddr,
-					to:      target,
-					rpcType: rpcType,
-					command: cmd,
-					reader:  r,
-				}:
-				case <-peer.closeCh:
-					// Target closed. Route error through sender's mailbox with
-					// a blocking send so the pending respCh always receives a
-					// value (contract: every registered respCh gets exactly one).
-					t.mailbox <- envelope{
-						kind:  envelopeResponse,
-						reqID: reqID,
-						from:  target,
-						to:    t.localAddr,
-						resp:  raft.RPCResponse{Error: fmt.Errorf("rafttest: peer %q closed", target)},
-					}
-				}
-			},
-		}:
-		case <-t.closeCh:
-		}
-	})
-
-	// After Phase 1, check if the transport was closed during (or before) the
-	// ExternalWait. If Close() ran while the goroutine was detached, closeCh
-	// is now closed and the pending map has been swapped. Any respCh registered
-	// in the old map already received a close-error from Close(); any respCh
-	// registered in the new map will never receive data. Either way, proceeding
-	// to Phase 2 risks blocking forever. Return the error immediately.
-	select {
-	case <-t.closeCh:
-		return raft.RPCResponse{}, fmt.Errorf("rafttest: transport closed")
-	default:
+	op := &orchestrator.PendingOp{Dir: orchestrator.OpSend, From: string(t.localAddr), To: string(target), Type: rpcType}
+	op.Deliver = func(ctx context.Context) (orchestrator.DeliveryReceipt, error) {
+		return peer.deliver(ctx, envelope{kind: envelopeRequest, reqID: reqID, from: t.localAddr, to: target, rpcType: rpcType, command: cmd, reader: r})
 	}
-
-	// Check if the target peer's transport is already closed. When Execute()
-	// detects a closed peer, it tries to route an error through t.mailbox,
-	// but the mailbox may be full (dropping the error via the default case).
-	// If the peer is closed and respCh is still empty, Phase 2 would block
-	// forever. Drain any buffered response first; if empty, return an error.
+	// Register before publication so peer closure cannot be lost.
+	key := fmt.Sprintf("%s:%d", t.localAddr, reqID)
+	peer.closeMu.Lock()
 	select {
 	case <-peer.closeCh:
-		// Peer is closed. Try to collect any response that was already
-		// buffered (e.g. the bridge goroutine may have already delivered
-		// the error from Execute's mailbox routing).
-		select {
-		case resp := <-respCh:
-			if resp.Error != nil {
-				return resp, resp.Error
-			}
-			return resp, nil
-		default:
-			return raft.RPCResponse{}, fmt.Errorf("rafttest: peer %q closed", target)
-		}
+		peer.closeMu.Unlock()
+		return raft.RPCResponse{}, fmt.Errorf("rafttest: peer %q closed", target)
 	default:
 	}
+	peer.closeWatchers[key] = func() {
+		if t.trialCtx != nil && t.trialCtx.Err() == nil && t.failTrial != nil {
+			t.failTrial(fmt.Errorf("rafttest: peer %q closed after publication (unsupported whole-trial infrastructure stop)", target))
+		}
+	}
+	peer.closeMu.Unlock()
+	defer func() { peer.closeMu.Lock(); delete(peer.closeWatchers, key); peer.closeMu.Unlock() }()
+	if err := t.publish(op); err != nil {
+		if errors.Is(err, ErrTransportClosed) {
+			return raft.RPCResponse{}, err
+		}
+		panic(err)
+	}
+	var resp raft.RPCResponse
+	select {
+	case resp = <-respCh:
+	case <-t.localStop:
+		return raft.RPCResponse{}, ErrTransportClosed
+	}
 
-	// Phase 2: wait for response delivered by orchestrator.
-	// respCh is created inside the bubble, so this must remain a durable
-	// in-bubble receive (not ExternalWait).
-	resp := <-respCh
 	if resp.Error != nil {
 		return resp, resp.Error
 	}
@@ -396,36 +377,74 @@ func (t *RaftTransport) DecodePeer(buf []byte) raft.ServerAddress {
 // the normal consumer channel.
 func (t *RaftTransport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {}
 
-// Close implements raft.WithClose.
-// In addition to closing closeCh (which stops the bridge goroutine and
-// forwardResponse goroutines), it sends a transport-closed error to every
-// pending respCh so that makeRPC goroutines blocked on the response unblock
-// immediately. Without this, a non-FIFO delivery ordering can leave a
-// makeRPC goroutine permanently stuck on resp := <-respCh if forwardResponse
-// exited via closeCh before forwarding the response.
+// BindTrial installs the coordinator's causal infrastructure-stop boundary.
+// Called before bubbles start; teardown cancels the context before Close.
+func (t *RaftTransport) BindTrial(ctx context.Context, fail func(error)) {
+	t.trialCtx, t.failTrial = ctx, fail
+}
+
+// Close touches only host-owned state. The reattached bridge closes localStop.
 func (t *RaftTransport) Close() error {
+	t.closeOnce.Do(func() {
+		t.closeMu.Lock()
+		defer t.closeMu.Unlock()
+		for _, fail := range t.closeWatchers {
+			fail()
+		}
+		close(t.closeCh)
+	})
+	return nil
+}
+
+func (t *RaftTransport) PublicationPolicy() string { return orchestrator.AttachedPublicationV1 }
+func (t *RaftTransport) PendingPublications() int  { return t.publications.Pending() }
+
+// WaitPublications is bookkeeping for callers; qualification uses a zero
+// PendingPublications snapshot and the versioned attached publication policy.
+func (t *RaftTransport) WaitPublications(ctx context.Context) error { return t.publications.Wait(ctx) }
+
+func (t *RaftTransport) publish(op *orchestrator.PendingOp) error {
+	id, complete := t.publications.Begin(string(t.localAddr))
+	op.Occurrence = id
+	defer complete()
 	select {
 	case <-t.closeCh:
-		return nil // already closed
+		return ErrTransportClosed
 	default:
-		close(t.closeCh)
+	}
+	select {
+	case t.outbox <- op:
+		return nil
+	case <-t.closeCh:
+		return ErrTransportClosed
+	default:
+		return orchestrator.ResourceLimitError{Resource: "outbox", Limit: cap(t.outbox)}
 	}
 
-	// Drain pending RPCs: snapshot and clear the map under the lock, then send
-	// the error sentinel outside the lock so we don't hold it during channel ops.
-	t.pendingMu.Lock()
-	pending := t.pending
-	t.pending = make(map[uint64]chan raft.RPCResponse)
-	t.pendingMu.Unlock()
+}
 
-	closeErr := raft.RPCResponse{Error: fmt.Errorf("rafttest: transport closed")}
-	for _, ch := range pending {
-		select {
-		case ch <- closeErr:
-		default: // ch already has a real response; makeRPC will use it
-		}
+func (t *RaftTransport) deliver(ctx context.Context, msg envelope) (orchestrator.DeliveryReceipt, error) {
+	if err := ctx.Err(); err != nil {
+		return orchestrator.DeliveryReceipt{}, err
 	}
-	return nil
+	select {
+	case <-t.closeCh:
+		return orchestrator.DeliveryReceipt{}, ErrTransportClosed
+	default:
+	}
+	ready := t.bridgeReady.Load()
+	if ready == nil {
+		return orchestrator.DeliveryReceipt{}, fmt.Errorf("rafttest: %s bridge not receiving", t.localAddr)
+	}
+	msg.completed = make(chan error, 1)
+	select {
+	case <-t.closeCh:
+		return orchestrator.DeliveryReceipt{}, ErrTransportClosed
+	case t.mailbox <- msg:
+		return orchestrator.DeliveryReceipt{WaitReady: ready.Wait, Completed: msg.completed, Cancelled: t.closeCh}, nil
+	default:
+		return orchestrator.DeliveryReceipt{}, fmt.Errorf("rafttest: %s mailbox full", t.localAddr)
+	}
 }
 
 // rpcTypeName returns a human-readable name for an RPC command type.

@@ -172,7 +172,9 @@ func NewJSONLObserver(w io.Writer, policy string) RunObserver {
 		}
 		r.TraceFingerprint = fp.String()
 
-		enc.Encode(r) //nolint:errcheck
+		if err := enc.Encode(r); err != nil {
+			panic(fmt.Errorf("metrics write: %w", err))
+		}
 	}
 }
 
@@ -196,16 +198,21 @@ func ObserverFromEnv(t *testing.T) ExploreOption {
 	}
 	if dir := filepath.Dir(path); dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Logf("metrics: failed to create directory %s: %v", dir, err)
-			return func(*exploreConfig) {}
+			t.Fatalf("metrics: failed to create directory %s: %v", dir, err)
 		}
 	}
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		t.Logf("metrics: failed to create %s: %v", path, err)
-		return func(*exploreConfig) {}
+		t.Fatalf("metrics: failed to create %s: %v", path, err)
 	}
-	t.Cleanup(func() { f.Close() })
+	t.Cleanup(func() {
+		if err := f.Sync(); err != nil {
+			t.Errorf("metrics sync: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			t.Errorf("metrics close: %v", err)
+		}
+	})
 	return WithObserver(NewJSONLObserver(f, ""))
 }
 
@@ -265,7 +272,9 @@ func NewDetailedObserver(w io.Writer, policy string) RunObserver {
 				RunqBGIDs:    s.RunqBGIDs,
 			}
 		}
-		enc.Encode(rec) //nolint:errcheck
+		if err := enc.Encode(rec); err != nil {
+			panic(fmt.Errorf("detailed metrics write: %w", err))
+		}
 	}
 }
 

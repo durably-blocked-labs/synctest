@@ -18,6 +18,14 @@ import (
 // Bound caps the number of non-FIFO choices in a replay prefix. A zero value
 // defaults to 2, matching CHESS.
 type DPOR struct {
+	// Explicit retained search-state safety caps. Zero uses bounded defaults.
+	MaxFrontier      int
+	MaxFrontierSteps int
+	MaxTree          int
+	MaxSeen          int
+	frontierSteps    int
+	budgetErr        error
+
 	Bound int
 
 	// GlobalOnly restricts DPOR to cross-node message deliveries. Local
@@ -43,12 +51,13 @@ type DPOR struct {
 	// Returning ok=false falls back to DPOR's built-in frontier heuristic.
 	Frontier func(DecisionPoint) (choice int, ok bool)
 
-	stack     []dporItem
-	current   dporItem
-	prefixIdx int
-	tree      []RunNode
-	count     int
-	seen      map[string]struct{}
+	stack          []dporItem
+	current        dporItem
+	prefixIdx      int
+	frontierCalled bool
+	tree           []RunNode
+	count          int
+	seen           map[string]struct{}
 }
 
 type dporItem struct {
@@ -61,6 +70,21 @@ type dporItem struct {
 
 // BeforeRun prepares the next run. Returns false when exploration is done.
 func (d *DPOR) BeforeRun() bool {
+	if d.budgetErr != nil {
+		return false
+	}
+	if d.MaxFrontier <= 0 {
+		d.MaxFrontier = 4096
+	}
+	if d.MaxFrontierSteps <= 0 {
+		d.MaxFrontierSteps = 1 << 20
+	}
+	if d.MaxTree <= 0 {
+		d.MaxTree = 10000
+	}
+	if d.MaxSeen <= 0 {
+		d.MaxSeen = 10000
+	}
 	if d.Bound == 0 {
 		d.Bound = 2
 	}
@@ -74,22 +98,21 @@ func (d *DPOR) BeforeRun() bool {
 	}
 	d.current = d.stack[len(d.stack)-1]
 	d.stack = d.stack[:len(d.stack)-1]
+	d.frontierSteps -= len(d.current.prefix)
 	d.prefixIdx = 0
+	d.frontierCalled = false
 	return true
 }
 
 // Decide follows the replay prefix, then returns FIFO at the frontier.
 func (d *DPOR) Decide(dp DecisionPoint) int {
-	if d.GlobalOnly && dp.Kind == Local {
+	if d.GlobalOnly && dp.Kind != Global {
 		return 0
 	}
 	if d.prefixIdx < len(d.current.prefix) {
 		p := d.current.prefix[d.prefixIdx]
-		if p.Kind != dp.Kind || p.Node != dp.Node {
-			panic(replayDivergenceError{Step: dp.Step})
-		}
-		if int(p.Index) >= dp.N() {
-			panic(replayDivergenceError{Step: dp.Step, Index: int(p.Index), QueueSize: dp.N()})
+		if err := matchStep(p, dp, false); err != nil {
+			panic(replayDivergenceError{Step: dp.Step, Detail: err.Error()})
 		}
 		d.prefixIdx++
 		return int(p.Index)
@@ -99,6 +122,10 @@ func (d *DPOR) Decide(dp DecisionPoint) int {
 
 // AfterRun records the run and pushes dependent alternatives only.
 func (d *DPOR) AfterRun(result RunResult) {
+	if len(d.tree) >= d.MaxTree {
+		d.budgetErr = ResourceLimitError{Resource: "search tree", Limit: d.MaxTree}
+		return
+	}
 	d.count++
 
 	nodeIdx := len(d.tree)
@@ -152,22 +179,25 @@ func (d *DPOR) pushDependentAlts(trace Trace, nodeIdx int, wantGlobal bool) {
 				continue
 			}
 
+			if len(d.stack)+len(items) >= d.MaxFrontier {
+				d.budgetErr = ResourceLimitError{Resource: "search frontier", Limit: d.MaxFrontier}
+				return
+			}
+			if !d.reservePrefix(i + 1) {
+				return
+			}
 			newPrefix := make(Trace, i+1)
 			copy(newPrefix, trace[:i])
-			newPrefix[i] = NewStep{
-				Kind:         step.Kind,
-				Node:         step.Node,
-				Index:        alt,
-				Alternatives: step.Alternatives,
-				ChosenID:     stepAltID(step, int(alt)),
-				Resource:     stepAltResource(step, int(alt)),
-				AltIDs:       cloneStrings(step.AltIDs),
-				AltResources: cloneStrings(step.AltResources),
-			}
+			newPrefix[i] = branchStep(step, alt)
 
 			key := traceKey(newPrefix)
 			if _, ok := d.seen[key]; ok {
+				d.frontierSteps -= i + 1
 				continue
+			}
+			if len(d.seen) >= d.MaxSeen {
+				d.budgetErr = ResourceLimitError{Resource: "search seen", Limit: d.MaxSeen}
+				return
 			}
 			d.seen[key] = struct{}{}
 			items = append(items, dporItem{
@@ -200,7 +230,8 @@ func (d *DPOR) branchScore(trace Trace, stepIdx int, alt int, wantGlobal bool) i
 }
 
 func (d *DPOR) frontierChoice(dp DecisionPoint) int {
-	if d.Frontier != nil {
+	if !d.frontierCalled && d.Frontier != nil {
+		d.frontierCalled = true
 		if choice, ok := d.Frontier(dp); ok {
 			return choice
 		}
@@ -318,7 +349,7 @@ func stepResource(step NewStep) string {
 	if step.Resource != "" {
 		return step.Resource
 	}
-	if step.Kind == Local {
+	if step.Kind != Global {
 		return step.Node
 	}
 	return step.To
@@ -328,7 +359,7 @@ func stepAltResource(step NewStep, alt int) string {
 	if alt >= 0 && alt < len(step.AltResources) {
 		return step.AltResources[alt]
 	}
-	if step.Kind == Local {
+	if step.Kind != Global {
 		return step.Node
 	}
 	if alt == int(step.Index) {
@@ -396,3 +427,13 @@ func (d *DPOR) Tree() []RunNode {
 func (d *DPOR) Count() int {
 	return d.count
 }
+
+func (d *DPOR) reservePrefix(steps int) bool {
+	if len(d.stack) >= d.MaxFrontier || d.frontierSteps+steps > d.MaxFrontierSteps {
+		d.budgetErr = ResourceLimitError{Resource: "search frontier", Limit: d.MaxFrontierSteps}
+		return false
+	}
+	d.frontierSteps += steps
+	return true
+}
+func (d *DPOR) SearchError() error { return d.budgetErr }

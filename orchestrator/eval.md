@@ -1,5 +1,11 @@
 # Evaluation Framework: orchestrator
 
+> Historical evaluation proposal, not measured results or current guarantees.
+> Claims below about exhaustive coverage, guaranteed bug discovery, minimum
+> bounds and deterministic run counts remain hypotheses, not established
+> properties of this implementation. See the root
+> [qualification limits](../README.md#current-qualification-limits).
+
 This document describes how to evaluate the systematic concurrency testing framework we built – what to measure, why it matters, and how it compares to prior work.
 
 ---

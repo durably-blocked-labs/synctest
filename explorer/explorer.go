@@ -59,8 +59,10 @@ type DecisionHook func(state BubbleState) int32
 type Option func(*config)
 
 type config struct {
-	maxRuns   int
-	observers []RunObserver
+	maxRuns       int
+	observers     []RunObserver
+	selectChoices bool
+	sink          orchestrator.TrialSink
 }
 
 // MaxRuns sets a hard cap on the number of bubble executions.
@@ -74,23 +76,60 @@ func WithObserver(fn RunObserver) Option {
 	return func(c *config) { c.observers = append(c.observers, fn) }
 }
 
+// WithTrialSink records start and terminal for every attempted execution.
+func WithTrialSink(s orchestrator.TrialSink) Option { return func(c *config) { c.sink = s } }
+
+// WithSelectChoices opts into explicit enabled-select-case decisions.
+func WithSelectChoices() Option { return func(c *config) { c.selectChoices = true } }
+
 // RunWithHook executes f in a new bubble with the given decision hook.
 // The hook is called at every frontier scheduling decision point
 // (i.e., where the runq has goroutines and no pre-loaded prefix applies).
 //
-// Returns the full scheduling trace and whether the test passed.
+// Returns a bounded scheduling trace and whether the test passed.
+// Use RunWithHookResult to retain the exact failure and unsafe-worker status.
 // If the bubble panics (e.g., deadlock), returns (nil, false).
 func RunWithHook(t *testing.T, f func(*testing.T), hook DecisionHook) ([]Decision, bool) {
-	wrapped := func(t *testing.T) {
+	r := RunWithHookResult(t, f, hook)
+	return r.Trace, r.OK
+}
+
+// RunWithHookResult retains runtime causes and the unsafe-worker boundary.
+func RunWithHookResult(t *testing.T, f func(*testing.T), hook DecisionHook) synctest.Result {
+	return runWithHooks(t, f, hook, nil)
+}
+
+func runWithHooks(t *testing.T, f func(*testing.T), hook DecisionHook, selectHook func(synctest.SelectState) int32) synctest.Result {
+	if !orchestrator.WorkerReusable() {
+		return synctest.Result{Cause: fmt.Errorf("unsafe worker cannot start another bubble; terminate process"), WorkerUnsafe: true}
+	}
+	var workloadCause any
+	result := synctest.ExploreResult(t, func(t *testing.T) {
+		defer func() {
+			if cause := recover(); cause != nil {
+				workloadCause = cause
+			}
+		}()
 		synctest.SetDecisionHook(func(state synctest.BubbleState) int32 {
 			if state.Idle {
 				return -1
 			}
 			return hook(state)
 		})
+		if selectHook != nil {
+			synctest.SetSelectHook(selectHook)
+		}
 		f(t)
+	}, nil)
+	if workloadCause != nil {
+		result.Cause = workloadCause
+		result.OK = false
+		result.WorkerUnsafe = true
 	}
-	return synctest.Explore(t, wrapped, nil)
+	if result.WorkerUnsafe {
+		orchestrator.RetireWorker()
+	}
+	return result
 }
 
 // Explore runs f repeatedly under the given algorithm, collecting metrics.
@@ -100,13 +139,13 @@ func RunWithHook(t *testing.T, f func(*testing.T), hook DecisionHook) ([]Decisio
 // goroutines are runnable. CHESS explores systematically via DFS, PCT uses
 // randomized priorities, Random picks uniformly.
 //
-// All failures — including deadlocks — are counted as bugs.
+// Assertion failures count as bugs; infrastructure/runtime failures stop the worker.
 //
 // Returns the exploration result (runs, failures, timing).
 func Explore(t *testing.T, f func(*testing.T), algo Algorithm, opts ...Option) ExplorationResult {
 	t.Helper()
 	saved := runtime.GOMAXPROCS(1)
-	t.Cleanup(func() { runtime.GOMAXPROCS(saved) })
+	defer runtime.GOMAXPROCS(saved)
 
 	var cfg config
 	for _, o := range opts {
@@ -116,74 +155,129 @@ func Explore(t *testing.T, f func(*testing.T), algo Algorithm, opts ...Option) E
 	start := time.Now()
 	result := ExplorationResult{FirstBug: -1}
 
-	for algo.BeforeRun() {
-		if cfg.maxRuns > 0 && result.Runs >= cfg.maxRuns {
+	for cfg.maxRuns <= 0 || result.Runs < cfg.maxRuns {
+		if !algo.BeforeRun() {
+			if bounded, ok := algo.(interface{ SearchError() error }); ok {
+				if err := bounded.SearchError(); err != nil {
+					result.Incomplete++
+					result.Cause = err
+				}
+			}
 			break
 		}
 
+		if cfg.sink != nil {
+			if err := cfg.sink.StartTrial(result.Runs + 1); err != nil {
+				result.Incomplete++
+				result.Cause = err
+				break
+			}
+		}
 		var trace orchestrator.Trace
-		var diverged bool
+		var runtimeResult synctest.Result
+		var hookCause any
 		runStart := time.Now()
-
 		passed := t.Run(fmt.Sprintf("run_%d", result.Runs), func(subT *testing.T) {
-			subT.Helper()
-			_, ok := RunWithHook(subT, f, func(state BubbleState) int32 {
-				alts := buildAlts(state)
-				dp := orchestrator.DecisionPoint{
-					Kind: orchestrator.Local,
-					Step: int(state.Step),
-					Node: "local",
-					Alts: alts,
+			var selectHook func(synctest.SelectState) int32
+			if cfg.selectChoices {
+				selectHook = func(state synctest.SelectState) int32 {
+					defer func() {
+						if cause := recover(); cause != nil {
+							hookCause = cause
+							panic(cause)
+						}
+					}()
+					dp := orchestrator.SelectDecisionPoint(state, len(trace), "local")
+					idx := algo.Decide(dp)
+					orchestrator.CheckDecision(dp, idx)
+					trace = append(trace, orchestrator.RecordDecision(dp, idx))
+					return dp.Alts[idx].CaseIndex
 				}
-				// Catch divergence panics from algo.Decide (e.g., CHESS prefix mismatch).
-				// We set diverged via the closure, then re-panic to abort the bubble.
-				// Note: synctest.Explore will swallow the re-panic (it recovers all
-				// panics and returns ok=false). The diverged flag — not the panic — is
-				// the actual signal we check after RunWithHook returns.
+			}
+			runtimeResult = runWithHooks(subT, f, func(state BubbleState) int32 {
+				dp := orchestrator.DecisionPoint{Kind: orchestrator.Local, Step: len(trace), Node: "local", Alts: buildAlts(state)}
 				defer func() {
-					if r := recover(); r != nil {
-						diverged = true
-						panic(r)
+					if cause := recover(); cause != nil {
+						hookCause = cause
+						panic(cause)
 					}
 				}()
 				idx := algo.Decide(dp)
-				trace = append(trace, orchestrator.NewStep{
-					Kind:         orchestrator.Local,
-					Node:         "local",
-					Index:        int32(idx),
-					Alternatives: int32(len(alts)),
-					ChosenID:     alts[idx].ID,
-					ChosenBGID:   alts[idx].BGID,
-					RunqBGIDs:    bgidsFromAlts(alts),
-				})
+				orchestrator.CheckDecision(dp, idx)
+				ids := make([]string, len(dp.Alts))
+				for i, a := range dp.Alts {
+					ids[i] = a.ID
+				}
+				trace = append(trace, orchestrator.NewStep{Kind: orchestrator.Local, Node: "local", Index: int32(idx), Alternatives: int32(len(dp.Alts)), ChosenID: dp.Alts[idx].ID, ChosenBGID: dp.Alts[idx].BGID, RunqBGIDs: bgidsFromAlts(dp.Alts), AltIDs: ids})
 				return int32(idx)
-			})
-			if !ok && !diverged {
-				subT.Errorf("interleaving failed")
+			}, selectHook)
+			if !runtimeResult.OK {
+				if _, diverged := orchestrator.IsReplayDivergence(hookCause); !diverged {
+					subT.Errorf("interleaving failed: %v", runtimeResult.Cause)
+				}
 			}
 		})
-
 		elapsed := time.Since(runStart)
-		rr := RunResult{
-			Trace:          trace,
-			Passed:         passed,
-			Diverged:       diverged,
-			DivergenceStep: -1,
-			Elapsed:        elapsed,
+		rr := RunResult{Trace: trace, Passed: passed && runtimeResult.OK, DivergenceStep: -1, Elapsed: elapsed, Cause: runtimeResult.Cause, WorkerUnsafe: runtimeResult.WorkerUnsafe, Outcome: orchestrator.OutcomePassed, SelectControlled: cfg.selectChoices}
+		if hookCause != nil {
+			rr.Cause = hookCause
 		}
-		if !passed && !diverged {
+		if rr.Cause != nil {
+			rr.Passed = false
+			if step, ok := orchestrator.IsReplayDivergence(rr.Cause); ok {
+				rr.Diverged = true
+				rr.DivergenceStep = step
+				rr.Outcome = orchestrator.OutcomeDiverged
+			} else if _, ok := rr.Cause.(interface {
+				error
+				Limit() string
+			}); ok {
+				rr.Outcome = orchestrator.OutcomeResourceLimit
+			} else {
+				rr.Outcome = orchestrator.OutcomeInfrastructure
+			}
+		} else if !rr.Passed {
 			rr.UserFailed = true
+			rr.Outcome = orchestrator.OutcomeAssertion
+		}
+		if validator, ok := algo.(interface{ ValidatePrefix() error }); ok && rr.Cause == nil {
+			if err := validator.ValidatePrefix(); err != nil {
+				rr.Passed = false
+				rr.Cause = err
+				rr.Diverged = true
+				rr.Outcome = orchestrator.OutcomeDiverged
+				rr.DivergenceStep, _ = orchestrator.IsReplayDivergence(err)
+			}
 		}
 
+		if cfg.sink != nil {
+			if err := cfg.sink.EndTrial(result.Runs+1, rr); err != nil {
+				rr.PersistenceError = err
+				rr.Passed = false
+				if rr.Cause == nil {
+					rr.UserFailed = false
+					rr.Diverged = false
+					rr.Cause = err
+					rr.Outcome = orchestrator.OutcomeInfrastructure
+				}
+			}
+		}
 		result.Runs++
 		algo.AfterRun(rr)
 
-		if diverged {
-			continue
+		if rr.Diverged {
+			result.Diverged++
+		}
+		if rr.WorkerUnsafe || rr.PersistenceError != nil || (!rr.Passed && !rr.Diverged && !rr.UserFailed) {
+			result.Incomplete++
+			result.Cause = rr.Cause
+			if rr.PersistenceError != nil {
+				result.Cause = rr.PersistenceError
+			}
 		}
 
 		// Notify observers on non-diverged runs.
-		if len(cfg.observers) > 0 {
+		if len(cfg.observers) > 0 && !rr.Diverged {
 			nonFIFO := 0
 			for _, s := range trace {
 				if s.Index != 0 {
@@ -191,15 +285,24 @@ func Explore(t *testing.T, f func(*testing.T), algo Algorithm, opts ...Option) E
 				}
 			}
 			for _, obs := range cfg.observers {
-				obs(result.Runs, nonFIFO, elapsed, rr, passed)
+				obs(result.Runs, nonFIFO, elapsed, rr, rr.Passed)
 			}
 		}
 
-		if !passed {
+		if rr.UserFailed {
 			result.Failed++
 			if result.FirstBug == -1 {
 				result.FirstBug = result.Runs
 			}
+		}
+		if bounded, ok := algo.(interface{ SearchError() error }); ok {
+			if err := bounded.SearchError(); err != nil {
+				result.Incomplete++
+				result.Cause = err
+				break
+			}
+		}
+		if rr.UserFailed || rr.WorkerUnsafe || result.Incomplete > 0 {
 			break
 		}
 	}
@@ -239,10 +342,13 @@ func Test(t *testing.T, f func(*testing.T), args ...any) {
 	}
 
 	r := Explore(t, f, algo, opts...)
-	if r.Failed > 0 {
+	if !r.Successful() {
+		if r.Incomplete > 0 {
+			t.Errorf("incomplete exploration: %v", r.Cause)
+		}
 		return // Explore already reported the failure via t.Run subtests
 	}
-	t.Logf("explored %d interleavings, all passed", r.Runs)
+	t.Logf("explored %d interleavings (%d rejected prefixes)", r.Runs, r.Diverged)
 }
 
 // buildAlts converts BubbleState goroutine info to orchestrator Alt entries.

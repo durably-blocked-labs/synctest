@@ -1,5 +1,10 @@
 # Formal Model of the Global Orchestrator
 
+> Historical design notes, not a verified model of the current implementation.
+> The definitions below do not establish runtime correctness, deterministic
+> replay under GC, machine isolation or sound reduction. See the root
+> [qualification limits](../README.md#current-qualification-limits).
+
 This document gives mathematical definitions for the global orchestrator in `orchestrator`. The goal is to make the invariants and correctness conditions precise.
 
 ---

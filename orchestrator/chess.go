@@ -5,6 +5,13 @@ package orchestrator
 // by replaying prefixes and branching at decision points where
 // alternatives exist.
 type CHESS struct {
+	// Explicit retained search-state safety caps. Zero uses bounded defaults.
+	MaxFrontier      int
+	MaxFrontierSteps int
+	MaxTree          int
+	frontierSteps    int
+	budgetErr        error
+
 	// Bound is the max non-FIFO decisions per trace (default 2).
 	Bound int
 
@@ -39,6 +46,18 @@ type RunNode struct {
 
 // BeforeRun prepares the next run. Returns false when exploration is done.
 func (s *CHESS) BeforeRun() bool {
+	if s.budgetErr != nil {
+		return false
+	}
+	if s.MaxFrontier <= 0 {
+		s.MaxFrontier = 4096
+	}
+	if s.MaxFrontierSteps <= 0 {
+		s.MaxFrontierSteps = 1 << 20
+	}
+	if s.MaxTree <= 0 {
+		s.MaxTree = 10000
+	}
 	if s.count == 0 {
 		// Seed with empty prefix (FIFO baseline).
 		s.stack = []chessItem{{prefix: nil, nonFIFO: 0, parent: -1, branch: -1}}
@@ -48,6 +67,7 @@ func (s *CHESS) BeforeRun() bool {
 	}
 	s.current = s.stack[len(s.stack)-1]
 	s.stack = s.stack[:len(s.stack)-1]
+	s.frontierSteps -= len(s.current.prefix)
 	s.prefixIdx = 0
 	return true
 }
@@ -61,16 +81,13 @@ func (s *CHESS) BeforeRun() bool {
 // Mismatches (due to varying local decision counts) panic with
 // replayDivergenceError, which the orchestrator catches and prunes.
 func (s *CHESS) Decide(dp DecisionPoint) int {
-	if s.GlobalOnly && dp.Kind == Local {
+	if s.GlobalOnly && dp.Kind != Global {
 		return 0 // FIFO for local in GlobalOnly mode
 	}
 	if s.prefixIdx < len(s.current.prefix) {
 		p := s.current.prefix[s.prefixIdx]
-		if p.Kind != dp.Kind || p.Node != dp.Node {
-			panic(replayDivergenceError{Step: dp.Step})
-		}
-		if int(p.Index) >= dp.N() {
-			panic(replayDivergenceError{Step: dp.Step, Index: int(p.Index), QueueSize: dp.N()})
+		if err := matchStep(p, dp, false); err != nil {
+			panic(replayDivergenceError{Step: dp.Step, Detail: err.Error()})
 		}
 		s.prefixIdx++
 		return int(p.Index)
@@ -81,6 +98,10 @@ func (s *CHESS) Decide(dp DecisionPoint) int {
 
 // AfterRun records the run and pushes unexplored alternatives onto the stack.
 func (s *CHESS) AfterRun(result RunResult) {
+	if len(s.tree) >= s.MaxTree {
+		s.budgetErr = ResourceLimitError{Resource: "search tree", Limit: s.MaxTree}
+		return
+	}
 	s.count++
 
 	nodeIdx := len(s.tree)
@@ -129,13 +150,12 @@ func (s *CHESS) pushGlobalOnlyAlts(result RunResult, nodeIdx int) {
 			if newNonFIFO > s.Bound {
 				continue
 			}
+			if !s.reservePrefix(i + 1) {
+				return
+			}
 			newPrefix := make(Trace, i+1)
 			copy(newPrefix, globalSteps[:i])
-			newPrefix[i] = NewStep{
-				Kind:         Global,
-				Index:        alt,
-				Alternatives: step.Alternatives,
-			}
+			newPrefix[i] = branchStep(step, alt)
 			s.stack = append(s.stack, chessItem{
 				prefix:  newPrefix,
 				nonFIFO: newNonFIFO,
@@ -167,14 +187,12 @@ func (s *CHESS) pushAllAlts(result RunResult, nodeIdx int) {
 				if newNonFIFO > s.Bound {
 					continue
 				}
+				if !s.reservePrefix(i + 1) {
+					return
+				}
 				newPrefix := make(Trace, i+1)
 				copy(newPrefix, result.Trace[:i])
-				newPrefix[i] = NewStep{
-					Kind:         step.Kind,
-					Node:         step.Node,
-					Index:        alt,
-					Alternatives: step.Alternatives,
-				}
+				newPrefix[i] = branchStep(step, alt)
 				s.stack = append(s.stack, chessItem{
 					prefix:  newPrefix,
 					nonFIFO: newNonFIFO,
@@ -197,3 +215,13 @@ func (s *CHESS) Tree() []RunNode {
 func (s *CHESS) Count() int {
 	return s.count
 }
+
+func (s *CHESS) reservePrefix(steps int) bool {
+	if len(s.stack) >= s.MaxFrontier || s.frontierSteps+steps > s.MaxFrontierSteps {
+		s.budgetErr = ResourceLimitError{Resource: "search frontier", Limit: s.MaxFrontierSteps}
+		return false
+	}
+	s.frontierSteps += steps
+	return true
+}
+func (s *CHESS) SearchError() error { return s.budgetErr }

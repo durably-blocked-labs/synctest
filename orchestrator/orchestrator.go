@@ -8,11 +8,19 @@
 // the ExploreWith API.
 //
 // Core invariant: at most one bubble is active (not frozen in its hook) at
-// any time, guaranteeing fully deterministic cross-node scheduling.
+// any time in the controlled path. External application work is not isolated.
+//
+// Execution requires GOMAXPROCS >= node count + 1 (and at least 2): each
+// frozen node retains its owner P, and the coordinator needs a spare host P.
+// Insufficient capacity is rejected before starting targets, never adjusted
+// silently. Explicit runtime.GOMAXPROCS calls override the environment.
 package orchestrator
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,11 +41,13 @@ const (
 
 // PendingOp is the unit of work submitted by a transport to the orchestrator.
 type PendingOp struct {
-	Dir     OpDir
-	From    string
-	To      string
-	Type    string
-	Execute func()
+	Dir        OpDir
+	From       string
+	To         string
+	Type       string
+	Execute    func() // legacy compatibility path, not acknowledged
+	Deliver    func(context.Context) (DeliveryReceipt, error)
+	Occurrence string
 }
 
 // NodeTransport is the interface transport implementations must satisfy.
@@ -86,16 +96,20 @@ type RecordedRun struct {
 	GlobalDecisions []GlobalDecision
 	LocalTraces     map[string][]synctest.Decision
 	Trace           []Step
+	Outcome         Outcome
+	Cause           any
+	WorkerUnsafe    bool
 }
 
 type replayDivergenceError struct {
 	Step      int
 	Index     int
 	QueueSize int
+	Detail    string
 }
 
 func (e replayDivergenceError) Error() string {
-	return fmt.Sprintf("orchestrator replay divergence at step %d: chose index %d with queue size %d", e.Step, e.Index, e.QueueSize)
+	return fmt.Sprintf("orchestrator replay divergence at step %d: chose index %d with queue size %d", e.Step, e.Index, e.QueueSize) + ": " + e.Detail
 }
 
 // ─── Configuration ───
@@ -107,9 +121,14 @@ type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResu
 type ExploreOption func(*exploreConfig)
 
 type exploreConfig struct {
-	bound     int
-	maxRuns   int
-	observers []RunObserver
+	bound         int
+	maxRuns       int
+	observers     []RunObserver
+	sink          TrialSink
+	limits        TrialLimits
+	ctx           context.Context
+	strict        bool
+	selectChoices bool
 }
 
 // GlobalBound sets the maximum number of non-FIFO decisions per explored trace.
@@ -133,6 +152,12 @@ type nodeCtrl struct {
 	done       chan struct{}
 	localTrace []synctest.Decision
 	passed     bool
+	started    bool
+	cause      any
+	hookCause  any
+	unsafe     bool
+	stopped    bool
+	selectFn   func(synctest.SelectState) int32
 }
 
 // Orchestrator manages nodes and controls cross-node message delivery.
@@ -141,8 +166,15 @@ type Orchestrator struct {
 	order      []string
 	globalTime int64
 
-	schedulable []*PendingOp
-	trace       []GlobalStep
+	schedulable   []*PendingOp
+	trace         []GlobalStep
+	ctx           context.Context
+	limits        TrialLimits
+	strict        bool
+	unsafe        bool
+	partial       Trace
+	traceBytes    int
+	selectChoices bool
 }
 
 // NodeOption is a per-node configuration option for AddNode.
@@ -160,7 +192,7 @@ type BubbleState = distributed.BubbleState
 
 // New creates an empty orchestrator.
 func New() *Orchestrator {
-	return &Orchestrator{nodes: make(map[string]*nodeCtrl)}
+	return &Orchestrator{nodes: make(map[string]*nodeCtrl), limits: defaultTrialLimits()}
 }
 
 // AddNode registers a node transport and its bubble test function.
@@ -172,27 +204,52 @@ func (o *Orchestrator) AddNode(transport NodeTransport, f func(t *testing.T), op
 
 // initBubbles (re-)creates all per-node bubbles.
 func (o *Orchestrator) initBubbles() {
+	if o.unsafe || !WorkerReusable() {
+		panic("orchestrator: unsafe worker cannot reset; terminate process")
+	}
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
 		ctrl.bubble = distributed.NewBubble(addr, ctrl.bubbleOpts...)
 		ctrl.done = make(chan struct{})
 		ctrl.localTrace = nil
 		ctrl.passed = false
+		ctrl.started = false
+		ctrl.cause = nil
+		ctrl.hookCause = nil
+		ctrl.unsafe = false
+		ctrl.stopped = false
 	}
 }
 
 // startBubble launches a node's test function inside a synctest bubble.
 func (o *Orchestrator) startBubble(t *testing.T, ctrl *nodeCtrl) {
+	ctrl.started = true
 	b := ctrl.bubble
 	userFn := ctrl.testFunc
 	go func() {
 		defer close(ctrl.done)
-		trace, ok := synctest.Explore(t, func(t *testing.T) {
+		var workloadCause any
+		result := synctest.ExploreResult(t, func(t *testing.T) {
+			defer func() {
+				if cause := recover(); cause != nil {
+					workloadCause = cause
+				}
+			}()
 			synctest.SetDecisionHook(b.Hook())
+			if ctrl.selectFn != nil {
+				synctest.SetSelectHook(ctrl.selectFn)
+			}
 			userFn(t)
 		}, nil)
-		ctrl.localTrace = trace
-		ctrl.passed = ok
+		ctrl.localTrace = result.Trace
+		ctrl.passed = result.OK
+		ctrl.cause = result.Cause
+		ctrl.unsafe = result.WorkerUnsafe
+		if workloadCause != nil {
+			ctrl.cause = workloadCause
+			ctrl.passed = false
+			ctrl.unsafe = true
+		}
 	}()
 }
 
@@ -213,10 +270,11 @@ func buildGlobalAlts(schedulable []*PendingOp) []Alt {
 	alts := make([]Alt, len(schedulable))
 	for i, op := range schedulable {
 		alts[i] = Alt{
-			ID:      fmt.Sprintf("msg:%s→%s(%s)", op.From, op.To, op.Type),
-			From:    op.From,
-			To:      op.To,
-			MsgType: op.Type,
+			ID:         fmt.Sprintf("msg:%s→%s(%s)", op.From, op.To, op.Type),
+			From:       op.From,
+			To:         op.To,
+			MsgType:    op.Type,
+			Occurrence: op.Occurrence,
 		}
 	}
 	return alts
@@ -227,7 +285,7 @@ func altIDsAndResources(dp DecisionPoint) ([]string, []string) {
 	resources := make([]string, len(dp.Alts))
 	for i, alt := range dp.Alts {
 		ids[i] = alt.ID
-		if dp.Kind == Local {
+		if dp.Kind != Global {
 			resources[i] = dp.Node
 		} else {
 			resources[i] = endpointResource(alt.From, alt.To)
@@ -249,8 +307,10 @@ type bubbleEvent struct {
 }
 
 // waitNodeEvent blocks until a node reports idle or completes.
-func waitNodeEvent(addr string, ctrl *nodeCtrl) bubbleEvent {
+func waitNodeEvent(ctx context.Context, addr string, ctrl *nodeCtrl) bubbleEvent {
 	select {
+	case <-ctx.Done():
+		panic(context.Cause(ctx))
 	case idle := <-ctrl.bubble.Idle:
 		idleCopy := idle
 		return bubbleEvent{addr: addr, idle: &idleCopy}
@@ -265,13 +325,29 @@ func waitNodeEvent(addr string, ctrl *nodeCtrl) bubbleEvent {
 // decide is called for global decisions directly. For local decisions,
 // the orchestrator sets scheduleFn on each bubble to call decide synchronously.
 func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResult {
-	if runtime.GOMAXPROCS(0) < 2 {
-		t.Fatal("orchestrator requires GOMAXPROCS >= 2")
+	// Every frozen node root retains its owner P while parked in the idle
+	// hook. A separate host P must remain available to run the coordinator.
+	required := len(o.order) + 1
+	if required < 2 {
+		required = 2
+	}
+	if available := runtime.GOMAXPROCS(0); available < required {
+		panic(ConfigurationError{Available: available, Required: required})
+	}
+
+	if o.strict {
+		for _, addr := range o.order {
+			if err := validateTransport(addr, o.nodes[addr].transport); err != nil {
+				panic(err)
+			}
+		}
 	}
 
 	o.trace = nil
 	o.schedulable = nil
 	o.globalTime = 0
+	o.partial = nil
+	o.traceBytes = 0
 	verbose := testing.Verbose()
 
 	n := len(o.nodes)
@@ -286,16 +362,45 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 		node := addr
 		ctrl := o.nodes[addr]
 		ctrl.bubble.SetScheduleFn(func(state distributed.BubbleState) int32 {
-			dp := DecisionPoint{
-				Kind: Local,
-				Step: traceStep,
-				Node: node,
-				Alts: buildLocalAlts(state),
+			defer func() {
+				if cause := recover(); cause != nil {
+					ctrl.hookCause = cause
+					panic(cause)
+				}
+			}()
+			dp := DecisionPoint{Kind: Local, Step: traceStep, Node: node, Alts: buildLocalAlts(state)}
+			if traceStep >= o.limits.Decisions {
+				panic(ResourceLimitError{Resource: "decisions", Limit: o.limits.Decisions})
 			}
 			idx := decide(dp)
+			CheckDecision(dp, idx)
+			unified = append(unified, o.recordDecision(dp, idx))
+			o.partial = unified
 			traceStep++
 			return int32(idx)
 		})
+		ctrl.selectFn = nil
+		if o.selectChoices {
+			ctrl.selectFn = func(state synctest.SelectState) int32 {
+				defer func() {
+					if cause := recover(); cause != nil {
+						ctrl.hookCause = cause
+						panic(cause)
+					}
+				}()
+				dp := SelectDecisionPoint(state, traceStep, node)
+				if traceStep >= o.limits.Decisions {
+					panic(ResourceLimitError{Resource: "decisions", Limit: o.limits.Decisions})
+				}
+				idx := decide(dp)
+				CheckDecision(dp, idx)
+				unified = append(unified, o.recordDecision(dp, idx))
+				o.partial = unified
+				traceStep++
+				return dp.Alts[idx].CaseIndex
+			}
+		}
+
 	}
 
 	pendingIdle := make(map[string]distributed.IdleState)
@@ -303,38 +408,16 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 	active := n
 
 	// drainLocalSteps appends a node's local decisions to the unified trace.
-	drainLocalSteps := func(addr string) {
-		ctrl := o.nodes[addr]
-		if ctrl.bubble == nil {
-			return
-		}
-		for _, d := range ctrl.bubble.DrainLocal() {
-			altIDs := make([]string, len(d.RunqBGIDs))
-			altResources := make([]string, len(d.RunqBGIDs))
-			for i, bgid := range d.RunqBGIDs {
-				altIDs[i] = fmt.Sprintf("B%d", bgid)
-				altResources[i] = addr
-			}
-			unified = append(unified, NewStep{
-				Kind:         Local,
-				Node:         addr,
-				Index:        d.Index,
-				Alternatives: d.Alternatives,
-				ChosenID:     fmt.Sprintf("B%d", d.ChosenBGID),
-				Resource:     addr,
-				AltIDs:       altIDs,
-				AltResources: altResources,
-				ChosenBGID:   d.ChosenBGID,
-				RunqBGIDs:    d.RunqBGIDs,
-			})
-		}
-	}
+	drainLocalSteps := func(addr string) { o.nodes[addr].bubble.DrainLocal() }
 
 	markDone := func(addr, reason string) {
 		if doneSet[addr] {
 			return
 		}
 		drainLocalSteps(addr)
+		if c := o.nodes[addr]; c.unsafe {
+			panic(nodeFailure{c})
+		}
 		o.drainOutbox(addr)
 		delete(pendingIdle, addr)
 		doneSet[addr] = true
@@ -356,10 +439,6 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 		}
 	}
 
-	enqueueOp := func(op *PendingOp) {
-		o.schedulable = append(o.schedulable, op)
-	}
-
 	reapPendingDone := func(reason string) {
 		for _, addr := range o.order {
 			if doneSet[addr] {
@@ -379,26 +458,23 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 
 	drainAllOutboxes := func() {
 		for _, addr := range o.order {
-			if doneSet[addr] {
-				continue
-			}
-			ctrl := o.nodes[addr]
-		drain:
-			for {
-				select {
-				case op := <-ctrl.transport.Outbox():
-					enqueueOp(op)
-				default:
-					break drain
+			tr := o.nodes[addr].transport
+			if _, ok := tr.(AcknowledgedTransport); ok || o.strict {
+				if err := validateTransport(addr, tr); err != nil {
+					panic(err)
 				}
 			}
+			o.drainOutbox(addr)
 		}
 	}
 
 	// ── Startup: sequential ──
 	for _, addr := range o.order {
+		if err := context.Cause(o.ctx); err != nil {
+			panic(err)
+		}
 		o.startBubble(t, o.nodes[addr])
-		ev := waitNodeEvent(addr, o.nodes[addr])
+		ev := waitNodeEvent(o.ctx, addr, o.nodes[addr])
 		switch {
 		case ev.idle != nil:
 			recordIdle(addr, *ev.idle)
@@ -409,6 +485,9 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 
 	// ── Main delivery loop ──
 	for active > 0 {
+		if err := context.Cause(o.ctx); err != nil {
+			panic(err)
+		}
 		reapPendingDone("while pending idle")
 		drainAllOutboxes()
 
@@ -429,7 +508,7 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 		}
 		collected := make(map[string]bubbleEvent, len(needed))
 		for _, n := range needed {
-			collected[n.addr] = waitNodeEvent(n.addr, n.ctrl)
+			collected[n.addr] = waitNodeEvent(o.ctx, n.addr, n.ctrl)
 		}
 		for _, addr := range o.order {
 			ev, ok := collected[addr]
@@ -444,12 +523,18 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 			}
 		}
 
+		if err := context.Cause(o.ctx); err != nil {
+			panic(err)
+		}
 		if active == 0 {
 			break
 		}
 
 		drainAllOutboxes()
 
+		if err := context.Cause(o.ctx); err != nil {
+			panic(err)
+		}
 		if len(o.schedulable) > 0 {
 			// ── Global delivery decision ──
 			dp := DecisionPoint{
@@ -457,7 +542,10 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 				Step: traceStep,
 				Alts: buildGlobalAlts(o.schedulable),
 			}
-			chosenIdx := decide(dp)
+			if traceStep >= o.limits.Decisions {
+				panic(ResourceLimitError{Resource: "decisions", Limit: o.limits.Decisions})
+			}
+			chosenIdx := globalDecision(decide, dp)
 			if chosenIdx < 0 || chosenIdx >= len(o.schedulable) {
 				panic(replayDivergenceError{
 					Step: traceStep, Index: chosenIdx, QueueSize: len(o.schedulable),
@@ -465,24 +553,32 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 			}
 
 			op := o.schedulable[chosenIdx]
-			altIDs, altResources := altIDsAndResources(dp)
 			o.schedulable = append(o.schedulable[:chosenIdx], o.schedulable[chosenIdx+1:]...)
-
-			unified = append(unified, NewStep{
-				Kind:         Global,
-				Index:        int32(chosenIdx),
-				Alternatives: int32(len(dp.Alts)),
-				ChosenID:     dp.Alts[chosenIdx].ID,
-				Resource:     endpointResource(op.From, op.To),
-				AltIDs:       altIDs,
-				AltResources: altResources,
-				From:         op.From,
-				To:           op.To,
-				MsgType:      op.Type,
-			})
+			unified = append(unified, o.recordDecision(dp, chosenIdx))
+			o.partial = unified
 			traceStep++
-
-			op.Execute()
+			var receipt DeliveryReceipt
+			if op.Deliver != nil {
+				var err error
+				receipt, err = op.Deliver(o.ctx)
+				if cause := context.Cause(o.ctx); cause != nil {
+					panic(cause)
+				}
+				if err != nil {
+					panic(err)
+				}
+				if err = context.Cause(o.ctx); err != nil {
+					panic(err)
+				}
+				if receipt.WaitReady != nil {
+					receipt.WaitReady()
+				}
+			} else {
+				if o.strict {
+					panic(fmt.Errorf("operation %q lacks delivery acknowledgement", op.Occurrence))
+				}
+				op.Execute()
+			}
 
 			o.trace = append(o.trace, GlobalStep{
 				Type: StepDeliver, Dir: op.Dir,
@@ -494,34 +590,16 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 
 			if targetCtrl, ok := o.nodes[op.To]; ok {
 				if _, pending := pendingIdle[op.To]; pending {
-					// Resume the target bubble so it processes the delivered message.
-					// Race: the bridge goroutine (in ExternalWait) may not have
-					// reattached yet, causing a spurious idle. We retry until
-					// HasNewLocal() confirms the message was processed, with a
-					// wall-clock timeout that treats stuck bridges as divergences.
 					delete(pendingIdle, op.To)
-					deadline := time.Now().Add(1 * time.Millisecond)
-					for {
-						targetCtrl.bubble.Resume <- distributed.Resume{}
-						ev := waitNodeEvent(op.To, targetCtrl)
-						if ev.done {
-							markDone(op.To, "after delivery")
-							break
-						}
-						if ev.idle != nil {
-							if targetCtrl.bubble.HasNewLocal() {
-								recordIdle(op.To, *ev.idle)
-								break
-							}
-							// Spurious idle: bridge hasn't reattached yet.
-							if time.Now().After(deadline) {
-								// Infrastructure failure — treat as divergence.
-								panic(replayDivergenceError{
-									Step: traceStep, Index: chosenIdx,
-									QueueSize: len(dp.Alts),
-								})
-							}
-						}
+					o.resume(targetCtrl, distributed.Resume{})
+					if err := waitConsumption(o.ctx, targetCtrl, receipt); err != nil {
+						panic(err)
+					}
+					ev := waitNodeEvent(o.ctx, op.To, targetCtrl)
+					if ev.done {
+						markDone(op.To, "after delivery")
+					} else if ev.idle != nil {
+						recordIdle(op.To, *ev.idle)
 					}
 				}
 			}
@@ -543,13 +621,16 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 					t.Logf("orchestrator: advance time to %d ns", earliest)
 				}
 				for _, addr := range o.order {
+					if err := context.Cause(o.ctx); err != nil {
+						panic(err)
+					}
 					if _, idle := pendingIdle[addr]; !idle {
 						continue
 					}
 					delete(pendingIdle, addr)
 					ctrl := o.nodes[addr]
-					ctrl.bubble.Resume <- distributed.Resume{AdvanceTimeTo: earliest}
-					ev := waitNodeEvent(addr, ctrl)
+					o.resume(ctrl, distributed.Resume{AdvanceTimeTo: earliest})
+					ev := waitNodeEvent(o.ctx, addr, ctrl)
 					switch {
 					case ev.idle != nil:
 						recordIdle(addr, *ev.idle)
@@ -563,6 +644,9 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 					t.Logf("orchestrator: no pending sends or timers — resuming all to drain")
 				}
 				for _, addr := range o.order {
+					if err := context.Cause(o.ctx); err != nil {
+						panic(err)
+					}
 					idleState, idle := pendingIdle[addr]
 					if !idle {
 						continue
@@ -571,13 +655,13 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 					ctrl := o.nodes[addr]
 
 					if idleState.State.ExternalWait > 0 {
-						if s, ok := ctrl.transport.(shutdowner); ok {
-							s.Shutdown()
+						if err := o.stopTransport(ctrl); err != nil {
+							panic(err)
 						}
 					}
 
-					ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}
-					ev := waitNodeEvent(addr, ctrl)
+					o.resume(ctrl, distributed.Resume{DelegateIdle: true})
+					ev := waitNodeEvent(o.ctx, addr, ctrl)
 					switch {
 					case ev.idle != nil:
 						recordIdle(addr, *ev.idle)
@@ -589,6 +673,9 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 		}
 	}
 
+	if err := context.Cause(o.ctx); err != nil {
+		panic(err)
+	}
 	allPassed := true
 	userFailed := false
 	for _, addr := range o.order {
@@ -598,19 +685,36 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 			// Distinguish assertion failure from deadlock:
 			// synctest.Explore returns (nil, false) on deadlock/panic,
 			// (trace, false) when t.Errorf was called.
-			if ctrl.localTrace != nil {
+			if ctrl.cause == nil && !ctrl.unsafe {
 				userFailed = true
 			}
 		}
 	}
 
-	return RunResult{
+	rr := RunResult{
 		Trace:          unified,
 		Passed:         allPassed,
 		UserFailed:     userFailed,
 		DivergenceStep: -1,
 		GlobalTrace:    o.trace,
 	}
+	rr.SelectControlled = o.selectChoices
+	rr.Outcome = OutcomePassed
+	if !rr.Passed {
+		if userFailed {
+			rr.Outcome = OutcomeAssertion
+		} else {
+			rr.Outcome = OutcomeInfrastructure
+		}
+	}
+	for _, addr := range o.order {
+		c := o.nodes[addr]
+		if c.cause != nil {
+			classifyCause(&rr, c.cause)
+		}
+		rr.WorkerUnsafe = rr.WorkerUnsafe || c.unsafe
+	}
+	return rr
 }
 
 // ─── Exploration ───
@@ -630,22 +734,92 @@ func (o *Orchestrator) ExploreWith(
 		opt(cfg)
 	}
 
-	for algo.BeforeRun() {
-		if cfg.maxRuns > 0 && result.Runs >= cfg.maxRuns {
+	if cfg.limits.Decisions != 0 || cfg.limits.PendingOperations != 0 {
+		if cfg.limits.Decisions <= 0 || cfg.limits.PendingOperations <= 0 {
+			result.Incomplete = 1
+			result.Cause = fmt.Errorf("invalid trial limits")
+			return result
+		}
+		o.limits = cfg.limits
+		if o.limits.TraceBytes <= 0 {
+			o.limits.TraceBytes = 8 << 20
+		}
+	}
+	o.ctx = cfg.ctx
+	o.strict = cfg.strict
+	o.selectChoices = cfg.selectChoices
+	for cfg.maxRuns <= 0 || result.Runs < cfg.maxRuns {
+		if !algo.BeforeRun() {
+			if bounded, ok := algo.(interface{ SearchError() error }); ok {
+				if err := bounded.SearchError(); err != nil {
+					result.Incomplete++
+					result.Cause = err
+				}
+			}
 			break
 		}
-		o.nodes = make(map[string]*nodeCtrl)
-		o.order = nil
-		setup(o)
-		o.initBubbles()
-
-		runtime.GC()
+		if o.unsafe || !WorkerReusable() {
+			result.Incomplete++
+			result.Cause = fmt.Errorf("unsafe worker cannot start another trial")
+			break
+		}
+		if cfg.ctx != nil && cfg.ctx.Err() != nil {
+			result.Incomplete++
+			result.Cause = cfg.ctx.Err()
+			break
+		}
+		if cfg.sink != nil {
+			if err := cfg.sink.StartTrial(result.Runs + 1); err != nil {
+				result.Incomplete++
+				result.Cause = err
+				break
+			}
+		}
 		runStart := time.Now()
-		rr := o.runForExplore(t, algo.Decide)
+		var rr RunResult
+		if cause := o.prepare(setup); cause != nil {
+			classifyCause(&rr, cause)
+			if err := o.cleanupBubbles(); err != nil {
+				rr.TeardownError = err
+				rr.WorkerUnsafe = true
+				o.unsafe = true
+				RetireWorker()
+			}
+		} else {
+			runtime.GC()
+			rr = o.execute(t, algo.Decide)
+		}
+
+		if v, ok := algo.(prefixValidator); ok && !rr.Diverged && rr.Cause == nil {
+			if err := v.ValidatePrefix(); err != nil {
+				classifyCause(&rr, err)
+			}
+		}
 
 		rr.Elapsed = time.Since(runStart)
+		if cfg.sink != nil {
+			if err := cfg.sink.EndTrial(result.Runs+1, rr); err != nil {
+				rr.PersistenceError = err
+				if rr.Cause == nil {
+					classifyCause(&rr, err)
+				} else {
+					rr.Passed = false
+				}
+			}
+		}
+
 		result.Runs++
 
+		if rr.Diverged {
+			result.Diverged++
+		}
+		if rr.WorkerUnsafe || rr.TeardownError != nil || rr.PersistenceError != nil || (!rr.Passed && !rr.Diverged && !rr.UserFailed) {
+			result.Incomplete++
+			result.Cause = rr.Cause
+			if rr.PersistenceError != nil {
+				result.Cause = rr.PersistenceError
+			}
+		}
 		// Divergences are NOT bugs — the prefix didn't match, so the run
 		// should be discarded. Only count non-divergent failures as bugs.
 		isBug := !rr.Passed && !rr.Diverged && rr.UserFailed
@@ -669,13 +843,18 @@ func (o *Orchestrator) ExploreWith(
 		}
 
 		algo.AfterRun(rr)
+		if bounded, ok := algo.(interface{ SearchError() error }); ok {
+			if err := bounded.SearchError(); err != nil {
+				result.Incomplete++
+				result.Cause = err
+				break
+			}
+		}
 
 		// Every run allocates fresh transports and starts bridge goroutines in the
 		// case-study harnesses. Clean them up even after successful runs so
 		// multi-run exploration does not leak state across iterations.
-		o.cleanupBubbles()
-
-		if isBug {
+		if isBug || rr.WorkerUnsafe || rr.TeardownError != nil || rr.PersistenceError != nil || (!rr.Passed && !rr.Diverged && !rr.UserFailed) {
 			break
 		}
 	}
@@ -686,7 +865,11 @@ func (o *Orchestrator) ExploreWith(
 
 // runForExplore wraps run with panic recovery for divergence.
 func (o *Orchestrator) runForExplore(t *testing.T, decide func(DecisionPoint) int) RunResult {
-	var rr RunResult
+	return o.recoverForExplore(func() RunResult { return o.execute(t, decide) })
+}
+
+func (o *Orchestrator) recoverForExplore(run func() RunResult) (rr RunResult) {
+	rr.DivergenceStep = -1
 	defer func() {
 		if r := recover(); r != nil {
 			if d, ok := r.(replayDivergenceError); ok {
@@ -698,7 +881,7 @@ func (o *Orchestrator) runForExplore(t *testing.T, decide func(DecisionPoint) in
 			panic(r)
 		}
 	}()
-	rr = o.run(t, decide)
+	rr = run()
 	return rr
 }
 
@@ -707,23 +890,20 @@ func (o *Orchestrator) runForExplore(t *testing.T, decide func(DecisionPoint) in
 // Run executes the system once with FIFO scheduling.
 func (o *Orchestrator) Run(t *testing.T) (RecordedRun, bool) {
 	t.Helper()
-	o.initBubbles()
-	rr := o.run(t, func(dp DecisionPoint) int { return 0 })
+	rr := o.execute(t, func(dp DecisionPoint) int { return 0 })
 	return o.buildRecordedRun(rr), rr.Passed
 }
 
 // RunWith executes the system once with a custom decision function.
 func (o *Orchestrator) RunWith(t *testing.T, decide func(DecisionPoint) int) RunResult {
 	t.Helper()
-	o.initBubbles()
-	return o.run(t, decide)
+	return o.execute(t, decide)
 }
 
 // Replay re-runs the system following a previously recorded trace.
 func (o *Orchestrator) Replay(t *testing.T, rec RecordedRun) (RecordedRun, bool) {
 	t.Helper()
-	o.initBubbles()
-	rr := o.run(t, replayGlobalOnly(rec.GlobalDecisions))
+	rr := o.execute(t, replayGlobalOnly(rec.GlobalDecisions))
 	return o.buildRecordedRun(rr), rr.Passed
 }
 
@@ -736,7 +916,7 @@ func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...
 	}
 	algo := &CHESS{Bound: cfg.bound, GlobalOnly: true}
 	result := o.ExploreWith(t, setup, algo, opts...)
-	return result.Failed == 0
+	return result.Successful()
 }
 
 // ExploreAll enumerates global + local interleavings using CHESS DFS.
@@ -748,7 +928,7 @@ func (o *Orchestrator) ExploreAll(t *testing.T, setup func(*Orchestrator), opts 
 	}
 	algo := &CHESS{Bound: cfg.bound}
 	result := o.ExploreWith(t, setup, algo, opts...)
-	return result.Failed == 0
+	return result.Successful()
 }
 
 // ─── Conversion helpers ───
@@ -775,6 +955,7 @@ func (o *Orchestrator) buildRecordedRun(rr RunResult) RecordedRun {
 		GlobalDecisions: globalDecisions,
 		LocalTraces:     localTraces,
 		Trace:           oldTrace,
+		Outcome:         rr.Outcome, Cause: rr.Cause, WorkerUnsafe: rr.WorkerUnsafe,
 	}
 }
 
@@ -798,36 +979,50 @@ func replayGlobalOnly(decisions []GlobalDecision) func(DecisionPoint) int {
 
 // ─── Cleanup ───
 
-func (o *Orchestrator) cleanupBubbles() {
+func (o *Orchestrator) cleanupBubbles() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var errs []error
 	for _, addr := range o.order {
-		ctrl := o.nodes[addr]
-		if s, ok := ctrl.transport.(shutdowner); ok {
-			s.Shutdown()
+		if err := o.stopTransport(o.nodes[addr]); err != nil {
+			errs = append(errs, fmt.Errorf("stop %s: %w", addr, err))
 		}
 	}
 	for _, addr := range o.order {
 		ctrl := o.nodes[addr]
-		if ctrl.bubble == nil {
+		if !ctrl.started {
 			continue
 		}
-		select {
-		case <-ctrl.bubble.Idle:
-		default:
-		}
-		select {
-		case ctrl.bubble.Resume <- distributed.Resume{DelegateIdle: true}:
-		default:
-		}
-	}
-	for _, addr := range o.order {
-		ctrl := o.nodes[addr]
-		if ctrl.done == nil {
-			continue
-		}
+		ctrl.bubble.Cancel()
 		select {
 		case <-ctrl.done:
-		case <-time.After(1 * time.Second):
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("node %s did not join: %w", addr, ctx.Err()))
 		}
+	}
+	return errors.Join(errs...)
+}
+
+func (o *Orchestrator) stopTransport(c *nodeCtrl) error {
+	if c.stopped {
+		return nil
+	}
+	c.stopped = true
+	if s, ok := c.transport.(io.Closer); ok {
+		return s.Close()
+	}
+	if s, ok := c.transport.(shutdowner); ok {
+		s.Shutdown()
+	}
+	return nil
+}
+
+func (o *Orchestrator) resume(c *nodeCtrl, r distributed.Resume) {
+	select {
+	case c.bubble.Resume <- r:
+	case <-c.done:
+	case <-o.ctx.Done():
+		panic(context.Cause(o.ctx))
 	}
 }
 
@@ -837,8 +1032,11 @@ func (o *Orchestrator) drainOutbox(addr string) {
 	ctrl := o.nodes[addr]
 	for {
 		select {
-		case op := <-ctrl.transport.Outbox():
-			o.schedulable = append(o.schedulable, op)
+		case op, ok := <-ctrl.transport.Outbox():
+			if !ok {
+				return
+			}
+			o.enqueue(op)
 		default:
 			return
 		}
