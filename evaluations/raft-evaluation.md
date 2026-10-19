@@ -66,3 +66,28 @@ Initial workloads will use the current time policy, which delivers pending messa
 - Under what conditions does replay reproduce the same application failure?
 - Which workloads expose limitations in the current time and delivery policy?
 - How should application failures, replay divergence, framework failures, and exhausted budgets be classified?
+
+## Initial evaluation harness
+
+The exported `evaluations/raft` package provides a reusable setup for real
+HashiCorp Raft nodes. Each execution creates fresh in-memory stores, recording
+FSMs, and orchestrator-controlled transports. A workload is a per-node test
+function invoked inside that node's bubble after Raft starts. The helper keeps
+all nodes alive until every workload function finishes, then shuts the cluster
+down.
+
+Initial integration workloads cover leader election, command replication, and
+concurrent command application. They are deliberately small seeds for longer
+generated workloads rather than the final benchmark corpus.
+
+A stale-term prototype uses an evaluation-only HashiCorp Raft mutation to
+submit fresh- and stale-term `AppendEntries` messages concurrently. It remains
+outside the initial framework change because publishing it requires a separate
+Raft fork and submodule update.
+
+Message fingerprinting is a separate extension point for feedback-guided
+exploration. A transport-provided fingerprint should identify semantically
+relevant message fields while remaining distinct from the resource identity
+used by DPOR's dependency relation. Fingerprint sequences can then provide
+coverage feedback or trace equivalence without assuming that messages with the
+same fingerprint commute.

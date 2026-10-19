@@ -4,7 +4,7 @@ GO_ROOT := $(CURDIR)/go
 GO_BIN  := $(GO_ROOT)/bin/go
 export GOROOT := $(GO_ROOT)
 
-.PHONY: build-go test test-all test-det go-version clean help \
+.PHONY: build-go test test-all test-det go-version clean help eval-build \
         charts-collect charts-sweep charts-plot benchmark-charts
 
 # Charts defaults (override on command line)
@@ -23,6 +23,7 @@ help:
 	@echo "  make test-all                           Run all packages"
 	@echo "  make benchmark-charts pkg=bugs/ra-gate  Run bench_test.go and render package-local charts"
 	@echo "  make build-go                           Build Go from source"
+	@echo "  make eval-build                         Build evaluation supervisor and worker"
 	@echo "  make go-version                         Show custom Go version"
 	@echo "  make clean                              Clean build artifacts"
 	@echo ""
@@ -38,6 +39,11 @@ build-go:
 
 go-version:
 	$(GO_BIN) version
+
+eval-build:
+	@mkdir -p bin
+	$(GO_BIN) test -c -o bin/synctest-eval-worker ./evaluations/worker
+	$(GO_BIN) build -o bin/synctest-eval ./evaluations/cmd/synctest-eval
 
 # === Tests ===
 # make test pkg=bugs/ra-gate

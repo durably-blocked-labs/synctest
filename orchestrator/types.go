@@ -2,6 +2,28 @@ package orchestrator
 
 import "time"
 
+// RunOutcome classifies the result of one completed schedule.
+type RunOutcome string
+
+const (
+	RunNoFailure              RunOutcome = "no_failure"
+	RunProgramFailure         RunOutcome = "program_failure"
+	RunFrameworkFailure       RunOutcome = "framework_failure"
+	RunProgressBudgetExceeded RunOutcome = "progress_budget_exceeded"
+)
+
+// TerminationReason explains why exploration stopped.
+type TerminationReason string
+
+const (
+	TerminationExhausted           TerminationReason = "exhausted"
+	TerminationRunLimit            TerminationReason = "run_limit"
+	TerminationTimeLimit           TerminationReason = "time_limit"
+	TerminationInterrupted         TerminationReason = "interrupted"
+	TerminationFailure             TerminationReason = "failure"
+	TerminationInfrastructureError TerminationReason = "infrastructure_error"
+)
+
 // DecisionKind classifies the type of scheduling decision.
 type DecisionKind uint8
 
@@ -66,12 +88,15 @@ type Trace []NewStep
 
 // RunResult is the outcome of one execution.
 type RunResult struct {
-	Trace          Trace
-	Passed         bool
-	Diverged       bool
-	UserFailed     bool          // true when t.Errorf/t.Fatalf was called (not just deadlock)
-	DivergenceStep int           // -1 if no divergence
-	Elapsed        time.Duration // wall clock for this run
+	Trace           Trace
+	Passed          bool
+	Diverged        bool
+	UserFailed      bool          // true when t.Errorf/t.Fatalf was called (not just deadlock)
+	DivergenceStep  int           // -1 if no divergence
+	Elapsed         time.Duration // wall clock for this run
+	Outcome         RunOutcome
+	Detail          string
+	ProgramFailures []string
 
 	// GlobalTrace preserved for metrics.go compatibility.
 	// Contains delivery events, time advances, and done markers.
@@ -97,8 +122,34 @@ type Algorithm interface {
 
 // ExplorationResult summarizes a multi-run exploration.
 type ExplorationResult struct {
-	Runs     int
-	Failed   int
-	FirstBug int           // run number of first failure, -1 if none
-	Elapsed  time.Duration // total wall clock
+	Runs        int
+	Failed      int
+	FirstBug    int           // run number of first failure, -1 if none
+	Elapsed     time.Duration // total wall clock
+	Termination TerminationReason
+	Err         error
 }
+
+// PendingOpView is safe metadata for an operation awaiting delivery.
+type PendingOpView struct {
+	From string
+	To   string
+	Type string
+}
+
+// StableBoundary describes a point where every active bubble is idle.
+type StableBoundary struct {
+	Sequence    int
+	LogicalTime int64
+	ActiveNodes []string
+	Pending     []PendingOpView
+}
+
+// BoundaryResult reports application-level findings at a stable boundary.
+type BoundaryResult struct {
+	ProgramFailures      []string
+	ProgressBudgetDetail string
+}
+
+// StableBoundaryObserver inspects application state without blocking.
+type StableBoundaryObserver func(StableBoundary) BoundaryResult

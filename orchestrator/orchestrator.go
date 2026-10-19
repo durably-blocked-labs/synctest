@@ -103,13 +103,19 @@ func (e replayDivergenceError) Error() string {
 // RunObserver is called once after each run inside Explore/ExploreWith.
 type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResult, passed bool)
 
+// ScheduleObserver is called after algorithm state and bubble cleanup are complete.
+type ScheduleObserver func(runNum int, result RunResult) error
+
 // ExploreOption configures Explore behavior.
 type ExploreOption func(*exploreConfig)
 
 type exploreConfig struct {
-	bound     int
-	maxRuns   int
-	observers []RunObserver
+	bound                int
+	maxRuns              int
+	observers            []RunObserver
+	scheduleObservers    []ScheduleObserver
+	stopCheck            func() (TerminationReason, bool)
+	continueAfterFailure bool
 }
 
 // GlobalBound sets the maximum number of non-FIFO decisions per explored trace.
@@ -121,6 +127,21 @@ func GlobalMaxRuns(n int) ExploreOption { return func(c *exploreConfig) { c.maxR
 // WithObserver registers a callback invoked once after each run. Multiple observers stack.
 func WithObserver(fn RunObserver) ExploreOption {
 	return func(c *exploreConfig) { c.observers = append(c.observers, fn) }
+}
+
+// WithScheduleObserver registers a callback after a completed schedule is cleaned up.
+func WithScheduleObserver(fn ScheduleObserver) ExploreOption {
+	return func(c *exploreConfig) { c.scheduleObservers = append(c.scheduleObservers, fn) }
+}
+
+// WithStopCheck checks whether exploration should stop before starting a schedule.
+func WithStopCheck(fn func() (TerminationReason, bool)) ExploreOption {
+	return func(c *exploreConfig) { c.stopCheck = fn }
+}
+
+// ContinueAfterFailure keeps exploring after application or bubble failures.
+func ContinueAfterFailure() ExploreOption {
+	return func(c *exploreConfig) { c.continueAfterFailure = true }
 }
 
 // ─── Core types ───
@@ -143,6 +164,8 @@ type Orchestrator struct {
 
 	schedulable []*PendingOp
 	trace       []GlobalStep
+
+	stableBoundaryObserver StableBoundaryObserver
 }
 
 // NodeOption is a per-node configuration option for AddNode.
@@ -161,6 +184,11 @@ type BubbleState = distributed.BubbleState
 // New creates an empty orchestrator.
 func New() *Orchestrator {
 	return &Orchestrator{nodes: make(map[string]*nodeCtrl)}
+}
+
+// SetStableBoundaryObserver installs an observer for the current schedule.
+func (o *Orchestrator) SetStableBoundaryObserver(observer StableBoundaryObserver) {
+	o.stableBoundaryObserver = observer
 }
 
 // AddNode registers a node transport and its bubble test function.
@@ -277,6 +305,9 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 	n := len(o.nodes)
 	var unified Trace
 	traceStep := 0
+	boundarySequence := 0
+	var programFailures []string
+	progressBudgetDetail := ""
 
 	// Set scheduleFn on each bubble to call decide for local decisions.
 	// The callback runs synchronously inside the hook — no channels.
@@ -450,6 +481,31 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 
 		drainAllOutboxes()
 
+		if o.stableBoundaryObserver != nil {
+			activeNodes := make([]string, 0, active)
+			for _, addr := range o.order {
+				if !doneSet[addr] {
+					activeNodes = append(activeNodes, addr)
+				}
+			}
+			pending := make([]PendingOpView, len(o.schedulable))
+			for i, op := range o.schedulable {
+				pending[i] = PendingOpView{From: op.From, To: op.To, Type: op.Type}
+			}
+			boundary := StableBoundary{
+				Sequence:    boundarySequence,
+				LogicalTime: o.globalTime,
+				ActiveNodes: activeNodes,
+				Pending:     pending,
+			}
+			boundarySequence++
+			observed := o.stableBoundaryObserver(boundary)
+			programFailures = append(programFailures, observed.ProgramFailures...)
+			if progressBudgetDetail == "" {
+				progressBudgetDetail = observed.ProgressBudgetDetail
+			}
+		}
+
 		if len(o.schedulable) > 0 {
 			// ── Global delivery decision ──
 			dp := DecisionPoint{
@@ -604,12 +660,29 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 		}
 	}
 
+	outcome := RunNoFailure
+	detail := ""
+	if progressBudgetDetail != "" {
+		outcome = RunProgressBudgetExceeded
+		detail = progressBudgetDetail
+		allPassed = false
+	} else if len(programFailures) > 0 || !allPassed {
+		outcome = RunProgramFailure
+		if len(programFailures) > 0 {
+			detail = strings.Join(programFailures, "; ")
+		}
+		allPassed = false
+	}
+
 	return RunResult{
-		Trace:          unified,
-		Passed:         allPassed,
-		UserFailed:     userFailed,
-		DivergenceStep: -1,
-		GlobalTrace:    o.trace,
+		Trace:           unified,
+		Passed:          allPassed,
+		UserFailed:      userFailed,
+		DivergenceStep:  -1,
+		GlobalTrace:     o.trace,
+		Outcome:         outcome,
+		Detail:          detail,
+		ProgramFailures: append([]string(nil), programFailures...),
 	}
 }
 
@@ -630,31 +703,63 @@ func (o *Orchestrator) ExploreWith(
 		opt(cfg)
 	}
 
-	for algo.BeforeRun() {
+	for {
+		if cfg.stopCheck != nil {
+			if reason, stop := cfg.stopCheck(); stop {
+				if reason == "" {
+					reason = TerminationInterrupted
+				}
+				result.Termination = reason
+				break
+			}
+		}
 		if cfg.maxRuns > 0 && result.Runs >= cfg.maxRuns {
+			result.Termination = TerminationRunLimit
+			break
+		}
+		if !algo.BeforeRun() {
+			result.Termination = TerminationExhausted
 			break
 		}
 		o.nodes = make(map[string]*nodeCtrl)
 		o.order = nil
+		o.stableBoundaryObserver = nil
 		setup(o)
 		o.initBubbles()
 
 		runtime.GC()
 		runStart := time.Now()
-		rr := o.runForExplore(t, algo.Decide)
+		var rr RunResult
+		t.Run(fmt.Sprintf("schedule_%d", result.Runs+1), func(runT *testing.T) {
+			rr = o.runForExplore(runT, algo.Decide)
+		})
 
 		rr.Elapsed = time.Since(runStart)
 		result.Runs++
 
 		// Divergences are NOT bugs — the prefix didn't match, so the run
 		// should be discarded. Only count non-divergent failures as bugs.
-		isBug := !rr.Passed && !rr.Diverged && rr.UserFailed
+		if rr.Outcome == "" && !rr.Diverged {
+			if rr.Passed {
+				rr.Outcome = RunNoFailure
+			} else {
+				rr.Outcome = RunProgramFailure
+			}
+		}
+		isBug := !rr.Diverged && (rr.Outcome == RunProgramFailure || rr.Outcome == RunProgressBudgetExceeded)
 		if isBug {
 			result.Failed++
 			if result.FirstBug == -1 {
 				result.FirstBug = result.Runs
 			}
 		}
+
+		algo.AfterRun(rr)
+
+		// Every run allocates fresh transports and starts bridge goroutines in the
+		// case-study harnesses. Clean them up even after successful runs so
+		// multi-run exploration does not leak state across iterations.
+		o.cleanupBubbles()
 
 		if len(cfg.observers) > 0 && !rr.Diverged {
 			nonFIFO := 0
@@ -668,14 +773,19 @@ func (o *Orchestrator) ExploreWith(
 			}
 		}
 
-		algo.AfterRun(rr)
+		for _, observer := range cfg.scheduleObservers {
+			if err := observer(result.Runs, rr); err != nil {
+				result.Err = err
+				result.Termination = TerminationInfrastructureError
+				break
+			}
+		}
+		if result.Err != nil {
+			break
+		}
 
-		// Every run allocates fresh transports and starts bridge goroutines in the
-		// case-study harnesses. Clean them up even after successful runs so
-		// multi-run exploration does not leak state across iterations.
-		o.cleanupBubbles()
-
-		if isBug {
+		if isBug && !cfg.continueAfterFailure {
+			result.Termination = TerminationFailure
 			break
 		}
 	}
@@ -692,7 +802,6 @@ func (o *Orchestrator) runForExplore(t *testing.T, decide func(DecisionPoint) in
 			if d, ok := r.(replayDivergenceError); ok {
 				rr.Diverged = true
 				rr.DivergenceStep = d.Step
-				o.cleanupBubbles()
 				return
 			}
 			panic(r)
