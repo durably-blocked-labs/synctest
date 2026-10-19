@@ -1,47 +1,72 @@
-# AGENTS.md
+# Working on Bubbles
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Research on observable scheduling and bounded exploration in a modified Go runtime.
+Read [README.md](README.md) for current setup, module boundaries and qualification limits.
+Historical design/evaluation documents are not implementation proofs.
 
-## Project Overview
+## Source and module boundaries
 
-Research project exploring deterministic scheduling and systematic interleaving exploration for Go concurrency testing. The core idea: Go's `testing/synctest` package provides time-deterministic "bubbles" (isolated execution environments), but scheduling remains non-deterministic due to `cheaprand()` in the Go runtime. This project modifies the Go runtime to make scheduling decisions observable, recordable, and replayable, then explores interleavings systematically using DFS with context bounding.
+- `go/` is the existing `durably-blocked-labs/go` submodule. Use its gitlink pin,
+  not a remote branch tip. Commit runtime changes there before updating the root
+  gitlink; a root commit cannot capture dirty nested source.
+- `explorer/`, `orchestrator/`, `rafttest/` and `campaign/` are maintained root
+  packages. `rafttest/transport.go` is the current adapter.
+- `experiments/runtime/` preserves runtime characterization tests.
+- `experiments/raft/` exercises a real three-voter memory service in one bubble;
+  it is not a per-node-bubble full-service integration.
+- `experiments/etcd/` is a separate module running real loopback/file I/O.
+  Controlled full-etcd integration is not implemented.
+- `archive/legacy/` preserves historical source, data and figures. `bugs` and
+  `old_charts` are compatibility symlinks. Do not rewrite archived bytes to make
+  historical tests pass. Use the explicit legacy runners.
 
-## Build & Test Commands
+## Execution safety
 
-All commands use a **custom-built Go toolchain** at `./go/bin/go` (a forked Go 1.27 runtime with synctest modifications). The `go/` directory is a git submodule pointing to `durably-blocked-labs/go` on the `synctest-explorer` branch.
+Custom-runtime builds/tests require an external process-group watchdog and saved
+command/status evidence. Go's internal test timeout is not the external watchdog.
 
-```bash
-make build-go                    # Build custom Go runtime from go/src (required first time)
-make test                        # Run all experiment tests (preemption enabled)
-make test-det                    # Run all experiment tests (preemption disabled, deterministic)
-make test-one TEST=TestName      # Run a specific test by name (preemption disabled)
-make determinism                 # Run TestDeterminism1000 (validates deterministic scheduling)
+- Set `GOROOT` explicitly and use `GOTOOLCHAIN=local`.
+- Use at most four compiler jobs and a build watchdog of at most 600 seconds.
+- Build first, copy a complete GOROOT including generated sources/tools, seal it,
+  then smoke-test the copy. Never test a concurrently changing GOROOT.
+- `scripts/build-go.sh` is a legacy helper, not the complete qualified procedure.
+- Keep new run directories exclusive. Never overwrite historical evidence or
+  automatically launch long campaigns.
+- Treat `WorkerUnsafe` as process-terminal; reset does not establish cleanup.
+
+Useful entrypoints, run under the required external watchdog:
+
+```sh
+make test-all GO_ROOT=/sealed/go GO_BIN=/sealed/go/bin/go
+make test-raft GO_ROOT=/sealed/go GO_BIN=/sealed/go/bin/go
+make test-etcd ETCD_PROFILE=custom-http2legacy GO_BIN=/sealed/go/bin/go
+make test-legacy-regressions GO_BIN=/sealed/go/bin/go
+make verify-archive
 ```
 
-Deterministic execution requires `GODEBUG=asyncpreemptoff=1` (set automatically by `test-det` and `test-one` targets). Tests set `GOMAXPROCS=1` in code.
+The named etcd compatibility profile retains full HTTP2. Do not silently disable
+protocols, change dependency versions or add global GOFLAGS to hide failures.
 
-## Architecture
+## Model and evidence constraints
 
-### Three Go Modules
+Bubbles share a process, runtime and heap; they are not machine/address-space
+isolation. Delivery precedes logical-time advancement. Yield is Gosched and may
+reselect the same actor; it does not establish fairness.
 
-- **`explorer/`** — The main library. `explorer.Test(t, f)` is a drop-in replacement for `synctest.Test(t, f)` that explores scheduling interleavings via DFS with context bounding. `RunWithHook` provides low-level control for custom scheduling strategies.
-- **`experiments/`** — Validation test suite proving that cheaprand() control enables deterministic scheduling. Tests decision recording/replay, frontier signaling, and race condition scenarios.
-- **`examples/`** — Distributed simulation patterns (multi-bubble orchestration with `synctest.CallExternal()`).
+Distributed trials require one P per node plus a spare host P (minimum two).
+Supported select control requires bubble-owned channels; host-owned/mixed cases
+are unsupported. Schedule-only adapter replay does not establish select replay.
 
-### Forked Go Runtime (`go/` submodule)
+The full maintained graph is currently red: GC stack scanning can cooperatively
+suspend/requeue an actor and change scheduling even with `asyncpreemptoff=1`.
+Strict replay may reject such a trace. Do not disable GC, filter events or weaken
+assertions to advertise determinism. The repair remains open.
 
-Key modifications to the standard Go runtime:
+Distinguish a bounded pass from universal safety, replay from state equivalence,
+non-FIFO deviations from instruction preemptions, and heuristic reduction from
+sound independence. A timeout/limit/tool failure is not automatically a target
+bug. Do not claim formal verification, exhaustive coverage or long-run stability
+without corresponding evidence.
 
-- **`runtime/synctest.go`** — `synctestBubble` struct with decision recording (`bubbleDecision` array), decision fence for record/follow mode, and frontier hook signaling between g0 and root goroutine.
-- **`testing/synctest/synctest.go`** — Public API: `Test()`, `Explore(prefix)`, `SetDecisionHook()`, `Wait()`, `CallExternal()`.
-- **`runtime/proc.go`** — Scheduler integration: bubble-aware `runqput`, `runqputslow`, `stealWork` with cheaprand()-based randomization made controllable.
-- **`runtime/rand.go`** — `cheaprand()` per-M PRNG that drives scheduler randomness.
-- **`runtime/chan.go`, `runtime/select.go`** — Channel ops and select marked as durable blocking points for bubble tracking.
-
-### Key Concepts
-
-**Bubbles**: Isolated execution environments with their own fake clock, goroutine set, and durable-blocking tracker. Time advances only when all goroutines are durably blocked.
-
-**Decision Model**: At each scheduler yield point where multiple goroutines are runnable, a `bubbleDecision` records the chosen goroutine index, the full runnable set, and goroutine metadata. Decisions can be pre-loaded as a prefix (follow mode) or made live via a hook (frontier mode).
-
-**Exploration**: DFS over scheduling traces. At each decision point with alternatives, the explorer pushes new work items with modified prefixes onto a stack. Context bounding (default 2) limits non-FIFO decisions per trace — most concurrency bugs manifest with 1–2 non-default choices.
+Preserve unrelated staged/unstaged user work, backups and nested histories.
+Stage explicit owned paths; do not use blanket staging or destructive cleanup.

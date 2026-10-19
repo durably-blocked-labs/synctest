@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "local_sources": {
+    "raft": {
+      "path": "raft",
+      "fork": "https://github.com/durably-blocked-labs/raft.git",
+      "upstream": "https://github.com/hashicorp/raft.git",
+      "module": "github.com/hashicorp/raft",
+      "commit": "9e3b7155dd6f45b128d0679f22df32229319e81f"
+    },
+    "etcd": {
+      "path": "etcd",
+      "fork": "https://github.com/durably-blocked-labs/etcd.git",
+      "upstream": "https://github.com/etcd-io/etcd.git",
+      "tag": "v3.6.15",
+      "tag_object": "50689f3abaaba8726fe9909893e26fbeeb8dc69a",
+      "commit": "a3346427fbe6e456e9b6d6e429346481c6be7c71",
+      "module_paths": [
+        "api",
+        "client/pkg",
+        "client/v3",
+        "pkg",
+        "server"
+      ]
+    }
+  },
+  "separate_etcd_raft_module": "go.etcd.io/raft/v3 v3.6.0",
+  "etcd_backend_module": "go.etcd.io/bbolt v1.4.3",
+  "etcd_execution_profiles": {
+    "stock": {
+      "tags": [],
+      "minimum_go": "1.26",
+      "scope": "external loopback/files baseline only"
+    },
+    "custom-http2legacy": {
+      "tags": [
+        "http2legacy"
+      ],
+      "scope": "external loopback/files baseline only; upstream legacy HTTP2, not disabled HTTP2"
+    },
+    "custom-untagged": {
+      "tags": [],
+      "status": "blocked on older Go1.27-dev net/http wrapping interface; no untagged compatibility claim"
+    }
+  }
+}

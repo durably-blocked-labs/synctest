@@ -3,7 +3,7 @@ module github.com/shubhaankar/synctest
 go 1.27
 
 require (
-	github.com/hashicorp/raft v0.0.0
+	github.com/hashicorp/raft v1.7.4-0.20251117143445-9e3b7155dd6f
 	github.com/hashicorp/go-hclog v1.6.2
 	github.com/hashicorp/go-metrics v0.5.4
 	github.com/hashicorp/go-msgpack/v2 v2.1.2
@@ -20,4 +20,5 @@ require (
 	golang.org/x/sys v0.13.0 // indirect
 )
 
+// Source: https://github.com/durably-blocked-labs/raft at 9e3b7155dd6f45b128d0679f22df32229319e81f.
 replace github.com/hashicorp/raft => ./raft

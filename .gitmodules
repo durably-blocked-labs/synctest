@@ -1,7 +1,9 @@
 [submodule "go"]
 	path = go
 	url = git@github.com:durably-blocked-labs/go.git
-	branch = synctest-explorer
 [submodule "raft"]
 	path = raft
-	url = https://github.com/hashicorp/raft.git
+	url = https://github.com/durably-blocked-labs/raft.git
+[submodule "etcd"]
+	path = etcd
+	url = https://github.com/durably-blocked-labs/etcd.git

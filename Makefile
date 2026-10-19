@@ -1,149 +1,88 @@
-# Synctest development Makefile
-
-GO_ROOT := $(CURDIR)/go
-GO_BIN  := $(GO_ROOT)/bin/go
-export GOROOT := $(GO_ROOT)
-
-.PHONY: build-go test test-all test-det go-version clean help \
-        charts-collect charts-sweep charts-plot benchmark-charts
-
-# Charts defaults (override on command line)
-TEST    ?= TestRaftThreeNodeElectionExplore
-PKG     ?= ./rafttest/...
-K       ?= 2
-KMAX    ?= 3
-OUTDIR  ?= charts/data
-BENCH_TIMEOUT ?= 45s
+# Explicit maintained/legacy module boundaries; no target deletes experiment data.
+GO_ROOT ?= $(CURDIR)/go
+GO_BIN ?= $(GO_ROOT)/bin/go
+TEST ?= TestThreeVoterMemoryServiceSingleBubble
+PKG ?= experiments/raft
+K ?= 2
+KMAX ?= 3
 ATTEMPTS ?= 1
+WATCHDOG ?= 60
+ETCD_PROFILE ?=
+# No default destination: each campaign must explicitly own a NEW directory.
+RUN_DIR ?=
+OUTDIR ?= charts/data
 
+.PHONY: help build-go go-version test test-all test-det test-one determinism \
+        test-raft test-etcd test-legacy-regressions test-legacy-raft test-entrypoints verify-archive \
+        benchmark-charts charts-collect charts-sweep charts-plot clean
 help:
-	@echo "Synctest Development"
-	@echo ""
-	@echo "  make test pkg=bugs/ra-gate               Run one package"
-	@echo "  make test-all                           Run all packages"
-	@echo "  make benchmark-charts pkg=bugs/ra-gate  Run bench_test.go and render package-local charts"
-	@echo "  make build-go                           Build Go from source"
-	@echo "  make go-version                         Show custom Go version"
-	@echo "  make clean                              Clean build artifacts"
-	@echo ""
-	@echo "Charts (requires NewJSONLObserver wired into test — see orchestrator/metrics.go)"
-	@echo ""
-	@echo "  make charts-collect TEST=TestFoo K=2    Single systematic run at k=K"
-	@echo "  make charts-collect TEST=TestFoo PKG=./some-package/... K=2"
-	@echo "  make charts-sweep   TEST=TestFoo KMAX=3 Sweep k=0..KMAX"
-	@echo "  make charts-plot                        Generate all figures from collected data"
+	@echo 'test-all: maintained root packages, not historical bug searches or nested etcd'
+	@echo 'test-etcd: explicit full-server loopback/files baseline (not controlled simulation)'
+	@echo 'test-legacy-regressions: retained quorum characterization in legacy module'
+	@echo 'test-legacy-raft TEST_PATTERN=pattern: historical fixture, known pinned-Raft compile blocker'
+	@echo 'benchmark-charts pkg=bugs/ra-gate RUN_DIR=/new/exclusive/run (collect only)'
+	@echo 'charts-plot OUTDIR=/run/data FIGURE_DIR=/new/exclusive/figures (explicit)'
 
 build-go:
-	cd $(GO_ROOT)/src && ./make.bash
+	bash scripts/build-go.sh
 
 go-version:
-	$(GO_BIN) version
+	GOROOT="$(GO_ROOT)" GOTOOLCHAIN=local "$(GO_BIN)" version
 
-# === Tests ===
-# make test pkg=bugs/ra-gate
-# make test-all
-
-ifdef pkg
 test:
-	$(GO_BIN) test -v -count=1 ./$(pkg)/...
-else
-test:
-	@echo "usage: make test pkg=bugs/ra-gate"
-	@echo "       make test-all"
-endif
+	@test -n "$(pkg)" || { echo 'set pkg=package/path'; exit 2; }
+	python3 scripts/safe-run.py --go "$(GO_BIN)" --package "$(pkg)" --mode test --test '$(or $(TEST_PATTERN),.)' --run-dir "$(RUN_DIR)" --timeout "$(WATCHDOG)"
 
 test-all:
-	$(GO_BIN) test -v -count=1 ./explorer/... ./experiments/... ./orchestrator/... ./rafttest/... ./bugs/...
+	GO_BIN="$(GO_BIN)" sh scripts/run-tests.sh maintained
 
 test-det:
-	GODEBUG=asyncpreemptoff=1 $(GO_BIN) test -v -count=1 ./experiments/...
+	GOROOT="$(GO_ROOT)" GOTOOLCHAIN=local GODEBUG=asyncpreemptoff=1 "$(GO_BIN)" test -count=1 -timeout=90s ./experiments/runtime/...
 
-clean:
-	cd $(GO_ROOT)/src && ./clean.bash
+test-one:
+	GOROOT="$(GO_ROOT)" GOTOOLCHAIN=local GODEBUG=asyncpreemptoff=1 "$(GO_BIN)" test -count=1 -timeout=60s -run '^$(TEST)$$' ./$(PKG)/...
 
-# ---------------------------------------------------------------------------
-# Charts
-# ---------------------------------------------------------------------------
+determinism:
+	$(MAKE) test-one PKG=experiments/runtime TEST=TestDeterminism1000
 
-# Single systematic run at context bound K.
-# Requires the test to call orchestrator.ObserverFromEnv(t), BoundFromEnv(),
-# and MaxRunsFromEnv() — see orchestrator/metrics.go for the one-liner.
+test-raft:
+	GO_BIN="$(GO_BIN)" sh scripts/run-tests.sh raft
+
+test-etcd:
+	GO_BIN="$(GO_BIN)" ETCD_PROFILE="$(ETCD_PROFILE)" sh scripts/run-tests.sh etcd
+
+test-legacy-regressions:
+	GO_BIN="$(GO_BIN)" sh scripts/run-tests.sh legacy-regressions
+
+test-legacy-raft:
+	@test -n "$(TEST_PATTERN)" || { echo 'set explicit TEST_PATTERN (historical Raft compilation is currently blocked)'; exit 2; }
+	GO_BIN="$(GO_BIN)" sh scripts/run-tests.sh legacy-raft '$(TEST_PATTERN)'
+
+test-entrypoints:
+	python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+verify-archive:
+	python3 scripts/verify-archive.py
+
+benchmark-charts:
+	@test -n "$(pkg)" -a -n "$(RUN_DIR)" || { echo 'set pkg and a new RUN_DIR'; exit 2; }
+	python3 scripts/safe-run.py --go "$(GO_BIN)" --package "$(pkg)" --run-dir "$(RUN_DIR)" --attempts "$(ATTEMPTS)" --timeout "$(WATCHDOG)"
+
 charts-collect:
-	@mkdir -p $(OUTDIR)
-	GODEBUG=asyncpreemptoff=1 \
-	EXPLORE_K=$(K) \
-	METRICS_FILE=$(CURDIR)/$(OUTDIR)/$(TEST)_k$(K)_sys.jsonl \
-	$(GO_BIN) test -v -count=1 -run $(TEST) $(PKG)
+	@test -n "$(RUN_DIR)" || { echo 'set a new RUN_DIR'; exit 2; }
+	EXPLORE_K=$(K) python3 scripts/safe-run.py --go "$(GO_BIN)" --package "$(PKG)" --mode test --test '^$(TEST)$$' --run-dir "$(RUN_DIR)" --timeout "$(WATCHDOG)"
 
-# Sweep k=0..KMAX, one JSONL file per k.
 charts-sweep:
-	@for k in $(shell seq 0 $(KMAX)); do \
-		echo "--- sweep k=$$k ---"; \
-		$(MAKE) charts-collect TEST=$(TEST) PKG=$(PKG) K=$$k OUTDIR=$(OUTDIR); \
+	@test -n "$(RUN_DIR)" || { echo 'set a new RUN_DIR'; exit 2; }
+	@mkdir "$(RUN_DIR)" || exit 2; \
+	for k in $$(seq 0 $(KMAX)); do \
+		$(MAKE) charts-collect K=$$k RUN_DIR="$(RUN_DIR)/k-$$k" || exit $$?; \
 	done
 
-# Generate all figures from collected data in charts/data/.
 charts-plot:
-	@python3 -c "import matplotlib,pandas,numpy,scipy" 2>/dev/null || \
-		pip3 install -q -r charts/requirements.txt
-	python3 charts/charts.py \
-		--input "$(OUTDIR)/*.jsonl" \
-		--outdir charts/figures
+	@test -n "$(FIGURE_DIR)" || { echo 'set a new FIGURE_DIR'; exit 2; }
+	@mkdir "$(FIGURE_DIR)" || exit 2
+	python3 charts/charts.py --data "$(OUTDIR)" --out "$(FIGURE_DIR)"
 
-ifdef pkg
-benchmark-charts:
-	@pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
-	mkdir -p "$$pkgdir/benchmarking/data" "$$pkgdir/benchmarking/figures"; \
-	rm -rf "$$pkgdir/benchmarking/data"/attempt-*; \
-	rm -f "$$pkgdir/benchmarking/data"/*.jsonl "$$pkgdir/benchmarking/data"/*.json "$$pkgdir/benchmarking/figures"/*
-	@python3 -c "import matplotlib,numpy" 2>/dev/null || \
-		pip3 install -q -r charts/requirements.txt
-	@set +e; \
-	pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
-	testfile="$$pkgdir/bench_test.go"; \
-	pkgpath="./$(patsubst ./%,%,$(pkg))"; \
-	if [ ! -f "$$testfile" ]; then \
-		echo "missing $$testfile"; \
-		exit 1; \
-	fi; \
-	status=0; \
-	for attempt in $$(seq 1 $(ATTEMPTS)); do \
-		if [ "$(ATTEMPTS)" -eq 1 ]; then \
-			attempt_dir="$$pkgdir/benchmarking/data"; \
-		else \
-			attempt_dir=$$(printf '%s/benchmarking/data/attempt-%03d' "$$pkgdir" "$$attempt"); \
-		fi; \
-		mkdir -p "$$attempt_dir"; \
-		for testname in $$($(GO_BIN) test -list '^TestBench_' "$$pkgpath" | grep '^TestBench_'); do \
-			echo "==> attempt $$attempt $$testname"; \
-			MPLBACKEND=Agg \
-			MPLCONFIGDIR=/tmp/matplotlib \
-			BENCH_DIR="$$attempt_dir" \
-			BENCH_ATTEMPT="$$attempt" \
-			GODEBUG=asyncpreemptoff=1 \
-			$(GO_BIN) test -count=1 -v -timeout=$(BENCH_TIMEOUT) -run "^$$testname$$" "$$pkgpath"; \
-			test_status=$$?; \
-			echo "<== attempt $$attempt $$testname (status=$$test_status)"; \
-			if [ $$test_status -ne 0 ] && [ $$status -eq 0 ]; then \
-				status=$$test_status; \
-			fi; \
-		done; \
-	done; \
-	set -e; \
-	if [ $$status -ne 0 ]; then \
-		echo "benchmark run exited with status $$status; continuing because bug-finding failures are expected"; \
-	fi; \
-	if ! find "$$pkgdir/benchmarking/data" \( -name '*.jsonl' -o -name '*.json' \) | grep -q .; then \
-		echo "benchmark run produced no data files"; \
-		exit $$status; \
-	fi
-	@pkgdir="$(CURDIR)/$(patsubst ./%,%,$(pkg))"; \
-	MPLBACKEND=Agg \
-	MPLCONFIGDIR=/tmp/matplotlib \
-	python3 charts/charts.py \
-		--data "$$pkgdir/benchmarking/data" \
-		--out "$$pkgdir/benchmarking/figures"
-else
-benchmark-charts:
-	@echo "usage: make benchmark-charts pkg=bugs/ra-gate"
-endif
+clean:
+	@echo 'No implicit cleanup. Remove only an explicitly reviewed disposable run directory yourself.'

@@ -7,3 +7,6 @@ bugs/**/data/attempt-*/
 # Python caches
 __pycache__/
 *.pyc
+
+# Fresh runs are never mixed with preserved historical inputs.
+runs/

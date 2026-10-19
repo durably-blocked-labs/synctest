@@ -1,0 +1,1685 @@
+{
+  "schema": 1,
+  "source_commit": "2de6f11c05c624386048f3d64f44623cd6ab0544",
+  "hash": "sha256",
+  "files": [
+    {
+      "original_path": "bugs/gobench/bench_test.go",
+      "path": "archive/legacy/bugs/gobench/bench_test.go",
+      "bytes": 6383,
+      "sha256": "ddd63a51cb24945b510de2950d94ed9a4f9de2e607131286e6c33912973bd700"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-chess-trace.jsonl",
+      "bytes": 1114,
+      "sha256": "bc751ffc2bf69832a70ea782c6c64e5cbccad0dfda25459d09ffbcc8d34b3160"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-chess-tree.json",
+      "bytes": 240,
+      "sha256": "fef793e741714e943324d1c9da4fdd3fb281dc3f34bfaf143e25f7e380742272"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-chess.jsonl",
+      "bytes": 774,
+      "sha256": "2fd6a43543912b03ae454c1b5bb12315167eed62d557f3b47cad5dffcb1ae43a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-pct-d2-trace.jsonl",
+      "bytes": 449,
+      "sha256": "8af9eadb291105ce4cb4028172d7038d6a4cd577f4ae07fd630d6e2988d45fca"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-pct-d2.jsonl",
+      "bytes": 388,
+      "sha256": "7e3e8fe27fbd47f392e123f1b5ad5c611818aadf471b4a9979cad0ae5e989ca3"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-pct-d3-trace.jsonl",
+      "bytes": 449,
+      "sha256": "aee5552d13c3b2335a71bb78bcee7ff00f0d5e467bafc9063509291d9a2d91d2"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-pct-d3.jsonl",
+      "bytes": 388,
+      "sha256": "e24d3c374c99c42cff0aeb0a2b5cdfb3c84033d368f941632d9f8246147bfd19"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-random-trace.jsonl",
+      "bytes": 449,
+      "sha256": "15e2ba054f1549053ed83282f35723fa8743b4dba8dee04d692dc178b4dc72f3"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd6873-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd6873-random.jsonl",
+      "bytes": 388,
+      "sha256": "40acceb184a5bf8b0670978c99192c0043ff7ce623fc0ea995158fbabed41849"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-chess-trace.jsonl",
+      "bytes": 78299,
+      "sha256": "0126d2a61198712c4330242367367ffe4fe04eebbf5bde3c899ce7a793403232"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-chess-tree.json",
+      "bytes": 8797,
+      "sha256": "f26666890887aa95a1a21e320380b476b0f5696caf064c8e3e23a842f5bae278"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-chess.jsonl",
+      "bytes": 28769,
+      "sha256": "65e63a0d2144bc957308ba3d9fbee965df556ab6ebfd39657c2dbf7f7506840e"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-pct-d2-trace.jsonl",
+      "bytes": 22295,
+      "sha256": "e0abec5310f0e23e8573ecd3784ff2bf61fe63c3998831ab445d326432357324"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-pct-d2.jsonl",
+      "bytes": 10123,
+      "sha256": "b1903bc6a9a1cd8afd6ceba4afbc4c96a011367eef3f50d64390668f6b1b6b54"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-pct-d3-trace.jsonl",
+      "bytes": 22295,
+      "sha256": "9e889a137aee6cf203e4ff8b517173905035dc7d50a6aeb40203843dc7f61e67"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-pct-d3.jsonl",
+      "bytes": 10123,
+      "sha256": "b77d4e955e765e7180ca7b8522151696379b9512b79ae122d43307a726cef518"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-random-trace.jsonl",
+      "bytes": 7040,
+      "sha256": "9b89d489af60c42cbecce7225b6d72a67a9fa5d2d61701ed3c5150cb5e6b235e"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7443-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7443-random.jsonl",
+      "bytes": 3104,
+      "sha256": "b90aab58a38293cc7241516704ad0391f218b316a43a3818742f147a3dd42a19"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-chess-trace.jsonl",
+      "bytes": 11403,
+      "sha256": "662aa626f4bc13cb2a7de0fe4463b232c6399f67e7246c5832a3c8851f65153e"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-chess-tree.json",
+      "bytes": 1294,
+      "sha256": "88416303a0d3565290b1a20064b185e6ce133fd88cdfbb506f35821f24750a98"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-chess.jsonl",
+      "bytes": 4259,
+      "sha256": "e009e554ff31173eedba8939174097ccacd87f588bc60da9292048161c0d6261"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-pct-d2-trace.jsonl",
+      "bytes": 517506,
+      "sha256": "f47a0cd8f819bc2b9247660d863270420b637c8478481da90f26103e6d4337b4"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-pct-d2.jsonl",
+      "bytes": 194922,
+      "sha256": "84aa40e41885c31cd2c7a50004f3aaedfec2427b2caeff567bc5fe75b8dce55a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-pct-d3-trace.jsonl",
+      "bytes": 517402,
+      "sha256": "5bb8e3c1e97b9b616a63d07fefc6860a28c1393eb709249511b7872cddc160e6"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-pct-d3.jsonl",
+      "bytes": 194913,
+      "sha256": "483d22b74e3bc0ee650d22328224b5c00db3e4eac55c4004f5f895b32412fd70"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-random-trace.jsonl",
+      "bytes": 508477,
+      "sha256": "66f08e39b2b3defed70cec2905287c9fd2de869b4666667792718130e0fa838d"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7492-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7492-random.jsonl",
+      "bytes": 194909,
+      "sha256": "a74c644f92458f307faad48a157447b1ceca230d799231051ea0fff3c0cc1321"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-chess-trace.jsonl",
+      "bytes": 448,
+      "sha256": "9f6c3ff30a5d48ca34242694cf5200520228239bddb8e7f0d6b4815bc7433b26"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-chess-tree.json",
+      "bytes": 123,
+      "sha256": "2402a6551186d6e0dd579ad01d14007d6cc6197419fb1c45548351c198275651"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-chess.jsonl",
+      "bytes": 387,
+      "sha256": "6b1e75dab82b342af6de5a080fcce52ca4a939ff3a38211a5c694a492e647040"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-pct-d2-trace.jsonl",
+      "bytes": 449,
+      "sha256": "ed9ea7b3e7fc5dfc148e0da72d94f2633bd88ae5783a626e8f30147f7478dc62"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-pct-d2.jsonl",
+      "bytes": 388,
+      "sha256": "b80ef2b5ae2b4e5398ba08e672c3fc4e133d3ddb88e54a0b3eb77d2c95b3d6fe"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-pct-d3-trace.jsonl",
+      "bytes": 449,
+      "sha256": "525bcdcce72e02449a5fd3c0c6404642d12d1ddabe95d04df04fc9e6874b2de8"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-pct-d3.jsonl",
+      "bytes": 388,
+      "sha256": "fc29b182691e44478c80cce76ace761d81ad167d7cfd9606c45bfb33061203ff"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-random-trace.jsonl",
+      "bytes": 449,
+      "sha256": "6b9b9cb629377c0d4673088dfe7efea7c51ae17de85ca5f406a5b416a52f147e"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/etcd7902-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/etcd7902-random.jsonl",
+      "bytes": 388,
+      "sha256": "f7ccd79a864472678cfd3ac56bf8f5644ac9fb564ce93a21c4a055e969025af2"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-chess-trace.jsonl",
+      "bytes": 786,
+      "sha256": "6ad919a6e885e82e1fbed6cde02f90a93e058d5cbf56ea779e22e67fce9a4a49"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-chess-tree.json",
+      "bytes": 123,
+      "sha256": "e9b6cad0fe67035b165e24c6a518670f98fba657d83b56e5c2483589d9cead26"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-chess.jsonl",
+      "bytes": 388,
+      "sha256": "51e1153e3b07602c8164171bbc45daba06bcc14520e85cac6f76966a529a0a69"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-pct-d2-trace.jsonl",
+      "bytes": 673,
+      "sha256": "f5975964762ed7b1e8f4c4e2ee14d36198abf171fc79144612d2f4f646bedf6a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-pct-d2.jsonl",
+      "bytes": 388,
+      "sha256": "5e5431328f49af654a7d80c27c4bd60b02425aad2c1c57fa2c90573e69428f39"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-pct-d3-trace.jsonl",
+      "bytes": 673,
+      "sha256": "b9628ef006486d5a8c5d40e1dae96944575a8b02c14da9e7f1f3df07e6d15778"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-pct-d3.jsonl",
+      "bytes": 388,
+      "sha256": "6d20b54a9f22d42b3f441ca5b6526c2b19b5defb433ec0866d6743ea7dfd460a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-random-trace.jsonl",
+      "bytes": 782,
+      "sha256": "947a5a8ee07929e88f20b916b0e411c966313ce0e465c47ecbc0014f8a25c37d"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1353-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1353-random.jsonl",
+      "bytes": 388,
+      "sha256": "8d7c0ba3aed95d17e73cc2254339e5216b898e4b99aca941067a5f694fe71793"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-chess-trace.jsonl",
+      "bytes": 448,
+      "sha256": "2e21b6f5b84f28fb7108d7c8597c6469444bea20d1c509986a10b336455ba51c"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-chess-tree.json",
+      "bytes": 123,
+      "sha256": "2402a6551186d6e0dd579ad01d14007d6cc6197419fb1c45548351c198275651"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-chess.jsonl",
+      "bytes": 387,
+      "sha256": "d50f5277f2970d2226b22b5c1c6ad429a68e49ccf7e71515ee83c01326f83f3f"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-pct-d2-trace.jsonl",
+      "bytes": 1347,
+      "sha256": "e14919a4821ea31e32ec7d29473b68da7d273200cdbdce2fb665c4e012e009ac"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-pct-d2.jsonl",
+      "bytes": 1164,
+      "sha256": "045cd58c71f2f84d3a051b77920204d3d78b646a84ebb978bb8c967ebba96c51"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-pct-d3-trace.jsonl",
+      "bytes": 1347,
+      "sha256": "c9d6b6ead46c61687350a896eaf0d9045014bed735a1b25505ae1bd8f4ff3068"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-pct-d3.jsonl",
+      "bytes": 1164,
+      "sha256": "a8460a7a66a639922deaa9bb7fa7496a1e9afa9fe905953567c3a6a4d3bb905a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-random-trace.jsonl",
+      "bytes": 898,
+      "sha256": "9648c517793cbe11fed5579a9714a9955f25f385d10e1c4e80fc29afbbcaa812"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/grpc1460-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/grpc1460-random.jsonl",
+      "bytes": 776,
+      "sha256": "8bf5a8ab8f86bc707a00ca9728b0b5b78c0412cec9d3e9e7215c8962150fb538"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-chess-trace.jsonl",
+      "bytes": 335,
+      "sha256": "0076f6720d6d459d1ca65a975aedafc9dd52a26afeb1a1e56e653d19618373ab"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-chess-tree.json",
+      "bytes": 123,
+      "sha256": "cdcbeda6ddf1ecca089b7311f29d7d8c123fbf8e97777027205f602fa2ae4179"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-chess.jsonl",
+      "bytes": 352,
+      "sha256": "1a3f83643009ba5a3305c2479d66548bcd52326e264d1e538309413c8a16e02d"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-pct-d2-trace.jsonl",
+      "bytes": 336,
+      "sha256": "9292461dc9cfe10d4f6d861563b1b375a1fc1701ec4ecad96df1aa2066f73d53"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-pct-d2.jsonl",
+      "bytes": 353,
+      "sha256": "3d260161fd4f3c8035c390259d877f6949af7c6ac6d1e519a57691f3e2ae57fd"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-pct-d3-trace.jsonl",
+      "bytes": 336,
+      "sha256": "cbebe9c6014bd12bc04c9eb76c0bde043f22461ac669709079aae3e3025ce01e"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-pct-d3.jsonl",
+      "bytes": 353,
+      "sha256": "eb15947c576071fae6092d8ba24e72b7a9f0838b0ad4783708cc2379e6a33a09"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-random-trace.jsonl",
+      "bytes": 336,
+      "sha256": "97aa67d1dba9533d67912b3354c670042614dbaadb153834b7809c2eb2900b85"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/istio16224-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/istio16224-random.jsonl",
+      "bytes": 353,
+      "sha256": "7d367e83f0af7053c92d5da88876336d0055665c2212347b8e3b8ceb8a6b1673"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-chess-trace.jsonl",
+      "bytes": 2791,
+      "sha256": "c75907d1ea434c0d85bed3b6ab3400e0eea734ca1ad0463cd6219e58278eda15"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-chess-tree.json",
+      "bytes": 357,
+      "sha256": "e1e9dda37d0d02e122d19cfe20e35394e347d54cea5b06f44660aa32046915de"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-chess.jsonl",
+      "bytes": 1161,
+      "sha256": "7ad95c2b8890c20dd38f0f1e8fd96ff5404c821f719faa31d2f86e6c1c3e6a20"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-pct-d2-trace.jsonl",
+      "bytes": 891,
+      "sha256": "151fdf9c3917f15b61c157c0e9b5a61480a49e8f5e9194977e7e6db1286909d4"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-pct-d2.jsonl",
+      "bytes": 388,
+      "sha256": "f986d7a58ec6b8da60fba0bc0a58e3195fd6e71beb7b3602ab30517be20a7cd9"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-pct-d3-trace.jsonl",
+      "bytes": 891,
+      "sha256": "f62e6be113b6ffbeb6f12b7a42d27a18e6eb0cfd05b6b84456cae4b0f5d52dc6"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-pct-d3.jsonl",
+      "bytes": 388,
+      "sha256": "deccab1ad7d4900398683e23c5140fccf5319659193654a7219c34cdb174d383"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-random-trace.jsonl",
+      "bytes": 897,
+      "sha256": "14bbeaab3c7688b7c0022bd307dc50cfd474b67a9a7f21edac4759bb164aa705"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s10182-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s10182-random.jsonl",
+      "bytes": 388,
+      "sha256": "993cb00311c38cf680159c9732fb53153492f8850fd9745dba8ff93de23c8b3a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-chess-trace.jsonl",
+      "bytes": 1333,
+      "sha256": "5bdca143dc8a9a2e25fa25068dd52e957604a854299f49668213b218e7053a94"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-chess-tree.json",
+      "bytes": 356,
+      "sha256": "9799717a49c7573b790137ce4a7af441047a5ab185a657305af754cdf7d0e88f"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-chess.jsonl",
+      "bytes": 1158,
+      "sha256": "152aeb101e3e6243bdcd3f43ba11ff6b646f58b9b6dd9d85b0afcd8405381b2a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-pct-d2-trace.jsonl",
+      "bytes": 223407,
+      "sha256": "e3429ab7d37c34014e9cd64e706f2c000e7c59439d9395ea5330754aef432a3c"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-pct-d2.jsonl",
+      "bytes": 194399,
+      "sha256": "823420c43eecf47bc1e68e97bedbdcdde72e2d42d52b74f6a05977d852190f9b"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-pct-d3-trace.jsonl",
+      "bytes": 223501,
+      "sha256": "7f1afe0a29f2eb85ba6af0b352544fb6e8de28f8974470db93b1a70f581cd12f"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-pct-d3.jsonl",
+      "bytes": 194398,
+      "sha256": "c1a1977ee10ba9cf0a59a459b695aad4d937e16202ceff95aa85b2177c030cad"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-random-trace.jsonl",
+      "bytes": 223492,
+      "sha256": "7bfbc0e03373fde639d13ca81efe442c9b623e7d9c66a915e813816c909f35ea"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s1321-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s1321-random.jsonl",
+      "bytes": 194399,
+      "sha256": "33297fe818e04fd7752ba658fa48917c0af22d3b0043703f29864309aa749c58"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-chess-trace.jsonl",
+      "bytes": 892,
+      "sha256": "fe2aea6b4551b15e50961c7304365732e9915045dd85c8c3690cd3506e17fb68"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-chess-tree.json",
+      "bytes": 240,
+      "sha256": "91a8652132c6f7db481096dd0340605425d4a78dc85b6a400719566b25a82ac8"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-chess.jsonl",
+      "bytes": 774,
+      "sha256": "df6e11fea5e447782f1a4362df314bff78db3d0c1d6480d0584ae61b25511748"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-pct-d2-trace.jsonl",
+      "bytes": 2119,
+      "sha256": "1e3a13f1ca8e8ca8d22315402f3c26349e99982df194f1846556356a06dc40f2"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-pct-d2.jsonl",
+      "bytes": 1552,
+      "sha256": "36ccce2fdfad14deadf8f9e3cc1f017a746cbc7933a4c69d0b466684885f5d27"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-pct-d3-trace.jsonl",
+      "bytes": 2119,
+      "sha256": "4c51cbe1fab7c9ba1d3c34dfc51a84f9ac4ff038a16952515088465af8cfd581"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-pct-d3.jsonl",
+      "bytes": 1552,
+      "sha256": "5b86fa9b43c45c3a736ae5d14cf8bfd6a3220e193a4d51b0747883d89b792f1b"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-random-trace.jsonl",
+      "bytes": 336,
+      "sha256": "dc64499f35467d7793964e785b05ad85cbc8d872e9c7aa8c046f980a1bd06983"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s26980-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s26980-random.jsonl",
+      "bytes": 388,
+      "sha256": "3885b886ccb988c681f7ce3c2aba89386a7f034bb44862cef8444c24861f4475"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-chess-trace.jsonl",
+      "bytes": 1344,
+      "sha256": "d318c5a8aa6894f6db600ef017f8eaadca3a842fff71ef7a9d93339efe8b0929"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-chess-tree.json",
+      "bytes": 240,
+      "sha256": "854a4647c1b3780b88c7f09fb4f87434a3ab4c3587b64db77ac9b7c8f757dc79"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-chess.jsonl",
+      "bytes": 772,
+      "sha256": "eb54daffc83a7a8a9adfa74d1af7bf34b5014393a819b30452dd6ee9b8b2f717"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-pct-d2-trace.jsonl",
+      "bytes": 672,
+      "sha256": "39100311c8d6e330e4537920f4601c5f19af3e60f6e4c116279c333ffe55a8d3"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-pct-d2.jsonl",
+      "bytes": 387,
+      "sha256": "d46d7eb55babc60550dcaa9694a73629268201cee4d43d1fb5dce33f75d5e261"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-pct-d3-trace.jsonl",
+      "bytes": 672,
+      "sha256": "90776cfe20c96cf4fa37d43ef8ad23f5d285cfd597ab700e6f451e7d2dde715d"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-pct-d3.jsonl",
+      "bytes": 387,
+      "sha256": "3fc419644de6f3c0f40cb3383fdb94a51286e691e946f372d731f4b0aa921caa"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-random-trace.jsonl",
+      "bytes": 672,
+      "sha256": "1c9be81934b3f94791e6eb182a8edb179d3f098a4812b3e3c25cafbdc4d61490"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/k8s6632-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/k8s6632-random.jsonl",
+      "bytes": 387,
+      "sha256": "bcf5b8cacc54ab78d967f35094f68c2897610acf50ae6ce13c7149afc58c89e2"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-chess-trace.jsonl",
+      "bytes": 4582,
+      "sha256": "469d8bc6a8b6a6a8c1a796137ec162ce384a9a7fbe2d5c2a228de533d02e0f63"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-chess-tree.json",
+      "bytes": 708,
+      "sha256": "74617c5b588164f9f1eb8ebbabef6c79804ddcf20d4328bb34c79e7334503a15"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-chess.jsonl",
+      "bytes": 2337,
+      "sha256": "e3cec15b323a61769b5818105ae778d10a2f1464baac7a04723a2951ee709dc8"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-pct-d2-trace.jsonl",
+      "bytes": 13375,
+      "sha256": "9e6e6ac41311ff8f1f7c1dd419de21435dcebb95ba6a88e05eeb60484ac00245"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-pct-d2.jsonl",
+      "bytes": 1579,
+      "sha256": "bba08597a2102b5c0f17ce6b873a322af13e793841022958a9830ac95043b760"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-pct-d3-trace.jsonl",
+      "bytes": 3457,
+      "sha256": "c47c1db534c0e2c00cce43b5de7fd926c78d188919124c150a55674720843b1e"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-pct-d3.jsonl",
+      "bytes": 1178,
+      "sha256": "bf1b6ae16a9efb801bc50dc9b2ea736021835b05bb26ded80dec1779c4ce012a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-random-trace.jsonl",
+      "bytes": 1347,
+      "sha256": "6dc5aa2ce0565dcb3dcc3ab8f796a85b6e0d994d4ca3f95bf0b194e40a7c7645"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby28462-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby28462-random.jsonl",
+      "bytes": 781,
+      "sha256": "8cf84ebcc70a9fc180f2fd37b8accaeb3609a592f5e4c5e9e5aa5488da30826b"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-chess-trace.jsonl",
+      "bytes": 449,
+      "sha256": "930fc37c457aa0cd435495e0929317d54304070f37f80488e7a74b6d599428e5"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-chess-tree.json",
+      "bytes": 123,
+      "sha256": "2402a6551186d6e0dd579ad01d14007d6cc6197419fb1c45548351c198275651"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-chess.jsonl",
+      "bytes": 388,
+      "sha256": "ab29479fbbca20293ca378120bea1d6ae4d49348093c5d06f76c4a0f49717921"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-pct-d2-trace.jsonl",
+      "bytes": 450,
+      "sha256": "123ca770f62695d0a002bbcec113094593e8370539138ab4c4e71d6b63de3c42"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-pct-d2.jsonl",
+      "bytes": 389,
+      "sha256": "2eacff2699224e9d75032dc9163eec73802d06c6e404cd33b2bc863c83d8414a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-pct-d3-trace.jsonl",
+      "bytes": 450,
+      "sha256": "0f3bedf6bb59a8bc0cd40208148a08095c99c72a12f60be94f88fe678674726c"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-pct-d3.jsonl",
+      "bytes": 389,
+      "sha256": "143bcbddb87cf0688e9f466fd730abf6052372ad20aaaf88a1ac2975afca31a4"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-random-trace.jsonl",
+      "bytes": 450,
+      "sha256": "8f890824fa20976e75f933b470b62a3847d46fa6e7755050365831608b5026ab"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/moby33781-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/moby33781-random.jsonl",
+      "bytes": 389,
+      "sha256": "47034d1a94c4190662dcdaba9f4941f5823dddb23c4806d010916e42b03ce5b5"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-chess-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-chess-trace.jsonl",
+      "bytes": 2311,
+      "sha256": "2a1dd0d7a85beb97d79a97534f27bacb2db496b7b62e7a9fa39e4a164fbc5d74"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-chess-tree.json",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-chess-tree.json",
+      "bytes": 240,
+      "sha256": "be051335079c483a18cfe3baa7188e8d6375816cf1a3905be44de90f384f7291"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-chess.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-chess.jsonl",
+      "bytes": 783,
+      "sha256": "6f83bc4b4e65055b0226dfe449087edd5e85585cfbadf1591698f12fe3e1f9fe"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-pct-d2-trace.jsonl",
+      "bytes": 579595,
+      "sha256": "78f9ee67f521a28f5a2f0653ab81885118d87887985e82bc70623206f9b9a4e4"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-pct-d2.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-pct-d2.jsonl",
+      "bytes": 197171,
+      "sha256": "a1f2ce538715711f1546297c16905ab1ccf65f38fa55aad64b231a8973524e9f"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-pct-d3-trace.jsonl",
+      "bytes": 579593,
+      "sha256": "913badbc4e17da60c9162098b827150c453f4aa8281aced136b53fd363e8a7c5"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-pct-d3.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-pct-d3.jsonl",
+      "bytes": 197169,
+      "sha256": "583965337e790f472049144bbdbcac4935b6ad9132a3d541a84c0299286e6349"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-random-trace.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-random-trace.jsonl",
+      "bytes": 579041,
+      "sha256": "cd5ac87cbfadf81dda65b6e45e88ebf20107819e1d0553ece6d27930e7d78d7a"
+    },
+    {
+      "original_path": "bugs/gobench/charts/data/serving2137-random.jsonl",
+      "path": "archive/legacy/bugs/gobench/charts/data/serving2137-random.jsonl",
+      "bytes": 197156,
+      "sha256": "2e5627df1b84807566c67b7c5ef9ec84a80f3503acf8146832d22334cbd408fb"
+    },
+    {
+      "original_path": "bugs/gobench/etcd6873/etcd6873.go",
+      "path": "archive/legacy/bugs/gobench/etcd6873/etcd6873.go",
+      "bytes": 1304,
+      "sha256": "3f34e81ca76e99f4a4ae12e12cead60be9f50807e850040d5d27370983f57770"
+    },
+    {
+      "original_path": "bugs/gobench/etcd6873/etcd6873_test.go",
+      "path": "archive/legacy/bugs/gobench/etcd6873/etcd6873_test.go",
+      "bytes": 150,
+      "sha256": "a25bd666bf9360be9f499bfd0aad22a0091ca1067577107b7bc0c6dd2a7b5d03"
+    },
+    {
+      "original_path": "bugs/gobench/etcd7443/etcd7443.go",
+      "path": "archive/legacy/bugs/gobench/etcd7443/etcd7443.go",
+      "bytes": 3717,
+      "sha256": "0262bbbc27a709978b7a35d7e535e91aa9635e6cda0c070c50dba6c2dd41cee0"
+    },
+    {
+      "original_path": "bugs/gobench/etcd7443/etcd7443_test.go",
+      "path": "archive/legacy/bugs/gobench/etcd7443/etcd7443_test.go",
+      "bytes": 177,
+      "sha256": "31e7c1390b6e5baf7b3f7f6d1be4b62366de91ec55c313f5acbf8f4bad102a60"
+    },
+    {
+      "original_path": "bugs/gobench/etcd7492/etcd7492.go",
+      "path": "archive/legacy/bugs/gobench/etcd7492/etcd7492.go",
+      "bytes": 2509,
+      "sha256": "0c3a1f4b69343ca65f70ef6a8b01337277f13345cfabd52049ae95343de161b1"
+    },
+    {
+      "original_path": "bugs/gobench/etcd7492/etcd7492_test.go",
+      "path": "archive/legacy/bugs/gobench/etcd7492/etcd7492_test.go",
+      "bytes": 436,
+      "sha256": "46cecce0adc002d0d8ede1a33dfc88de7c38e53e4ad818b8dea5d778a76d84e9"
+    },
+    {
+      "original_path": "bugs/gobench/etcd7902/etcd7902.go",
+      "path": "archive/legacy/bugs/gobench/etcd7902/etcd7902.go",
+      "bytes": 1311,
+      "sha256": "53e9f421e838cb27521af472069c65663b0f5707198d01e99ffb42acda147544"
+    },
+    {
+      "original_path": "bugs/gobench/etcd7902/etcd7902_test.go",
+      "path": "archive/legacy/bugs/gobench/etcd7902/etcd7902_test.go",
+      "bytes": 150,
+      "sha256": "c665c6f47eaed7e2a253eb699f3af047b839272179661d4b0c1194e7594b9285"
+    },
+    {
+      "original_path": "bugs/gobench/grpc1353/grpc1353.go",
+      "path": "archive/legacy/bugs/gobench/grpc1353/grpc1353.go",
+      "bytes": 2182,
+      "sha256": "3b30f8ec8d13c9db285f7f5e883fa43b75faa9238430566e3ce65ab9ff2b8870"
+    },
+    {
+      "original_path": "bugs/gobench/grpc1353/grpc1353_test.go",
+      "path": "archive/legacy/bugs/gobench/grpc1353/grpc1353_test.go",
+      "bytes": 150,
+      "sha256": "c5facc1a16b0ad835fb5344664cc5ca43265e688cc52c42f69b17972992d10e7"
+    },
+    {
+      "original_path": "bugs/gobench/grpc1460/grpc1460.go",
+      "path": "archive/legacy/bugs/gobench/grpc1460/grpc1460.go",
+      "bytes": 1095,
+      "sha256": "e019c5361de5ff3f2ffa220b8216d9484fe0cbbf864a8e7e1c742b62a17a7a0f"
+    },
+    {
+      "original_path": "bugs/gobench/grpc1460/grpc1460_test.go",
+      "path": "archive/legacy/bugs/gobench/grpc1460/grpc1460_test.go",
+      "bytes": 150,
+      "sha256": "534192a6d4c559ab01925a06cefb55a87e0783abec91d95e4b7e14e483d3079e"
+    },
+    {
+      "original_path": "bugs/gobench/istio16224/istio16224.go",
+      "path": "archive/legacy/bugs/gobench/istio16224/istio16224.go",
+      "bytes": 1787,
+      "sha256": "7d9db9108737c51f9ee084c097d25231a50d56d57d2c7d0ceeaf7211d5c8a8d8"
+    },
+    {
+      "original_path": "bugs/gobench/istio16224/istio16224_test.go",
+      "path": "archive/legacy/bugs/gobench/istio16224/istio16224_test.go",
+      "bytes": 154,
+      "sha256": "8552940f8bae18bd328a228bbb57f79724de914f7bc68a4b4c364a55d5a6e85d"
+    },
+    {
+      "original_path": "bugs/gobench/k8s10182/k8s10182.go",
+      "path": "archive/legacy/bugs/gobench/k8s10182/k8s10182.go",
+      "bytes": 1215,
+      "sha256": "f41c5affc382d205b41add1ef7ca92f4282e7a3fdaaa5aaa2618c962dd29aa3b"
+    },
+    {
+      "original_path": "bugs/gobench/k8s10182/k8s10182_test.go",
+      "path": "archive/legacy/bugs/gobench/k8s10182/k8s10182_test.go",
+      "bytes": 157,
+      "sha256": "55eb5d905d09a5bd236911e2bb4231b5ec1eb3b3b4d2c846e8d81e760e2cfdb2"
+    },
+    {
+      "original_path": "bugs/gobench/k8s1321/k8s1321.go",
+      "path": "archive/legacy/bugs/gobench/k8s1321/k8s1321.go",
+      "bytes": 1553,
+      "sha256": "5a5211e826b129b44751b368f1ee0f8e0df87c8a986d7eaf6a6a093863419c17"
+    },
+    {
+      "original_path": "bugs/gobench/k8s1321/k8s1321_test.go",
+      "path": "archive/legacy/bugs/gobench/k8s1321/k8s1321_test.go",
+      "bytes": 411,
+      "sha256": "4e1bc5ae6ffb419db294d1010d1a2e987e168ad854b9849af0eae338935cbc2a"
+    },
+    {
+      "original_path": "bugs/gobench/k8s26980/k8s26980.go",
+      "path": "archive/legacy/bugs/gobench/k8s26980/k8s26980.go",
+      "bytes": 1544,
+      "sha256": "dc77feea7507b8b287496af8db000371ade9b7a996c7f86fa86a749263eec229"
+    },
+    {
+      "original_path": "bugs/gobench/k8s26980/k8s26980_test.go",
+      "path": "archive/legacy/bugs/gobench/k8s26980/k8s26980_test.go",
+      "bytes": 157,
+      "sha256": "a30e91ed1f27a6d8d2aec7d72f6c33bc663f8f9fa7301def45f2d810f070bf8a"
+    },
+    {
+      "original_path": "bugs/gobench/k8s6632/k8s6632.go",
+      "path": "archive/legacy/bugs/gobench/k8s6632/k8s6632.go",
+      "bytes": 1234,
+      "sha256": "781a58ab14edc6bb2874767d225298569950f67fc806e6dc10000e745ec93414"
+    },
+    {
+      "original_path": "bugs/gobench/k8s6632/k8s6632_test.go",
+      "path": "archive/legacy/bugs/gobench/k8s6632/k8s6632_test.go",
+      "bytes": 155,
+      "sha256": "3cd4b64323d67eb1e42dfda825d1182a071ba01a082bc774dabb987d4c5e1e27"
+    },
+    {
+      "original_path": "bugs/gobench/moby28462/moby28462.go",
+      "path": "archive/legacy/bugs/gobench/moby28462/moby28462.go",
+      "bytes": 1641,
+      "sha256": "21c9f86f01a47245f0c77dae5bd60f03677df22f4caae7e8925823cd70e27f13"
+    },
+    {
+      "original_path": "bugs/gobench/moby28462/moby28462_test.go",
+      "path": "archive/legacy/bugs/gobench/moby28462/moby28462_test.go",
+      "bytes": 152,
+      "sha256": "a8e7dd20dfa1c4ecc861ba9874658e8238f1457bd86801342f66fc25d91c3963"
+    },
+    {
+      "original_path": "bugs/gobench/moby33781/moby33781.go",
+      "path": "archive/legacy/bugs/gobench/moby33781/moby33781.go",
+      "bytes": 1094,
+      "sha256": "5fab8a594e8636c4b1701a37d4b1940fe5f532891b73b101c932fc6da21dd0c3"
+    },
+    {
+      "original_path": "bugs/gobench/moby33781/moby33781_test.go",
+      "path": "archive/legacy/bugs/gobench/moby33781/moby33781_test.go",
+      "bytes": 152,
+      "sha256": "f5311facaf448c20761250ce255c5dbf8340f5fdcce527a9f2b20d449200a560"
+    },
+    {
+      "original_path": "bugs/gobench/serving2137/serving2137.go",
+      "path": "archive/legacy/bugs/gobench/serving2137/serving2137.go",
+      "bytes": 1999,
+      "sha256": "cd25cf23c8bdb0bd449b6d60e229e308d939a172046f754788f85b9f931654ef"
+    },
+    {
+      "original_path": "bugs/gobench/serving2137/serving2137_test.go",
+      "path": "archive/legacy/bugs/gobench/serving2137/serving2137_test.go",
+      "bytes": 455,
+      "sha256": "f4ba2e389912717d695174280733bda2647cb9bd8125a9375f30b16207da1fa7"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/bench_test.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/bench_test.go",
+      "bytes": 11290,
+      "sha256": "c3a6ecfc46dd908cea8fba8afaef051b24561611076c4baa066160b1fe0e536b"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/chess-gl-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/chess-gl-trace.jsonl",
+      "bytes": 29834330,
+      "sha256": "cac5fe964b0e7a856c250733fbe7aa2bbc2d3b519a9b785683fbedc39c32aca6"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/chess-gl-tree.json",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/chess-gl-tree.json",
+      "bytes": 250321,
+      "sha256": "79daeb4d95707c7e2fd420d3512102fc0e53e7fe387d4f4a7233b1086f6543be"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/chess-gl.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/chess-gl.jsonl",
+      "bytes": 6616018,
+      "sha256": "eee359c45b98c77566bc67986bfee2bc5283117b105643933be470c8f4704d9f"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/chess-global-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/chess-global-trace.jsonl",
+      "bytes": 30189807,
+      "sha256": "a2394ce4892b7a722fc8209c238392f2b89322c86098aa84a408b21a7c14a67d"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/chess-global-tree.json",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/chess-global-tree.json",
+      "bytes": 249552,
+      "sha256": "972621299b5f94ec2aa523fceda4e58c22cf59ccafad31f52ef15b63180eaa47"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/chess-global.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/chess-global.jsonl",
+      "bytes": 6698021,
+      "sha256": "75925a1543a50bd947c16d72d65884d50fd610775314c54e32f506d2d4268b48"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/dpor-gl-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/dpor-gl-trace.jsonl",
+      "bytes": 31976917,
+      "sha256": "144f7fc2cf6f1390f835274592aa1c1c37d4f1167f27794d42281d0f5c79a8e6"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/dpor-gl-tree.json",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/dpor-gl-tree.json",
+      "bytes": 253692,
+      "sha256": "137975906fa4cb094e308427776e972be5b9dccdb39d15edd7911163fb2b3600"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/dpor-gl.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/dpor-gl.jsonl",
+      "bytes": 7375439,
+      "sha256": "8c54efe1c7cf3dfe431105120049b53e4cc35b51013ea7f647e32b6df19582b4"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/pct-d2-trace.jsonl",
+      "bytes": 5177210,
+      "sha256": "f2c7bf50864fc9f185ea91dd55dba9492eeb0f31b64fbfed5dff718f0679aa70"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/pct-d2.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/pct-d2.jsonl",
+      "bytes": 1178511,
+      "sha256": "37bc350115ff3e342620f389f0b8b354a387769d4950492b8efbd84774ed647b"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/pct-d3-trace.jsonl",
+      "bytes": 25652021,
+      "sha256": "9f24f05b95a3197d7d3b9858e46dcbabcea371916b53fd28cd10f9176bdf59a9"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/pct-d3.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/pct-d3.jsonl",
+      "bytes": 5840982,
+      "sha256": "bfa806ed11e87b8dbf82408f5c1156ea4c5050e8c1c338c65b8e23e412ba8156"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/random-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/random-trace.jsonl",
+      "bytes": 29307133,
+      "sha256": "b25bf70e176dbab0ea499c86f4e9264fc370fb973726ea5485dda009a4001b39"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/random.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/random.jsonl",
+      "bytes": 6559633,
+      "sha256": "95b0d93fd0b6b322dfae6c0a148ec4d1ad0f47fc53d3be9bea5ec52d4613817b"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/targeted-trace.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/targeted-trace.jsonl",
+      "bytes": 16196,
+      "sha256": "396bf361b4f321ab21f68cd15f7a5faceb186170bcf15e0ff06f0dd3ad354ed4"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/data/targeted.jsonl",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/data/targeted.jsonl",
+      "bytes": 3731,
+      "sha256": "6b71b46d32f67def19a02d9c6c43326e76a19bb20a8fd2a49f21ef9cf9ae2896"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/bug_trace_decision_mix.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/bug_trace_decision_mix.png",
+      "bytes": 62288,
+      "sha256": "fc0d1c104da09abdb971c7f81cb9618089a8b57744b535708b70db1eb0860c29"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/cumulative_unique_traces.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/cumulative_unique_traces.png",
+      "bytes": 168369,
+      "sha256": "c92db7babd6dc91b63c1beafc43346418b206ee048a3c53263dfac2a9b56572a"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/detailed_dpor-gl.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/detailed_dpor-gl.png",
+      "bytes": 128045,
+      "sha256": "281efee921e07a83ec9031613111c491bcb44d46756fd221a8ceaa3b0e28a26e"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/detailed_pct-d2.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/detailed_pct-d2.png",
+      "bytes": 119711,
+      "sha256": "adbd3b6a6898ca062f49a0e342659c63d189926ea77514d00af8afe95d04f4e0"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/detailed_pct-d3.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/detailed_pct-d3.png",
+      "bytes": 119804,
+      "sha256": "130095ba7fb77a3c7e2d6c9d3e8d5ef7478f803a1aff240754c121dc8b9c5067"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/detailed_random.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/detailed_random.png",
+      "bytes": 130934,
+      "sha256": "8f8698f6fddc44de5933dffc8c52047e928262fadf97992ab37e01ad85f48f88"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/detailed_targeted.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/detailed_targeted.png",
+      "bytes": 130931,
+      "sha256": "b76102bd1ef67158cb3104a46588a229406144df0f282fb4bd5bb160e6b6e445"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/local_decision_burden.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/local_decision_burden.png",
+      "bytes": 49028,
+      "sha256": "638bc1142693ae7a0b1ed4024c929351686c04551fbbe02c52d4ee0eeb926084"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/narrative_dpor-gl.txt",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/narrative_dpor-gl.txt",
+      "bytes": 11458,
+      "sha256": "040d72549238c7d8cf02dae3731a7c618bff42ae633b9ef2b5916ec87adc8927"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/narrative_pct-d2.txt",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/narrative_pct-d2.txt",
+      "bytes": 12047,
+      "sha256": "0c18a14764e91ca131e1297db6e8af97781fa0497a7a173de4ac674fe97a6877"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/narrative_pct-d3.txt",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/narrative_pct-d3.txt",
+      "bytes": 12047,
+      "sha256": "54d04a23d13bee6e8e88d03a11635a4549c0f0a111029bf034f7b013d7ce2044"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/narrative_random.txt",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/narrative_random.txt",
+      "bytes": 11456,
+      "sha256": "15276662a25fc91f6597588520d750dd4f9b06897c8b322c5d7a035e2277dff2"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/narrative_targeted.txt",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/narrative_targeted.txt",
+      "bytes": 11135,
+      "sha256": "4849a3948552ab6057a24e7d05e9d7dc3b21b050a86b716bcaee517d0ec5ff5e"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/nonfifo_comparison.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/nonfifo_comparison.png",
+      "bytes": 49126,
+      "sha256": "45934dfef8ee8bb9c0543582f624dd49a15b2ddd3e7abccfd6f0b9b50d86ff1e"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/nonfifo_over_runs.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/nonfifo_over_runs.png",
+      "bytes": 249249,
+      "sha256": "bba1ea61f6d769bd87032907d0bc7d405b46da561f931058930a882f9d6ab896"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/nonfifo_position_profile.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/nonfifo_position_profile.png",
+      "bytes": 72831,
+      "sha256": "9789dee5fa0f4e8316ef0937d637f09c3353b59b5dc9dfaa91fa34612e6bbc9d"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/queue_pressure_profile.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/queue_pressure_profile.png",
+      "bytes": 141474,
+      "sha256": "3d9075284f00c52bc91c4b38ba5d2362254843e3db7a35e09038d6cf2eb238c2"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/runs_to_bug.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/runs_to_bug.png",
+      "bytes": 79347,
+      "sha256": "5ab6e06e54c2b960d42c9eaa50fd0e0a921b327c56402254bfdd784c662dee9d"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/search_space_vs_explored.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/search_space_vs_explored.png",
+      "bytes": 77599,
+      "sha256": "1dc98379ff74675de8005bff67e2525b85560148a65e8017d0142c8f73a0c5ce"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/seed_runs_to_bug.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/seed_runs_to_bug.png",
+      "bytes": 53400,
+      "sha256": "49661339b4058d68b9f2d8387ecd2f7bfbb538ab655601dee3a58ba52d619394"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/sequence_dpor-gl.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/sequence_dpor-gl.png",
+      "bytes": 197694,
+      "sha256": "6dc26b1d28dc1d255e00e21e1614d17f062dfe88b5550e599ed2d916be3e8d64"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/sequence_pct-d2.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/sequence_pct-d2.png",
+      "bytes": 204754,
+      "sha256": "219f185ca5a9221cf92ff0eb715f1f82e1ce3e45cc6bc21950a5b880dda75c87"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/sequence_pct-d3.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/sequence_pct-d3.png",
+      "bytes": 204890,
+      "sha256": "5366ffdf24e9bba2099d8b6aea576886b380db0080c5716258c04c54f5428ea7"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/sequence_random.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/sequence_random.png",
+      "bytes": 189562,
+      "sha256": "e92ccc72ab72621a7d9f62597ec86494ef94ff44a730872b04e03245289a9e55"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/sequence_targeted.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/sequence_targeted.png",
+      "bytes": 195971,
+      "sha256": "c76df811cbf5128932b9f035dda4565bf6d98783a9f3476579bea4cb5959cfb9"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/summary_table.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/summary_table.png",
+      "bytes": 90334,
+      "sha256": "c6ba687407a66b79009bdd05ce51e749bac0a4949936fae30092d700eba009f3"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/swimlane_dpor-gl.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/swimlane_dpor-gl.png",
+      "bytes": 162390,
+      "sha256": "e47b96cfb156180e08d9160f1f35d84ac19ae54f8976db6b464ec81e119a727d"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/swimlane_pct-d2.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/swimlane_pct-d2.png",
+      "bytes": 165475,
+      "sha256": "70209ed214ac46bf7391fe77b0968a017eff4a5453d36d1bc643348f48342da2"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/swimlane_pct-d3.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/swimlane_pct-d3.png",
+      "bytes": 165531,
+      "sha256": "936734dcfb57e4ad22e22b41231adc90b0374e4b0110e8874f82c7211d7aa39d"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/swimlane_random.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/swimlane_random.png",
+      "bytes": 161414,
+      "sha256": "9a242f5487e299f1e1404ba74491b1776bdf6ec94ad3c6b513c65526aa73f8a1"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/swimlane_targeted.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/swimlane_targeted.png",
+      "bytes": 160750,
+      "sha256": "12d4e5e1b069a466f187012c94c9dc56ddf8d2573d0b2588bd5a80cd8cb160b5"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/benchmarking/figures/tree_dpor-gl.png",
+      "path": "archive/legacy/bugs/quorum-read-repair/benchmarking/figures/tree_dpor-gl.png",
+      "bytes": 486030,
+      "sha256": "a6f653d5c11028e525b8102f30b4453a7e7d11e4e1c35aa76ef17c97bd2d60fe"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/bug.md",
+      "path": "archive/legacy/bugs/quorum-read-repair/bug.md",
+      "bytes": 8475,
+      "sha256": "0d509afb32908024d59e508a6a966e3b25ad87f8f74aaf3bde9db61dd78bf634"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/bug_demo_test.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/bug_demo_test.go",
+      "bytes": 4411,
+      "sha256": "de2b597f521fa1732f653e71aa2f8bf2ae1b7aeec826c46b72462cc1852f01d5"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/case_study.md",
+      "path": "archive/legacy/bugs/quorum-read-repair/case_study.md",
+      "bytes": 40637,
+      "sha256": "523216aed5e28e11204f3c1f801643729cfdaed83e5b788af4f7dd6f82b57bb3"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/client.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/client.go",
+      "bytes": 2954,
+      "sha256": "2b26f44f8a15d26ecb64268c65cac718e0821cfecb83c599a9dee2e56b4480e3"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/client_test.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/client_test.go",
+      "bytes": 2331,
+      "sha256": "aa20801e98392c57a1eb18f8a741ac43d52a0440e85ccf78d60947d2ab632f13"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/scenario.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/scenario.go",
+      "bytes": 6861,
+      "sha256": "f2f16b57098892d2878508fc9ff9bce804e2e05eed5ce9a9926e9c68a0619ee5"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/store.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/store.go",
+      "bytes": 4928,
+      "sha256": "59b80d1f5f2929e6367b2d1d8acd919945eab49f99c62cbdfc386a3d7ec56028"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/store_test.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/store_test.go",
+      "bytes": 6210,
+      "sha256": "b57bf5f0f864945305283b797a027be8a22ddfdbe96bdffce5431a1bf4ad142d"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/testmain_test.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/testmain_test.go",
+      "bytes": 240,
+      "sha256": "feaa603aa8254f747f81f459128414ac71869efd3dfcef0055f0e609330442f3"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/transport.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/transport.go",
+      "bytes": 4080,
+      "sha256": "e89522df25cbb81dcb01d5166079a883296a001a0e5d8f9956ec650bb87afe14"
+    },
+    {
+      "original_path": "bugs/quorum-read-repair/transport_test.go",
+      "path": "archive/legacy/bugs/quorum-read-repair/transport_test.go",
+      "bytes": 2506,
+      "sha256": "3ca737c02d6775875a3c58c282a4da54661cffd793b6d9ad126d7d987510ab8d"
+    },
+    {
+      "original_path": "bugs/ra-gate/bench_test.go",
+      "path": "archive/legacy/bugs/ra-gate/bench_test.go",
+      "bytes": 3437,
+      "sha256": "912797f99fe804ef9eb918fa0b93986074b773f98ccf101cf113dd161d4f8506"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/bug_trace_decision_mix.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/bug_trace_decision_mix.png",
+      "bytes": 60535,
+      "sha256": "14e7773f9f352a753f1dde48fa069790d68bac130ec8ce87a762d6a539cb52df"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/cumulative_unique_traces.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/cumulative_unique_traces.png",
+      "bytes": 102003,
+      "sha256": "99058545d515c058dfd75ff946247049c9226eda7dd7d768062de667134bd652"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/detailed_chess-gl.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/detailed_chess-gl.png",
+      "bytes": 92109,
+      "sha256": "a6b1d0378eecb8f2ee05289dff2b1e5627a309cd97f5e31f3963e9c012f2f921"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/detailed_chess-global.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/detailed_chess-global.png",
+      "bytes": 65752,
+      "sha256": "795cef53b7f54089756d27ae0a5caa1ff488f86fe645673cd057e163cfbdc809"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/detailed_pct-d2.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/detailed_pct-d2.png",
+      "bytes": 93877,
+      "sha256": "7e9c2a16c88e07c2288462334aec574b56e13e58ed537905d65809814edd9a7c"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/detailed_pct-d3.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/detailed_pct-d3.png",
+      "bytes": 98713,
+      "sha256": "05e52b96b320f0c53206e0f97ac28223a82b71ff1cbe4f69880b88fd11e06ff6"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/detailed_random.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/detailed_random.png",
+      "bytes": 98676,
+      "sha256": "733ef3cde3f77899fe59a19010c49365af9da8c3fea55a4586122535247113ab"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/local_decision_burden.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/local_decision_burden.png",
+      "bytes": 48404,
+      "sha256": "5545dff570dcdbe8267905ebfa75ec8775fda9b908ef648d0672cf055cb5c9cd"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/narrative_chess-gl.txt",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/narrative_chess-gl.txt",
+      "bytes": 7048,
+      "sha256": "441b11c382825522c2cde86041992a514ce23456310861aa8a1fa7706d2883d9"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/narrative_chess-global.txt",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/narrative_chess-global.txt",
+      "bytes": 2451,
+      "sha256": "481bd28d52c51c1f2bbf39aaad14730d8421b9a5a0d37ce46d0ddfd6d3f67de6"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/narrative_pct-d2.txt",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/narrative_pct-d2.txt",
+      "bytes": 8516,
+      "sha256": "57aaa0c9a9ddf3e98515b97821590113f9b3521a99b81876497e269f6382a943"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/narrative_pct-d3.txt",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/narrative_pct-d3.txt",
+      "bytes": 8368,
+      "sha256": "b6bea0925e827f2db918f7bb57eba40174a655ad8b0725a9b12ac85b9de91e36"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/narrative_random.txt",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/narrative_random.txt",
+      "bytes": 7859,
+      "sha256": "2305ba5fc45c7f540a0a59c07e6a3631b5269c758a9a34bd8fa22b9e7abbe8e6"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/nonfifo_comparison.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/nonfifo_comparison.png",
+      "bytes": 45376,
+      "sha256": "682094032fb6abe43d5c969e84e4c22681c4e9eeaed9e658639fbc0fd2851344"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/nonfifo_over_runs.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/nonfifo_over_runs.png",
+      "bytes": 65669,
+      "sha256": "1a82864a9c61ce308393c82a80fed74e29961b37021674f76985b4e7c676b5c6"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/nonfifo_position_profile.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/nonfifo_position_profile.png",
+      "bytes": 61620,
+      "sha256": "84490cac595ceb1773ac49ed8c3f9234c2f45bf34fd34cb3073616280164636c"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/queue_pressure_profile.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/queue_pressure_profile.png",
+      "bytes": 131814,
+      "sha256": "d29cb4c59d2b2fe85c4d5a784c3d928751d7b0aff7fab9f82cf5214efbb757a8"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/runs_to_bug.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/runs_to_bug.png",
+      "bytes": 78819,
+      "sha256": "f0261093a14245a94292322cefacda04033d3c06f76a4a111110818b9495cfef"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/search_space_vs_explored.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/search_space_vs_explored.png",
+      "bytes": 72407,
+      "sha256": "a257440594299de049af5dd256ee84cf81e961c15b7c95851f486ed6aa40b907"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/sequence_chess-gl.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/sequence_chess-gl.png",
+      "bytes": 122352,
+      "sha256": "2bcb609dde3fd77413d2dbbdfd78977e61cef440932a8ff286129b02b5d631e6"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/sequence_chess-global.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/sequence_chess-global.png",
+      "bytes": 50852,
+      "sha256": "90ca2e349d4f23fb5207316c22247024e605d68311ba420f82a6117ac1aa520d"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/sequence_pct-d2.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/sequence_pct-d2.png",
+      "bytes": 136186,
+      "sha256": "2138305f2a3f51771808eacd54e172e65b6ff30ccf16c9a2533c6b45484b459b"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/sequence_pct-d3.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/sequence_pct-d3.png",
+      "bytes": 137916,
+      "sha256": "a5e5aa0f74551bf870b4a5f782f72ba0dabba12b4ee7a6af8ecc8f261164fb44"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/sequence_random.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/sequence_random.png",
+      "bytes": 128717,
+      "sha256": "265baf0443612b1aa4664bd6af1fb46f0319e74c2fff7aad49738524df212189"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/summary_table.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/summary_table.png",
+      "bytes": 75414,
+      "sha256": "02bd6541937a45f730d948c6eb2c4e2424f24870c4cad6b6f08ecf5bcf533020"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/swimlane_chess-gl.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/swimlane_chess-gl.png",
+      "bytes": 104680,
+      "sha256": "710320d1f839ff5adf444b74ab348a76b52d4f1cf4684601b526d22ad81ff3e3"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/swimlane_chess-global.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/swimlane_chess-global.png",
+      "bytes": 66535,
+      "sha256": "52e212c3a9e96e5a2653499a61ed6f251cbe659912715a7cdb748ec5f16f62ac"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/swimlane_pct-d2.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/swimlane_pct-d2.png",
+      "bytes": 113503,
+      "sha256": "e2f01f6bebac1999938c73ae844eb4dc240b2c24dc9c3b43da48afdbce9fce01"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/swimlane_pct-d3.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/swimlane_pct-d3.png",
+      "bytes": 117051,
+      "sha256": "01cd641490dfbc4953488f2f203e4e61ea61deea5153ea95de7d2a8bd1816e74"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/swimlane_random.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/swimlane_random.png",
+      "bytes": 112071,
+      "sha256": "60962d542cdac7349a5fc0db7e7666e26e98f3092f09a04b9a013694f11acd92"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/tree_chess-gl.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/tree_chess-gl.png",
+      "bytes": 153638,
+      "sha256": "3592f46a584e6c854f012b35aeae08aaf4d5fc1e4b176c3192a5a75eb727acc2"
+    },
+    {
+      "original_path": "bugs/ra-gate/benchmarking/figures/tree_chess-global.png",
+      "path": "archive/legacy/bugs/ra-gate/benchmarking/figures/tree_chess-global.png",
+      "bytes": 286409,
+      "sha256": "2d30eca13d206b32ebb96f960936d327bd985f65a5738cc6e58320eed4b84567"
+    },
+    {
+      "original_path": "bugs/ra-gate/bug_demo_test.go",
+      "path": "archive/legacy/bugs/ra-gate/bug_demo_test.go",
+      "bytes": 5507,
+      "sha256": "9b5abac68959da2101c749eb65333f97ba81125f27b8948adf89edfce57a1384"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/chess-gl-trace.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/chess-gl-trace.jsonl",
+      "bytes": 331509,
+      "sha256": "e7cc8fefebc7fd8a98e529e10e12ea832a25756a96460ef5e27a988ee336d85f"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/chess-gl-tree.json",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/chess-gl-tree.json",
+      "bytes": 5634,
+      "sha256": "35a25ca1fe9b66578391447b1d82e2a9e4e01038c87339515962f878cc44bc11"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/chess-gl.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/chess-gl.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/chess-global-trace.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/chess-global-trace.jsonl",
+      "bytes": 1020998,
+      "sha256": "d2b9aa5bba9c4fef13da3b067085dae0cfd779077f20f7a27f97abe5f187d68d"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/chess-global-tree.json",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/chess-global-tree.json",
+      "bytes": 17085,
+      "sha256": "829f719fbf050382d49d1e593cd48720d84d93a5366be3182082022a937c900f"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/chess-global.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/chess-global.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/pct-d2-trace.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/pct-d2-trace.jsonl",
+      "bytes": 12225,
+      "sha256": "532a3c88594274a627d3c5ba6af5f25b861e57956da79603f40e1b37135cb7be"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/pct-d2.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/pct-d2.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/pct-d3-trace.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/pct-d3-trace.jsonl",
+      "bytes": 12226,
+      "sha256": "b30743ed753995baf1c80e050860646d0691b8a9827aa953121941ec86088b06"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/pct-d3.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/pct-d3.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/random-trace.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/random-trace.jsonl",
+      "bytes": 4516,
+      "sha256": "645aa6f90675b0e29735b5fd99ff6445cd912dc9bc2ac2b69c101dbef45c4c5a"
+    },
+    {
+      "original_path": "bugs/ra-gate/charts/data/random.jsonl",
+      "path": "archive/legacy/bugs/ra-gate/charts/data/random.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": "bugs/ra-gate/kv.go",
+      "path": "archive/legacy/bugs/ra-gate/kv.go",
+      "bytes": 1803,
+      "sha256": "9766d760c81f5c38d0d9bf9917ba194217361e6f046cdc69217176e8df917c4b"
+    },
+    {
+      "original_path": "bugs/ra-gate/lock.go",
+      "path": "archive/legacy/bugs/ra-gate/lock.go",
+      "bytes": 6752,
+      "sha256": "3c16d836488595bdc9192e54622ecee47f879e8a0264da347e13850766c0a7d0"
+    },
+    {
+      "original_path": "bugs/ra-gate/simple_test.go",
+      "path": "archive/legacy/bugs/ra-gate/simple_test.go",
+      "bytes": 891,
+      "sha256": "b01606ecff798454837676f8b675b9b19979bbf65c631bfeb202944bc5d8ea9a"
+    },
+    {
+      "original_path": "bugs/ra-gate/transport.go",
+      "path": "archive/legacy/bugs/ra-gate/transport.go",
+      "bytes": 4512,
+      "sha256": "5858d32e6f0928d09042ad219276653d09f510b6940bc290fc847517ddb3de6a"
+    },
+    {
+      "original_path": "old_charts/charts.py",
+      "path": "archive/legacy/old_charts/charts.py",
+      "bytes": 25283,
+      "sha256": "32b32ad61de1494c8b6b3e0587d49434aad3d438172739fc3a5ec680527a6bc7"
+    },
+    {
+      "original_path": "old_charts/requirements.txt",
+      "path": "archive/legacy/old_charts/requirements.txt",
+      "bytes": 52,
+      "sha256": "cee082a178e74a543d7f76a14ca498034ae2f7d1d9f6f5ba5a1397a01a0dcba4"
+    },
+    {
+      "original_path": "experiments/decision_test.go",
+      "path": "experiments/runtime/decision_test.go",
+      "bytes": 9443,
+      "sha256": "d9215d5f12796dd7846378e97b05dd49e9b680ede98445854b890d7facdc89b2"
+    },
+    {
+      "original_path": "experiments/determinism_phase0_test.go",
+      "path": "experiments/runtime/determinism_phase0_test.go",
+      "bytes": 13503,
+      "sha256": "eb5af72313b9b0576d203063efe73be086e73ed10363ac474f5c7c42f8a03f37"
+    },
+    {
+      "original_path": "experiments/frontier_test.go",
+      "path": "experiments/runtime/frontier_test.go",
+      "bytes": 10533,
+      "sha256": "dd5933c2ff98de2d09791fb07bffd7a528917bbb3f47933613db66aa63823f22"
+    },
+    {
+      "original_path": "experiments/manual_race_test.go",
+      "path": "experiments/runtime/manual_race_test.go",
+      "bytes": 8177,
+      "sha256": "f1daa4f396965af17d8dc8272826253170065bcb2208e85ce61715a23ee02bad"
+    },
+    {
+      "original_path": "experiments/race_test.go",
+      "path": "experiments/runtime/race_test.go",
+      "bytes": 4759,
+      "sha256": "fb331a67cd4b479cb6c99402c714759d460f1995eb7d64470799a15706a28b26"
+    },
+    {
+      "original_path": "rafttest/BUGS.md",
+      "path": "archive/legacy/rafttest/BUGS.md",
+      "bytes": 6517,
+      "sha256": "2ab979980121bbad8fb420e0a82d680f0b9c41f84978cda02eeac6aa5fe9fe50"
+    },
+    {
+      "original_path": "rafttest/bug_demo_test.go",
+      "path": "archive/legacy/rafttest/bug_demo_test.go",
+      "bytes": 6488,
+      "sha256": "c233651ef5f2dcd3b0d4920c8b99c8c2da0492fb1729df6ce75b3f60626771e3"
+    },
+    {
+      "original_path": "rafttest/orchestrator_test.go",
+      "path": "archive/legacy/rafttest/orchestrator_test.go",
+      "bytes": 24647,
+      "sha256": "9448becc05bd3de6e0a72a0ab0088ba3f78b99a79333b01371373b3b27a8afe6"
+    },
+    {
+      "original_path": "rafttest/transport.go",
+      "path": "archive/legacy/rafttest/transport.go",
+      "bytes": 14328,
+      "sha256": "7f05f01184065cb7183a10ad6bac209ba5c497787538b09532e3788eb3f66f27"
+    }
+  ],
+  "archived_units": [
+    {
+      "original_path": "rafttest",
+      "path": "archive/legacy/rafttest",
+      "original_module": "github.com/shubhaankar/synctest",
+      "archive_module": "github.com/shubhaankar/synctest/archive/legacy/rafttest",
+      "external_test_imports": [
+        "github.com/shubhaankar/synctest/rafttest",
+        "github.com/shubhaankar/synctest/orchestrator"
+      ],
+      "import_boundary": "Historical external tests import the current maintained root adapter/orchestrator, not the preserved local original transport. No historical implementation-under-test claim.",
+      "raft_commit": "9e3b7155dd6f45b128d0679f22df32229319e81f",
+      "known_compile_blocker": "bug_demo_test.go refers to Config.SkipTermCheck, absent from pinned Raft.",
+      "preservation": "All four original HEAD files preserved byte-identically. transport.go copied, root transport.go untouched; both historical tests and BUGS.md moved."
+    }
+  ]
+}
