@@ -11,10 +11,11 @@ ETCD_PROFILE ?=
 # No default destination: each campaign must explicitly own a NEW directory.
 RUN_DIR ?=
 OUTDIR ?= charts/data
+BUBBLEGUN_BUILD_DIR ?=
 
 .PHONY: help build-go go-version test test-all test-det test-one determinism \
-        test-raft test-etcd test-legacy-regressions test-legacy-raft test-entrypoints verify-archive \
-        benchmark-charts charts-collect charts-sweep charts-plot clean
+		test-raft test-etcd test-legacy-regressions test-legacy-raft test-entrypoints verify-archive \
+		benchmark-charts charts-collect charts-sweep charts-plot bubblegun-build clean
 help:
 	@echo 'test-all: maintained root packages, not historical bug searches or nested etcd'
 	@echo 'test-etcd: explicit full-server loopback/files baseline (not controlled simulation)'
@@ -22,12 +23,17 @@ help:
 	@echo 'test-legacy-raft TEST_PATTERN=pattern: historical fixture, known pinned-Raft compile blocker'
 	@echo 'benchmark-charts pkg=bugs/ra-gate RUN_DIR=/new/exclusive/run (collect only)'
 	@echo 'charts-plot OUTDIR=/run/data FIGURE_DIR=/new/exclusive/figures (explicit)'
+	@echo 'bubblegun-build BUBBLEGUN_BUILD_DIR=/new/directory: build Bubble Gun with saved watchdog evidence'
 
 build-go:
 	bash scripts/build-go.sh
 
 go-version:
 	GOROOT="$(GO_ROOT)" GOTOOLCHAIN=local "$(GO_BIN)" version
+
+bubblegun-build:
+	@test -n "$(BUBBLEGUN_BUILD_DIR)" || { echo 'set a new BUBBLEGUN_BUILD_DIR'; exit 2; }
+	python3 scripts/build-bubblegun.py --go "$(GO_BIN)" --output "$(BUBBLEGUN_BUILD_DIR)" --timeout "$(WATCHDOG)"
 
 test:
 	@test -n "$(pkg)" || { echo 'set pkg=package/path'; exit 2; }

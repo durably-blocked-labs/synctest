@@ -51,15 +51,15 @@ This split keeps policy and process management out of the scheduling engine. The
 - `--bound <n>` sets the context bound used by CHESS and DPOR.
 - `--output <path>` selects the campaign result directory.
 - `--resume` resumes compatible incomplete jobs from their checkpoints.
-- `--grace-period <duration>` controls how long workers may finish their current schedule after interruption.
+- `--shutdown-grace-period <duration>` controls how long workers may finish their current schedule after interruption.
 - `--stop-on-failure` stops a worker after its first non-divergent finding. The default is to record findings and continue.
-- `--retain-traces <mode>` controls successful trace retention. Failure and bubble-failure traces are always retained.
+- `--debug` retains successful traces for debugging. Failure traces are always retained.
 
 Algorithm-specific parameters, such as PCT depth and maximum steps, belong in the saved job configuration. CLI flags may override them when needed.
 
 ### Interruption
 
-The first interrupt asks every worker to stop after its current schedule, flush results, save a checkpoint, and write an interrupted summary. A second interrupt or grace-period expiry terminates remaining workers. Completed records remain usable even if a worker is forcibly terminated.
+The first interrupt asks every worker to stop after its current schedule, flush results, save a checkpoint, and write an interrupted summary. A second interrupt or shutdown-grace-period expiry terminates remaining workers. Completed records remain usable even if a worker is forcibly terminated.
 
 ## Worker
 
