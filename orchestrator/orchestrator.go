@@ -121,14 +121,15 @@ type RunObserver func(runNum int, nonFIFO int, elapsed time.Duration, rr RunResu
 type ExploreOption func(*exploreConfig)
 
 type exploreConfig struct {
-	bound         int
-	maxRuns       int
-	observers     []RunObserver
-	sink          TrialSink
-	limits        TrialLimits
-	ctx           context.Context
-	strict        bool
-	selectChoices bool
+	bound                int
+	maxRuns              int
+	observers            []RunObserver
+	sink                 TrialSink
+	limits               TrialLimits
+	ctx                  context.Context
+	strict               bool
+	selectChoices        bool
+	continueAfterFailure bool
 }
 
 // GlobalBound sets the maximum number of non-FIFO decisions per explored trace.
@@ -140,6 +141,10 @@ func GlobalMaxRuns(n int) ExploreOption { return func(c *exploreConfig) { c.maxR
 // WithObserver registers a callback invoked once after each run. Multiple observers stack.
 func WithObserver(fn RunObserver) ExploreOption {
 	return func(c *exploreConfig) { c.observers = append(c.observers, fn) }
+}
+
+func ContinueAfterFailure() ExploreOption {
+	return func(c *exploreConfig) { c.continueAfterFailure = true }
 }
 
 // ─── Core types ───
@@ -854,7 +859,7 @@ func (o *Orchestrator) ExploreWith(
 		// Every run allocates fresh transports and starts bridge goroutines in the
 		// case-study harnesses. Clean them up even after successful runs so
 		// multi-run exploration does not leak state across iterations.
-		if isBug || rr.WorkerUnsafe || rr.TeardownError != nil || rr.PersistenceError != nil || (!rr.Passed && !rr.Diverged && !rr.UserFailed) {
+		if (isBug && !cfg.continueAfterFailure) || rr.WorkerUnsafe || rr.TeardownError != nil || rr.PersistenceError != nil || (!rr.Passed && !rr.Diverged && !rr.UserFailed) {
 			break
 		}
 	}
@@ -903,18 +908,18 @@ func (o *Orchestrator) RunWith(t *testing.T, decide func(DecisionPoint) int) Run
 // Replay re-runs the system following a previously recorded trace.
 func (o *Orchestrator) Replay(t *testing.T, rec RecordedRun) (RecordedRun, bool) {
 	t.Helper()
-	rr := o.execute(t, replayGlobalOnly(rec.GlobalDecisions))
+	rr := o.execute(t, replayRecordedDecisions(rec.GlobalDecisions))
 	return o.buildRecordedRun(rr), rr.Passed
 }
 
-// Explore enumerates global message delivery orderings using CHESS DFS.
+// Explore enumerates local and delivery orderings using CHESS DFS.
 func (o *Orchestrator) Explore(t *testing.T, setup func(*Orchestrator), opts ...ExploreOption) bool {
 	t.Helper()
 	cfg := &exploreConfig{bound: 2}
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	algo := &CHESS{Bound: cfg.bound, GlobalOnly: true}
+	algo := &CHESS{Bound: cfg.bound}
 	result := o.ExploreWith(t, setup, algo, opts...)
 	return result.Successful()
 }
@@ -959,7 +964,7 @@ func (o *Orchestrator) buildRecordedRun(rr RunResult) RecordedRun {
 	}
 }
 
-func replayGlobalOnly(decisions []GlobalDecision) func(DecisionPoint) int {
+func replayRecordedDecisions(decisions []GlobalDecision) func(DecisionPoint) int {
 	globalStep := 0
 	return func(dp DecisionPoint) int {
 		if dp.Kind == Local {

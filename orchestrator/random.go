@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"math/rand"
 	"testing"
 )
@@ -13,11 +14,36 @@ type Random struct {
 	count int
 }
 
+type randomCheckpoint struct {
+	checkpointMetadata
+	Count int `json:"count"`
+}
+
+var _ CheckpointableAlgorithm = (*Random)(nil)
+
+func (r *Random) MarshalCheckpoint() ([]byte, error) {
+	return json.Marshal(randomCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "random"},
+		Count:              r.count,
+	})
+}
+
+func (r *Random) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint randomCheckpoint
+	if err := validateCheckpoint(data, "random", &checkpoint); err != nil {
+		return err
+	}
+	r.count = checkpoint.Count
+	r.rng = nil
+	return nil
+}
+
 func (r *Random) BeforeRun() bool {
 	r.rng = rand.New(rand.NewSource(r.Seed + int64(r.count)))
 	return true
 }
 
+// Decide samples an alternative at each scheduling point.
 func (r *Random) Decide(dp DecisionPoint) int {
 	if dp.N() <= 1 {
 		return 0
