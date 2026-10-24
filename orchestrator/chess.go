@@ -1,5 +1,7 @@
 package orchestrator
 
+import "encoding/json"
+
 // CHESS implements context-bounded DFS exploration (the algorithm from
 // the CHESS paper). It systematically explores scheduling interleavings
 // by replaying prefixes and branching at decision points where
@@ -32,6 +34,62 @@ type chessItem struct {
 	nonFIFO int
 	parent  int // index in tree, -1 for root
 	branch  int // which step was changed
+}
+
+type chessCheckpointItem struct {
+	Prefix  Trace `json:"prefix"`
+	NonFIFO int   `json:"non_fifo"`
+	Parent  int   `json:"parent"`
+	Branch  int   `json:"branch"`
+}
+
+type chessCheckpoint struct {
+	checkpointMetadata
+	Stack []chessCheckpointItem `json:"stack"`
+	Count int                   `json:"count"`
+	Tree  []RunNode             `json:"tree"`
+}
+
+var _ CheckpointableAlgorithm = (*CHESS)(nil)
+
+func (s *CHESS) MarshalCheckpoint() ([]byte, error) {
+	stack := make([]chessCheckpointItem, len(s.stack))
+	for i, item := range s.stack {
+		stack[i] = chessCheckpointItem{
+			Prefix:  item.prefix,
+			NonFIFO: item.nonFIFO,
+			Parent:  item.parent,
+			Branch:  item.branch,
+		}
+	}
+	return json.Marshal(chessCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "chess"},
+		Stack:              stack,
+		Count:              s.count,
+		Tree:               s.tree,
+	})
+}
+
+func (s *CHESS) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint chessCheckpoint
+	if err := validateCheckpoint(data, "chess", &checkpoint); err != nil {
+		return err
+	}
+	stack := make([]chessItem, len(checkpoint.Stack))
+	for i, item := range checkpoint.Stack {
+		stack[i] = chessItem{
+			prefix:  item.Prefix,
+			nonFIFO: item.NonFIFO,
+			parent:  item.Parent,
+			branch:  item.Branch,
+		}
+	}
+	s.stack = stack
+	s.count = checkpoint.Count
+	s.tree = checkpoint.Tree
+	s.current = chessItem{}
+	s.prefixIdx = 0
+	return nil
 }
 
 // RunNode records one run in the exploration tree for benchmarking.

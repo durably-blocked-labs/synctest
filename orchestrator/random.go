@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"math/rand"
 	"testing"
 )
@@ -8,9 +9,35 @@ import (
 // Random picks uniformly at random for both global and local decisions.
 type Random struct {
 	Seed int64
+	// GlobalOnly keeps local scheduling FIFO while randomizing global delivery.
+	GlobalOnly bool
 
 	rng   *rand.Rand
 	count int
+}
+
+type randomCheckpoint struct {
+	checkpointMetadata
+	Count int `json:"count"`
+}
+
+var _ CheckpointableAlgorithm = (*Random)(nil)
+
+func (r *Random) MarshalCheckpoint() ([]byte, error) {
+	return json.Marshal(randomCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "random"},
+		Count:              r.count,
+	})
+}
+
+func (r *Random) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint randomCheckpoint
+	if err := validateCheckpoint(data, "random", &checkpoint); err != nil {
+		return err
+	}
+	r.count = checkpoint.Count
+	r.rng = nil
+	return nil
 }
 
 func (r *Random) BeforeRun() bool {
@@ -18,7 +45,13 @@ func (r *Random) BeforeRun() bool {
 	return true
 }
 
+// Decide samples an alternative at each global or local scheduling point.
+// GlobalOnly returns index 0 for local points, preserving the runtime's default
+// FIFO choice without consuming random state.
 func (r *Random) Decide(dp DecisionPoint) int {
+	if r.GlobalOnly && dp.Kind == Local {
+		return 0
+	}
 	if dp.N() <= 1 {
 		return 0
 	}

@@ -1,10 +1,73 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 )
+
+type dporCheckpointItem struct {
+	Prefix  Trace `json:"prefix"`
+	NonFIFO int   `json:"non_fifo"`
+	Parent  int   `json:"parent"`
+	Branch  int   `json:"branch"`
+	Score   int   `json:"score"`
+}
+
+type dporCheckpoint struct {
+	checkpointMetadata
+	Stack []dporCheckpointItem `json:"stack"`
+	Seen  map[string]struct{}  `json:"seen"`
+	Count int                  `json:"count"`
+	Tree  []RunNode            `json:"tree"`
+}
+
+var _ CheckpointableAlgorithm = (*DPOR)(nil)
+
+func (d *DPOR) MarshalCheckpoint() ([]byte, error) {
+	stack := make([]dporCheckpointItem, len(d.stack))
+	for i, item := range d.stack {
+		stack[i] = dporCheckpointItem{
+			Prefix:  item.prefix,
+			NonFIFO: item.nonFIFO,
+			Parent:  item.parent,
+			Branch:  item.branch,
+			Score:   item.score,
+		}
+	}
+	return json.Marshal(dporCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "dpor"},
+		Stack:              stack,
+		Seen:               d.seen,
+		Count:              d.count,
+		Tree:               d.tree,
+	})
+}
+
+func (d *DPOR) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint dporCheckpoint
+	if err := validateCheckpoint(data, "dpor", &checkpoint); err != nil {
+		return err
+	}
+	stack := make([]dporItem, len(checkpoint.Stack))
+	for i, item := range checkpoint.Stack {
+		stack[i] = dporItem{
+			prefix:  item.Prefix,
+			nonFIFO: item.NonFIFO,
+			parent:  item.Parent,
+			branch:  item.Branch,
+			score:   item.Score,
+		}
+	}
+	d.stack = stack
+	d.seen = checkpoint.Seen
+	d.count = checkpoint.Count
+	d.tree = checkpoint.Tree
+	d.current = dporItem{}
+	d.prefixIdx = 0
+	return nil
+}
 
 // DPOR implements stateless dynamic partial-order reduction for the
 // orchestrator's resource model.

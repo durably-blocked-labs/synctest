@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"math/rand"
 	"sort"
 	"testing"
@@ -29,6 +30,8 @@ type PCT struct {
 	Depth    int   // priority changes = Depth-1 (default 2)
 	MaxSteps int   // step range for sampling change points (default 256)
 	Seed     int64 // base seed, incremented per run
+	// GlobalOnly keeps local scheduling FIFO while applying PCT to global delivery.
+	GlobalOnly bool
 
 	rng          *rand.Rand
 	priority     map[pctPriorityKey]int
@@ -36,6 +39,34 @@ type PCT struct {
 	changePoints map[int]struct{}
 	step         int // current step within the run (tracks G+L)
 	count        int
+}
+
+type pctCheckpoint struct {
+	checkpointMetadata
+	Count int `json:"count"`
+}
+
+var _ CheckpointableAlgorithm = (*PCT)(nil)
+
+func (p *PCT) MarshalCheckpoint() ([]byte, error) {
+	return json.Marshal(pctCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "pct"},
+		Count:              p.count,
+	})
+}
+
+func (p *PCT) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint pctCheckpoint
+	if err := validateCheckpoint(data, "pct", &checkpoint); err != nil {
+		return err
+	}
+	p.count = checkpoint.Count
+	p.rng = nil
+	p.priority = nil
+	p.nextLow = 0
+	p.changePoints = nil
+	p.step = 0
+	return nil
 }
 
 type pctPriorityKey struct {
@@ -85,10 +116,15 @@ func (p *PCT) BeforeRun() bool {
 	return true
 }
 
-// Decide picks the alternative with the lowest priority (both G and L).
+// Decide picks the alternative with the lowest priority at each global or local
+// scheduling point. GlobalOnly returns index 0 for local points, preserving the
+// runtime's default FIFO choice without consuming PCT state.
 func (p *PCT) Decide(dp DecisionPoint) int {
 	if dp.N() == 0 {
 		panic("PCT: empty decision")
+	}
+	if p.GlobalOnly && dp.Kind == Local {
+		return 0
 	}
 
 	chosen := 0
