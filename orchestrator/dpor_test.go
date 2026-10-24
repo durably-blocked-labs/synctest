@@ -37,8 +37,8 @@ func TestDPORPrunesIndependentGlobalAlternatives(t *testing.T) {
 	}
 }
 
-func TestDPORConservativeGlobalBranchesIndependentEndpoints(t *testing.T) {
-	algo := &DPOR{Bound: 4, ConservativeGlobal: true}
+func TestDPORBranchesIndependentEndpoints(t *testing.T) {
+	algo := &DPOR{Bound: 4}
 	if !algo.BeforeRun() {
 		t.Fatal("first run was not scheduled")
 	}

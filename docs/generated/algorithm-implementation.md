@@ -101,21 +101,11 @@ The bound $K$ controls the tradeoff between coverage and cost:
 where $D$ is the number of decision points with branching factor > 1
 and $f$ is the maximum branching factor.
 
-### GlobalOnly Mode
+### Unified Scheduling
 
-When `GlobalOnly = true`, CHESS restricts branching to Global decisions
-only. Local decisions always return index 0 (FIFO) and are excluded
-from the prefix. This is useful for distributed bugs that depend on
-message delivery order but not on intra-node goroutine scheduling.
-
-The implementation uses two separate alternative-generation routines:
-
-- **`pushGlobalOnlyAlts`**: extracts only Global steps from the trace,
-  builds prefixes from those. Replay is deterministic because local
-  scheduling is always FIFO.
-- **`pushAllAlts`**: generates alternatives from all steps. Two passes
-  (local first, global second) ensure global alternatives are explored
-  first via LIFO ordering on the stack.
+CHESS branches over both local goroutine scheduling and message delivery
+decisions. Two passes over the trace preserve deterministic search ordering
+while keeping both decision kinds in every replay prefix.
 
 ### Divergence Handling
 
@@ -135,8 +125,8 @@ if result.Diverged {
 }
 ```
 
-Divergence is inherent to the full G+L mode (not GlobalOnly). The
-divergence rate depends on how tightly global delivery order couples
+Divergence can occur when a changed delivery decision alters later local
+scheduling. The divergence rate depends on how tightly delivery order couples
 to local scheduling. In practice, most prefixes converge because
 local scheduling within a bubble is largely independent of which
 message was delivered in a different round.
@@ -306,7 +296,7 @@ operating in.
 
 ```go
 orch := orchestrator.New()
-algo := &orchestrator.CHESS{Bound: 2, GlobalOnly: true}
+algo := &orchestrator.CHESS{Bound: 2}
 orch.ExploreWith(t, setup, algo, orchestrator.GlobalMaxRuns(500))
 ```
 
@@ -337,7 +327,7 @@ in 3 bubbles with both Global and Local scheduling decisions.
 
 ### Protocol
 
-- **CHESS $K$=3**: single deterministic exploration (GlobalOnly mode).
+- **CHESS $K$=3**: combined local and delivery exploration.
 - **Random**: 100 seeds (base seed 1..100), max 500 runs per seed.
 - **PCT $d$=2**: 100 seeds (base seed 1..100), max 500 runs per seed.
 - **PCT $d$=3**: 100 seeds (base seed 1..100), max 500 runs per seed.
