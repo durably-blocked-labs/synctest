@@ -1,10 +1,73 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 )
+
+type dporCheckpointItem struct {
+	Prefix  Trace `json:"prefix"`
+	NonFIFO int   `json:"non_fifo"`
+	Parent  int   `json:"parent"`
+	Branch  int   `json:"branch"`
+	Score   int   `json:"score"`
+}
+
+type dporCheckpoint struct {
+	checkpointMetadata
+	Stack []dporCheckpointItem `json:"stack"`
+	Seen  map[string]struct{}  `json:"seen"`
+	Count int                  `json:"count"`
+	Tree  []RunNode            `json:"tree"`
+}
+
+var _ CheckpointableAlgorithm = (*DPOR)(nil)
+
+func (d *DPOR) MarshalCheckpoint() ([]byte, error) {
+	stack := make([]dporCheckpointItem, len(d.stack))
+	for i, item := range d.stack {
+		stack[i] = dporCheckpointItem{
+			Prefix:  item.prefix,
+			NonFIFO: item.nonFIFO,
+			Parent:  item.parent,
+			Branch:  item.branch,
+			Score:   item.score,
+		}
+	}
+	return json.Marshal(dporCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "dpor"},
+		Stack:              stack,
+		Seen:               d.seen,
+		Count:              d.count,
+		Tree:               d.tree,
+	})
+}
+
+func (d *DPOR) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint dporCheckpoint
+	if err := validateCheckpoint(data, "dpor", &checkpoint); err != nil {
+		return err
+	}
+	stack := make([]dporItem, len(checkpoint.Stack))
+	for i, item := range checkpoint.Stack {
+		stack[i] = dporItem{
+			prefix:  item.Prefix,
+			nonFIFO: item.NonFIFO,
+			parent:  item.Parent,
+			branch:  item.Branch,
+			score:   item.Score,
+		}
+	}
+	d.stack = stack
+	d.seen = checkpoint.Seen
+	d.count = checkpoint.Count
+	d.tree = checkpoint.Tree
+	d.current = dporItem{}
+	d.prefixIdx = 0
+	return nil
+}
 
 // DPOR implements stateless dynamic partial-order reduction for the
 // orchestrator's resource model.
@@ -28,19 +91,10 @@ type DPOR struct {
 
 	Bound int
 
-	// GlobalOnly restricts DPOR to cross-node message deliveries. Local
-	// decisions stay FIFO and do not consume replay prefix entries.
-	GlobalOnly bool
-
 	// PrioritizeEndpoints boosts branches whose alternative touches one of
 	// these endpoint/node names. This is a search-order hint only; it does not
 	// change DPOR's dependency relation or suppress other branches.
 	PrioritizeEndpoints []string
-
-	// ConservativeGlobal treats every pair of global message deliveries as
-	// dependent. This is appropriate for protocol-level tests where disjoint
-	// endpoints can still race through quorum waits or later causal messages.
-	ConservativeGlobal bool
 
 	// PrioritizeRequests boosts request-like messages over acknowledgements and
 	// responses at frontier decisions. This is a search-order hint for protocols
@@ -106,9 +160,6 @@ func (d *DPOR) BeforeRun() bool {
 
 // Decide follows the replay prefix, then returns FIFO at the frontier.
 func (d *DPOR) Decide(dp DecisionPoint) int {
-	if d.GlobalOnly && dp.Kind != Global {
-		return 0
-	}
 	if d.prefixIdx < len(d.current.prefix) {
 		p := d.current.prefix[d.prefixIdx]
 		if err := matchStep(p, dp, false); err != nil {
@@ -143,15 +194,8 @@ func (d *DPOR) AfterRun(result RunResult) {
 	}
 
 	trace := result.Trace
-	if d.GlobalOnly {
-		trace = globalOnlyTrace(trace)
-	}
-	if d.GlobalOnly {
-		d.pushDependentAlts(trace, nodeIdx, true)
-	} else {
-		d.pushDependentAlts(trace, nodeIdx, false)
-		d.pushDependentAlts(trace, nodeIdx, true)
-	}
+	d.pushDependentAlts(trace, nodeIdx, false)
+	d.pushDependentAlts(trace, nodeIdx, true)
 }
 
 func (d *DPOR) pushDependentAlts(trace Trace, nodeIdx int, wantGlobal bool) {
@@ -295,12 +339,10 @@ func (d *DPOR) stepAltDependent(step NewStep, alt int) bool {
 }
 
 func (d *DPOR) resourcesDependent(a, b string) bool {
-	if d.ConservativeGlobal {
-		_, _, aEndpoint := splitEndpointResource(a)
-		_, _, bEndpoint := splitEndpointResource(b)
-		if aEndpoint && bEndpoint {
-			return true
-		}
+	_, _, aEndpoint := splitEndpointResource(a)
+	_, _, bEndpoint := splitEndpointResource(b)
+	if aEndpoint && bEndpoint {
+		return true
 	}
 	return resourcesDependent(a, b)
 }
@@ -373,16 +415,6 @@ func stepAltID(step NewStep, alt int) string {
 		return step.AltIDs[alt]
 	}
 	return ""
-}
-
-func globalOnlyTrace(trace Trace) Trace {
-	out := make(Trace, 0, len(trace))
-	for _, step := range trace {
-		if step.Kind == Global {
-			out = append(out, step)
-		}
-	}
-	return out
 }
 
 func cloneStrings(in []string) []string {

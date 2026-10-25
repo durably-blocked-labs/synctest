@@ -148,12 +148,6 @@ func (o *Orchestrator) enqueue(op *PendingOp) {
 	o.schedulable = append(o.schedulable, op)
 }
 
-// ReplayGlobalOnly preserves the historical FIFO-local compatibility behavior.
-// It is not exact replay; use ReplayUnified for the versioned G+L+select path.
-func (o *Orchestrator) ReplayGlobalOnly(t *testing.T, rec RecordedRun) (RecordedRun, bool) {
-	return o.Replay(t, rec)
-}
-
 func (o *Orchestrator) ReplayUnified(t *testing.T, rec UnifiedReplay) RunResult {
 	r, err := NewStrictReplayer(rec)
 	if err != nil {
