@@ -57,6 +57,7 @@ type NodeTransport interface {
 }
 
 type shutdowner interface{ Shutdown() }
+type teardownCloser interface{ CloseForTeardown() error }
 
 // GlobalStepType classifies what happened in one orchestrator loop iteration.
 type GlobalStepType int
@@ -660,7 +661,7 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 					ctrl := o.nodes[addr]
 
 					if idleState.State.ExternalWait > 0 {
-						if err := o.stopTransport(ctrl); err != nil {
+						if err := o.stopTransportForTeardown(ctrl); err != nil {
 							panic(err)
 						}
 					}
@@ -1020,6 +1021,17 @@ func (o *Orchestrator) stopTransport(c *nodeCtrl) error {
 		s.Shutdown()
 	}
 	return nil
+}
+
+func (o *Orchestrator) stopTransportForTeardown(c *nodeCtrl) error {
+	if c.stopped {
+		return nil
+	}
+	if closer, ok := c.transport.(teardownCloser); ok {
+		c.stopped = true
+		return closer.CloseForTeardown()
+	}
+	return o.stopTransport(c)
 }
 
 func (o *Orchestrator) resume(c *nodeCtrl, r distributed.Resume) {

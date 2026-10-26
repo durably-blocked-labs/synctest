@@ -64,6 +64,7 @@ type RaftTransport struct {
 	peers            map[raft.ServerAddress]*RaftTransport
 	closeCh          chan struct{}
 	closeOnce        sync.Once
+	teardown         atomic.Bool
 	publications     orchestrator.Publications
 	bridgeReady      atomic.Pointer[synctest.Ready]
 	localStop        chan struct{} // created and closed only while attached
@@ -151,6 +152,9 @@ func (t *RaftTransport) StartBridge() {
 				return
 			}
 			err := t.handleEnvelope(msg)
+			if t.teardown.Load() && errors.Is(err, ErrTransportClosed) {
+				err = nil
+			}
 			if msg.completed != nil {
 				msg.completed <- err
 			}
@@ -385,15 +389,34 @@ func (t *RaftTransport) BindTrial(ctx context.Context, fail func(error)) {
 
 // Close touches only host-owned state. The reattached bridge closes localStop.
 func (t *RaftTransport) Close() error {
+	t.close(!t.teardown.Load())
+	return nil
+}
+
+// BeginTeardown marks subsequent Raft-owned closure as coordinated cleanup.
+func (t *RaftTransport) BeginTeardown() {
+	t.teardown.Store(true)
+}
+
+// CloseForTeardown cancels outstanding RPCs without treating coordinated
+// end-of-trial closure as unexpected peer loss.
+func (t *RaftTransport) CloseForTeardown() error {
+	t.BeginTeardown()
+	t.close(false)
+	return nil
+}
+
+func (t *RaftTransport) close(failWatchers bool) {
 	t.closeOnce.Do(func() {
 		t.closeMu.Lock()
 		defer t.closeMu.Unlock()
-		for _, fail := range t.closeWatchers {
-			fail()
+		if failWatchers {
+			for _, fail := range t.closeWatchers {
+				fail()
+			}
 		}
 		close(t.closeCh)
 	})
-	return nil
 }
 
 func (t *RaftTransport) PublicationPolicy() string { return orchestrator.AttachedPublicationV1 }
@@ -429,22 +452,32 @@ func (t *RaftTransport) deliver(ctx context.Context, msg envelope) (orchestrator
 	}
 	select {
 	case <-t.closeCh:
-		return orchestrator.DeliveryReceipt{}, ErrTransportClosed
+		return t.closedDelivery()
 	default:
 	}
 	ready := t.bridgeReady.Load()
 	if ready == nil {
+		if t.teardown.Load() {
+			return orchestrator.DeliveryReceipt{Cancelled: t.closeCh}, nil
+		}
 		return orchestrator.DeliveryReceipt{}, fmt.Errorf("rafttest: %s bridge not receiving", t.localAddr)
 	}
 	msg.completed = make(chan error, 1)
 	select {
 	case <-t.closeCh:
-		return orchestrator.DeliveryReceipt{}, ErrTransportClosed
+		return t.closedDelivery()
 	case t.mailbox <- msg:
 		return orchestrator.DeliveryReceipt{WaitReady: ready.Wait, Completed: msg.completed, Cancelled: t.closeCh}, nil
 	default:
 		return orchestrator.DeliveryReceipt{}, fmt.Errorf("rafttest: %s mailbox full", t.localAddr)
 	}
+}
+
+func (t *RaftTransport) closedDelivery() (orchestrator.DeliveryReceipt, error) {
+	if t.teardown.Load() {
+		return orchestrator.DeliveryReceipt{Cancelled: t.closeCh}, nil
+	}
+	return orchestrator.DeliveryReceipt{}, ErrTransportClosed
 }
 
 // rpcTypeName returns a human-readable name for an RPC command type.
