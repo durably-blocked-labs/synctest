@@ -50,8 +50,42 @@ func (d *DPOR) UnmarshalCheckpoint(data []byte) error {
 	if err := validateCheckpoint(data, "dpor", &checkpoint); err != nil {
 		return err
 	}
+	candidate := *d
+	candidate.MaxFrontier = checkpointCap(d.MaxFrontier, 4096)
+	candidate.MaxFrontierSteps = checkpointCap(d.MaxFrontierSteps, 1<<20)
+	candidate.MaxTree = checkpointCap(d.MaxTree, 10000)
+	candidate.MaxSeen = checkpointCap(d.MaxSeen, 10000)
+	if candidate.Bound == 0 {
+		candidate.Bound = 2
+	}
+	if candidate.Bound < 0 || len(checkpoint.Stack) > candidate.MaxFrontier || len(checkpoint.Seen) > candidate.MaxSeen {
+		return fmt.Errorf("checkpoint exceeds DPOR bound/frontier/seen limit")
+	}
+	if err := validateCheckpointTree(checkpoint.Count, checkpoint.Tree, candidate.MaxTree); err != nil {
+		return err
+	}
+	if checkpoint.Count > 0 && checkpoint.Seen == nil {
+		return fmt.Errorf("checkpoint is missing DPOR seen state")
+	}
+	if checkpoint.Count == 0 && len(checkpoint.Stack) == 0 && checkpoint.Seen != nil {
+		return fmt.Errorf("checkpoint contains an unfinished initial DPOR run")
+	}
+	steps := 0
+	pending := make(map[string]bool, len(checkpoint.Stack))
 	stack := make([]dporItem, len(checkpoint.Stack))
 	for i, item := range checkpoint.Stack {
+		if len(item.Prefix) > candidate.MaxFrontierSteps-steps {
+			return fmt.Errorf("checkpoint exceeds DPOR frontier-step limit")
+		}
+		if err := validateCheckpointPrefix(item.Prefix, item.NonFIFO, item.Parent, item.Branch, candidate.Bound, checkpoint.Tree); err != nil {
+			return err
+		}
+		key := traceKey(item.Prefix)
+		if _, ok := checkpoint.Seen[key]; !ok || pending[key] {
+			return fmt.Errorf("checkpoint DPOR frontier/seen state disagrees")
+		}
+		pending[key] = true
+		steps += len(item.Prefix)
 		stack[i] = dporItem{
 			prefix:  item.Prefix,
 			nonFIFO: item.NonFIFO,
@@ -60,12 +94,16 @@ func (d *DPOR) UnmarshalCheckpoint(data []byte) error {
 			score:   item.Score,
 		}
 	}
-	d.stack = stack
-	d.seen = checkpoint.Seen
-	d.count = checkpoint.Count
-	d.tree = checkpoint.Tree
-	d.current = dporItem{}
-	d.prefixIdx = 0
+	candidate.stack = stack
+	candidate.seen = checkpoint.Seen
+	candidate.count = checkpoint.Count
+	candidate.tree = checkpoint.Tree
+	candidate.current = dporItem{}
+	candidate.prefixIdx = 0
+	candidate.frontierCalled = false
+	candidate.frontierSteps = steps
+	candidate.budgetErr = nil
+	*d = candidate
 	return nil
 }
 
@@ -163,7 +201,11 @@ func (d *DPOR) Decide(dp DecisionPoint) int {
 	if d.prefixIdx < len(d.current.prefix) {
 		p := d.current.prefix[d.prefixIdx]
 		if err := matchStep(p, dp, false); err != nil {
-			panic(replayDivergenceError{Step: dp.Step, Detail: err.Error()})
+			ids := make([]string, len(dp.Alts))
+			for i, alt := range dp.Alts {
+				ids[i] = alt.ID
+			}
+			panic(replayDivergenceError{Step: dp.Step, Detail: fmt.Sprintf("%v; expected kind=%d node=%q alternatives=%q, got kind=%d node=%q alternatives=%q", err, p.Kind, p.Node, p.AltIDs, dp.Kind, dp.Node, ids)})
 		}
 		d.prefixIdx++
 		return int(p.Index)

@@ -37,6 +37,7 @@ func TestReplicateCommand(t *testing.T) {
 }
 
 func TestApplyRejectsFollowers(t *testing.T) {
+	var completed, verified atomic.Int32
 	command := []byte("leader-command")
 	setup := rafteval.NewClusterSetup(3, func(t *testing.T, node *rafteval.Node) {
 		node.WaitForLeader(t, workloadTimeout)
@@ -44,6 +45,7 @@ func TestApplyRejectsFollowers(t *testing.T) {
 			if _, err := node.Apply(command, workloadTimeout); err != nil {
 				t.Fatalf("node %s: apply command: %v", node.ID, err)
 			}
+			verified.Add(1)
 		} else {
 			future := node.Raft.Apply([]byte("follower-command"), time.Second)
 			if err := future.Error(); !errors.Is(err, raft.ErrNotLeader) {
@@ -55,21 +57,27 @@ func TestApplyRejectsFollowers(t *testing.T) {
 		if got := string(history[0].Data); got != string(command) {
 			t.Fatalf("node %s applied %q, want %q", node.ID, got, command)
 		}
+		completed.Add(1)
 	}, rafteval.WithSeed(42))
 
 	result := orchestrator.New().ExploreWith(t, setup, &orchestrator.DPOR{Bound: 1}, orchestrator.GlobalMaxRuns(1))
-	if result.Failed != 0 || result.Runs != 1 {
-		t.Fatalf("follower rejection result: runs=%d failed=%d", result.Runs, result.Failed)
+	if err := validateCompletedExploration(result, 1, 1); err != nil {
+		t.Fatalf("follower rejection result: %v", err)
+	}
+	if completed.Load() != 3 || verified.Load() < 1 {
+		t.Fatalf("follower rejection workload incomplete: nodes=%d API checks=%d", completed.Load(), verified.Load())
 	}
 }
 
 func TestBarrierWaitsForAppliedCommands(t *testing.T) {
+	var completed, verified atomic.Int32
 	const commandCount = 8
 	setup := rafteval.NewClusterSetup(3, func(t *testing.T, node *rafteval.Node) {
 		node.WaitForLeader(t, workloadTimeout)
 		if node.IsLeader() {
+			futures := make([]raft.ApplyFuture, 0, commandCount)
 			for i := range commandCount {
-				node.Raft.Apply([]byte(fmt.Sprintf("barrier-command-%02d", i)), 0)
+				futures = append(futures, node.Raft.Apply([]byte(fmt.Sprintf("barrier-command-%02d", i)), 0))
 			}
 			if err := node.Raft.Barrier(workloadTimeout).Error(); err != nil {
 				t.Fatalf("node %s: barrier: %v", node.ID, err)
@@ -77,34 +85,56 @@ func TestBarrierWaitsForAppliedCommands(t *testing.T) {
 			if got := len(node.FSM.History()); got != commandCount {
 				t.Fatalf("node %s: barrier returned after %d commands, want %d", node.ID, got, commandCount)
 			}
+			for i, future := range futures {
+				if err := future.Error(); err != nil {
+					t.Fatalf("node %s: preceding apply %d: %v", node.ID, i, err)
+				}
+			}
+			verified.Add(1)
 		}
 
-		node.WaitForCommands(t, commandCount, workloadTimeout)
+		history := node.WaitForCommands(t, commandCount, workloadTimeout)
+		for i, entry := range history {
+			if got, want := string(entry.Data), fmt.Sprintf("barrier-command-%02d", i); got != want {
+				t.Fatalf("node %s: applied %q, want %q", node.ID, got, want)
+			}
+		}
+		completed.Add(1)
 	}, rafteval.WithSeed(42))
 
 	result := orchestrator.New().ExploreWith(t, setup, &orchestrator.DPOR{Bound: 1}, orchestrator.GlobalMaxRuns(1))
-	if result.Failed != 0 || result.Runs != 1 {
-		t.Fatalf("barrier result: runs=%d failed=%d", result.Runs, result.Failed)
+	if err := validateCompletedExploration(result, 1, 1); err != nil {
+		t.Fatalf("barrier result: %v", err)
+	}
+	if completed.Load() != 3 || verified.Load() < 1 {
+		t.Fatalf("barrier workload incomplete: nodes=%d API checks=%d", completed.Load(), verified.Load())
 	}
 }
 
 func TestVerifyLeader(t *testing.T) {
+	var completed, verified atomic.Int32
 	setup := rafteval.NewClusterSetup(3, func(t *testing.T, node *rafteval.Node) {
 		node.WaitForLeader(t, workloadTimeout)
 		if node.IsLeader() {
 			if err := node.Raft.VerifyLeader().Error(); err != nil {
 				t.Fatalf("node %s: verify leader: %v", node.ID, err)
 			}
+			verified.Add(1)
 		}
+		completed.Add(1)
 	}, rafteval.WithSeed(42))
 
 	result := orchestrator.New().ExploreWith(t, setup, &orchestrator.DPOR{Bound: 1}, orchestrator.GlobalMaxRuns(1))
-	if result.Failed != 0 || result.Runs != 1 {
-		t.Fatalf("verify leader result: runs=%d failed=%d", result.Runs, result.Failed)
+	if err := validateCompletedExploration(result, 1, 1); err != nil {
+		t.Fatalf("verify leader result: %v", err)
+	}
+	if completed.Load() != 3 || verified.Load() < 1 {
+		t.Fatalf("verify leader workload incomplete: nodes=%d API checks=%d", completed.Load(), verified.Load())
 	}
 }
 
 func TestLeadershipTransfer(t *testing.T) {
+	var completed, verified atomic.Int32
 	setup := rafteval.NewClusterSetupFactory(3, func() rafteval.NodeTest {
 		var observers atomic.Int32
 		return func(t *testing.T, node *rafteval.Node) {
@@ -121,6 +151,7 @@ func TestLeadershipTransfer(t *testing.T) {
 				if err := node.Raft.LeadershipTransfer().Error(); err != nil {
 					t.Fatalf("node %s: transfer leadership: %v", node.ID, err)
 				}
+				verified.Add(1)
 			}
 
 			deadline := time.Now().Add(workloadTimeout)
@@ -130,12 +161,16 @@ func TestLeadershipTransfer(t *testing.T) {
 				}
 				time.Sleep(5 * time.Millisecond)
 			}
+			completed.Add(1)
 		}
 	}, rafteval.WithSeed(42))
 
 	result := orchestrator.New().ExploreWith(t, setup, &orchestrator.DPOR{Bound: 1}, orchestrator.GlobalMaxRuns(1))
-	if result.Failed != 0 || result.Runs != 1 {
-		t.Fatalf("leadership transfer result: runs=%d failed=%d", result.Runs, result.Failed)
+	if err := validateCompletedExploration(result, 1, 1); err != nil {
+		t.Fatalf("leadership transfer result: %v", err)
+	}
+	if completed.Load() != 3 || verified.Load() < 1 {
+		t.Fatalf("leadership transfer workload incomplete: nodes=%d API checks=%d", completed.Load(), verified.Load())
 	}
 }
 
@@ -170,7 +205,7 @@ func runScenario(t *testing.T, name string, maxRuns, minRuns int) {
 		orchestrator.WithTrialLimits(scenario.TrialLimits),
 		orchestrator.GlobalMaxRuns(maxRuns),
 	)
-	if result.Failed != 0 || result.Runs < minRuns {
-		t.Fatalf("%s: runs=%d failed=%d", name, result.Runs, result.Failed)
+	if err := validateCompletedExploration(result, minRuns, maxRuns); err != nil {
+		t.Fatalf("%s: %v", name, err)
 	}
 }

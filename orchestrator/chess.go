@@ -1,6 +1,9 @@
 package orchestrator
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // CHESS implements CHESS-inspired bounded DFS exploration. Bound limits
 // non-default choices per trace, rather than context switches or instruction
@@ -14,7 +17,7 @@ type CHESS struct {
 	frontierSteps    int
 	budgetErr        error
 
-	// Bound is the max non-FIFO decisions per trace (default 2).
+	// Bound is the max non-FIFO decisions per trace; zero keeps the FIFO baseline.
 	Bound int
 
 	stack     []chessItem
@@ -70,8 +73,26 @@ func (s *CHESS) UnmarshalCheckpoint(data []byte) error {
 	if err := validateCheckpoint(data, "chess", &checkpoint); err != nil {
 		return err
 	}
+	candidate := *s
+	candidate.MaxFrontier = checkpointCap(s.MaxFrontier, 4096)
+	candidate.MaxFrontierSteps = checkpointCap(s.MaxFrontierSteps, 1<<20)
+	candidate.MaxTree = checkpointCap(s.MaxTree, 10000)
+	if candidate.Bound < 0 || len(checkpoint.Stack) > candidate.MaxFrontier {
+		return fmt.Errorf("checkpoint exceeds CHESS bound/frontier limit")
+	}
+	if err := validateCheckpointTree(checkpoint.Count, checkpoint.Tree, candidate.MaxTree); err != nil {
+		return err
+	}
+	steps := 0
 	stack := make([]chessItem, len(checkpoint.Stack))
 	for i, item := range checkpoint.Stack {
+		if len(item.Prefix) > candidate.MaxFrontierSteps-steps {
+			return fmt.Errorf("checkpoint exceeds CHESS frontier-step limit")
+		}
+		if err := validateCheckpointPrefix(item.Prefix, item.NonFIFO, item.Parent, item.Branch, candidate.Bound, checkpoint.Tree); err != nil {
+			return err
+		}
+		steps += len(item.Prefix)
 		stack[i] = chessItem{
 			prefix:  item.Prefix,
 			nonFIFO: item.NonFIFO,
@@ -79,11 +100,14 @@ func (s *CHESS) UnmarshalCheckpoint(data []byte) error {
 			branch:  item.Branch,
 		}
 	}
-	s.stack = stack
-	s.count = checkpoint.Count
-	s.tree = checkpoint.Tree
-	s.current = chessItem{}
-	s.prefixIdx = 0
+	candidate.stack = stack
+	candidate.count = checkpoint.Count
+	candidate.tree = checkpoint.Tree
+	candidate.current = chessItem{}
+	candidate.prefixIdx = 0
+	candidate.frontierSteps = steps
+	candidate.budgetErr = nil
+	*s = candidate
 	return nil
 }
 

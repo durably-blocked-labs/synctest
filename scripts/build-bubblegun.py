@@ -41,6 +41,13 @@ def main():
     save(status_path, status)
     env = dict(os.environ, GOROOT=str(Path(go).parent.parent), GOTOOLCHAIN="local", GOWORK="off")
 
+    interrupted_signal = None
+
+    def interrupted(signum, _frame):
+        nonlocal interrupted_signal
+        interrupted_signal = signum
+
+    previous_term = signal.signal(signal.SIGTERM, interrupted)
     try:
         for number, command in enumerate(commands, 1):
             item = {"command": command, "status": "running"}
@@ -56,8 +63,17 @@ def main():
                     start_new_session=True,
                 )
                 try:
-                    code = process.wait(timeout=args.timeout)
-                except (subprocess.TimeoutExpired, KeyboardInterrupt):
+                    deadline = started + args.timeout
+                    while True:
+                        code = process.poll()
+                        if code is not None:
+                            break
+                        if interrupted_signal is not None:
+                            raise InterruptedError(f"signal {interrupted_signal} interrupted build")
+                        if time.monotonic() >= deadline:
+                            raise subprocess.TimeoutExpired(command, args.timeout)
+                        time.sleep(0.05)
+                except (subprocess.TimeoutExpired, KeyboardInterrupt, InterruptedError):
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
@@ -78,10 +94,14 @@ def main():
     except KeyboardInterrupt:
         status["status"] = "interrupted"
         return 130
+    except InterruptedError:
+        status["status"] = "interrupted"
+        return 143
     except Exception as error:
         status.update(status="infrastructure-error", error=str(error))
         return 1
     finally:
+        signal.signal(signal.SIGTERM, previous_term)
         save(status_path, status)
         print(f"{status['status']}: {status_path}")
 

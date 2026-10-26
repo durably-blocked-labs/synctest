@@ -22,6 +22,10 @@ search bounds limit which executions a run explores.
   remains pending.
 - `experiments/etcd/`: separate module for a full embedded etcd baseline using
   real loopback sockets and files. Controlled full-etcd integration is unsupported.
+- `experiments/etcdkernels/`: preserved, reduced historical etcd bug kernels;
+  the #6873 schedule search uses process-isolated workers and a stack oracle.
+- `evaluations/`: partner BubbleGun campaign workers, synthetic RA scenario,
+  and multi-bubble Raft integration scenarios.
 - `go/`, `raft/`, `etcd/`: pinned dependency repositories; see
   `experiments/dependencies.json`.
 - `scripts/`: dependency checks and bounded run helpers. New outputs belong in
@@ -29,7 +33,6 @@ search bounds limit which executions a run explores.
 
 Papers and proposals live in the separate
 [writing repository](https://github.com/durably-blocked-labs/bubbles-writing).
-Partner campaign and distributed Raft changes are not integrated into this tree.
 
 ## Setup and commands
 
@@ -86,6 +89,8 @@ make test-raft GO_ROOT=/sealed/go GO_BIN=/sealed/go/bin/go
 make test-etcd ETCD_PROFILE=custom-http2legacy \
   GO_ROOT=/sealed/go GO_BIN=/sealed/go/bin/go
 make test-entrypoints  # Python fixtures only; no Go toolchain required
+make bubblegun-build GO_BIN=/sealed/go/bin/go \
+  BUBBLEGUN_BUILD_DIR="$PWD/runs/bubblegun-build-001" WATCHDOG=60
 ```
 
 Resource-GC smoke uses the saved, externally bounded runner:
@@ -102,12 +107,19 @@ separate fresh, bounded processes; see [resourcegc](experiments/resourcegc/READM
 `test-entrypoints` includes builder, script and campaign supervisor fixtures.
 
 `test-all` selects the maintained root packages and runtime, RA protocol and Raft
-experiments. `go test ./...` does not cross nested module boundaries. The etcd
+experiments. It does not include every new `evaluations/` scenario. The direct
+multi-bubble Raft API checks pass, but its broader exploration currently has
+intermittent incomplete runs from a replay queue-order mismatch and a separate
+512-decision limit. Do not treat that search as qualified merely because an
+individual run passes. `go test ./...` does not cross nested module boundaries. The etcd
 baseline is opt-in: `stock` uses explicit stock Go >=1.26; `custom-http2legacy`
 selects upstream x/net's full legacy HTTP2 implementation for the older modified
 standard library. `custom-untagged` is a compatibility probe that may fail.
 Profiles do not change dependency versions or silently set global `GOFLAGS`.
 See [the etcd baseline](experiments/etcd/README.md) for its I/O and oracle limits.
+For the reduced historical #6873 bug, see
+[the kernel search](experiments/etcdkernels/README.md). Its bounded DFS result
+concerns only the choices exposed by that small kernel.
 
 ## Qualification limits
 

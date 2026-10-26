@@ -7,7 +7,7 @@
 //
 // Usage:
 //
-//	// CHESS (default): systematic DFS with context bound 2.
+//	// CHESS (default): DFS bounded by two non-default choices.
 //	explorer.Test(t, func(t *testing.T) { ... })
 //
 //	// PCT: randomized priority-based scheduling.
@@ -144,7 +144,10 @@ func runWithHooks(t *testing.T, f func(*testing.T), hook DecisionHook, selectHoo
 // Returns the exploration result (runs, failures, timing).
 func Explore(t *testing.T, f func(*testing.T), algo Algorithm, opts ...Option) ExplorationResult {
 	t.Helper()
-	saved := runtime.GOMAXPROCS(1)
+	saved := runtime.GOMAXPROCS(0)
+	if saved < 2 {
+		runtime.GOMAXPROCS(2) // One owner P and one ordinary host/collector P.
+	}
 	defer runtime.GOMAXPROCS(saved)
 
 	var cfg config
