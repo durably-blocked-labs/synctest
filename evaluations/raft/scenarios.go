@@ -3,6 +3,8 @@ package rafteval
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +31,7 @@ func RegisterScenarios(registry *bubblegun.Registry) {
 		newLeaderElectionScenario(),
 		newReplicateCommandScenario(),
 		newConcurrentAppliesScenario(),
+		newInjectedLostUpdateScenario(),
 	}
 	for _, scenario := range scenarios {
 		registry.RegisterScenario(scenario)
@@ -45,6 +48,10 @@ func newReplicateCommandScenario() bubblegun.Scenario {
 
 func newConcurrentAppliesScenario() bubblegun.Scenario {
 	return newScenario("raft/concurrent-applies", 4, concurrentAppliesSetup)
+}
+
+func newInjectedLostUpdateScenario() bubblegun.Scenario {
+	return newScenario("raft/injected-lost-update", 2, injectedLostUpdateSetup)
 }
 
 func newScenario(name string, commandCount int, setup func(scenarioInput) func(*orchestrator.Orchestrator)) bubblegun.Scenario {
@@ -123,6 +130,58 @@ func concurrentAppliesSetup(input scenarioInput) func(*orchestrator.Orchestrator
 		}
 		for i := range input.CommandCount {
 			command := fmt.Sprintf("attempt-%d-command-%02d", input.Seed, i)
+			if !seen[command] {
+				t.Errorf("node %s did not apply %q", node.ID, command)
+			}
+		}
+	}, WithSeed(input.Seed), WithConfig(func(config *raft.Config) {
+		config.HeartbeatTimeout = 100 * time.Millisecond
+		config.ElectionTimeout = 100 * time.Millisecond
+	}))
+}
+
+type splitSequence struct {
+	next atomic.Int64
+}
+
+func (s *splitSequence) TakeSplit() int64 {
+	next := s.next.Load()
+	runtime.Gosched()
+	s.next.Store(next + 1)
+	return next
+}
+
+func (s *splitSequence) TakeAtomic() int64 {
+	return s.next.Add(1) - 1
+}
+
+func injectedLostUpdateSetup(input scenarioInput) func(*orchestrator.Orchestrator) {
+	return NewClusterSetup(1, func(t *testing.T, node *Node) {
+		node.WaitForLeader(t, scenarioTimeout)
+		if node.IsLeader() {
+			sequence := new(splitSequence)
+			errors := make(chan error, input.CommandCount)
+			apply := func(next func() int64) {
+				command := []byte(fmt.Sprintf("attempt-%d-sequence-%02d", input.Seed, next()))
+				_, err := node.Apply(command, scenarioTimeout)
+				errors <- err
+			}
+			go apply(sequence.TakeSplit)
+			go apply(sequence.TakeAtomic)
+			for range input.CommandCount {
+				if err := <-errors; err != nil {
+					t.Fatalf("node %s: concurrent apply: %v", node.ID, err)
+				}
+			}
+		}
+
+		history := node.WaitForCommands(t, input.CommandCount, scenarioTimeout)
+		seen := make(map[string]bool, input.CommandCount)
+		for _, entry := range history {
+			seen[string(entry.Data)] = true
+		}
+		for i := range input.CommandCount {
+			command := fmt.Sprintf("attempt-%d-sequence-%02d", input.Seed, i)
 			if !seen[command] {
 				t.Errorf("node %s did not apply %q", node.ID, command)
 			}
