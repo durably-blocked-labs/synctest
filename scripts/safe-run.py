@@ -64,7 +64,7 @@ def main():
     env['GOROOT'] = str(Path(go).parent.parent)
     try:
         if args.mode == 'benchmark':
-            code = invoke([go, 'test', '-list', '^TestBench(_|$)', '.'], package, env,
+            code = invoke([go, 'test', '-p=4', '-list', '^TestBench(_|$)', '.'], package, env,
                           args.timeout, destination / 'discovery.log')
             if code:
                 status.update(status='discovery-failed', exit_code=code)
@@ -89,7 +89,7 @@ def main():
                 child_env = dict(env, BENCH_DIR=str(data), BENCH_ATTEMPT=str(attempt),
                                  METRICS_FILE=str(data / 'metrics.jsonl'))
                 pattern = '^' + re.escape(test) + '$' if args.mode == 'benchmark' else test
-                code = invoke([go, 'test', '-json', '-count=1', f'-timeout={args.timeout}s',
+                code = invoke([go, 'test', '-p=4', '-json', '-count=1', f'-timeout={args.timeout}s',
                                '-run', pattern, '.'], package, child_env, args.timeout,
                               run / 'test.jsonl')
                 events = []

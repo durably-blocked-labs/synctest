@@ -6,15 +6,16 @@ import (
 	"testing"
 )
 
-// TestDeterministicScheduling demonstrates that with GOMAXPROCS=1
-// and no select statements, execution order is deterministic.
+// TestDeterministicScheduling logs one ordinary one-P host execution.
+// It does not assert that all possible executions have the same order.
 //
 //	GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 ./go/bin/go test -v -run TestDeterministicScheduling ./experiments/race_test.go
 //
-// All runs should produce identical output.
+// These host demonstrations do not qualify bubble replay or GC behavior.
 
 func TestDeterministicScheduling(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	var order []int
 	var mu sync.Mutex
@@ -70,7 +71,8 @@ func TestDeterministicScheduling(t *testing.T) {
 // completes before the second runs.
 
 func TestDataRace(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	balance := 100
 
@@ -119,7 +121,8 @@ func TestDataRace(t *testing.T) {
 // This makes the race MORE likely to manifest even with GOMAXPROCS=1.
 
 func TestDataRaceWithYieldPoints(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	balance := 100
 	checkpoint := make(chan struct{})
@@ -175,7 +178,8 @@ func TestDataRaceWithYieldPoints(t *testing.T) {
 // - Last spawned runs first (LIFO via runnext)
 
 func TestRunqueueOrder(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	var order []int
 	var mu sync.Mutex

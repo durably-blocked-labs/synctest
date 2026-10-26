@@ -13,7 +13,7 @@ import (
 )
 
 // RunRecord is the JSON-serializable snapshot of one exploration run.
-// Written to a JSONL file by NewJSONLObserver; read by charts/charts.py.
+// Written by NewJSONLObserver for summary metrics; this is not a replay artifact.
 type RunRecord struct {
 	Policy                string                           `json:"policy"`
 	Attempt               int                              `json:"attempt"`

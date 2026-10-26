@@ -1,9 +1,9 @@
 package orchestrator
 
-// CHESS implements context-bounded DFS exploration (the algorithm from
-// the CHESS paper). It systematically explores scheduling interleavings
-// by replaying prefixes and branching at decision points where
-// alternatives exist.
+// CHESS implements CHESS-inspired bounded DFS exploration. Bound limits
+// non-default choices per trace, rather than context switches or instruction
+// preemptions. The search replays prefixes and branches at exposed decision
+// points where alternatives exist.
 type CHESS struct {
 	// Explicit retained search-state safety caps. Zero uses bounded defaults.
 	MaxFrontier      int
@@ -125,9 +125,9 @@ func (s *CHESS) AfterRun(result RunResult) {
 	}
 }
 
-// pushGlobalOnlyAlts pushes alternatives from only the global steps.
-// The prefix contains only Global steps, so replaying is deterministic
-// (local scheduling decisions don't affect prefix alignment).
+// pushGlobalOnlyAlts branches only at global steps. Its prefixes omit local
+// decisions, which remain at their default choice. Matching a global prefix
+// does not establish exact replay of the local execution.
 func (s *CHESS) pushGlobalOnlyAlts(result RunResult, nodeIdx int) {
 	// Extract global steps from the trace.
 	var globalSteps Trace

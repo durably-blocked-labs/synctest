@@ -12,7 +12,8 @@ import (
 //
 //	GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 ./go/bin/go test -v -run TestManualRace ./experiments/manual_race_test.go
 func TestManualRace(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	balance := 100
 	var wg sync.WaitGroup
@@ -59,7 +60,8 @@ func TestManualRace(t *testing.T) {
 	}
 }
 
-// TestAllSchedules explores ALL possible interleavings of 4 yield points.
+// TestAllSchedules checks six listed operation schedules using channel gates.
+// The list repeats one schedule and does not enumerate every possible ordering.
 //
 //	GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 ./go/bin/go test -v -run TestAllSchedules ./experiments/manual_race_test.go
 //
@@ -70,7 +72,8 @@ func TestManualRace(t *testing.T) {
 //	[yield] → G2 reads balance (check)
 //	[yield] → G2 writes balance (subtract)
 func TestAllSchedules(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	schedules := []struct {
 		name   string
@@ -185,7 +188,8 @@ func runSchedule(t *testing.T, schedule []string) int {
 //	asyncpreemptoff=0: [B.start, A.start, A.end, B.end] (B preempted, A runs)
 
 func TestAsyncPreemptOff(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 
 	// Use atomic writes to avoid mutex yield points
 	var order [4]int32
@@ -255,9 +259,11 @@ func atomicAdd(p *int32) int {
 //
 //	GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 ./go/bin/go test -v -run TestDeterminism1000 ./experiments/manual_race_test.go
 //
-// This proves that with GOMAXPROCS=1 + asyncpreemptoff=1, scheduling is deterministic.
+// This finite host-scheduler characterization does not prove general determinism.
+// It runs outside a bubble; one-P host execution remains supported.
 func TestDeterminism1000(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	previous := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(previous)
 	const iterations = 1000
 
 	// runOnce executes the goroutine scheduling and returns the order

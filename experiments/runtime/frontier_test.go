@@ -17,7 +17,7 @@ import (
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestFrontierSignaling ./
 func TestFrontierSignaling(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	var hookCalls atomic.Int32
 
@@ -92,7 +92,7 @@ func TestFrontierSignaling(t *testing.T) {
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestExpandedHookState ./
 func TestExpandedHookState(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	var states []synctest.BubbleState
 
@@ -170,7 +170,7 @@ func TestExpandedHookState(t *testing.T) {
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestGlobalGoroutine ./
 func TestGlobalGoroutine(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	var states []synctest.BubbleState
 
@@ -240,16 +240,13 @@ func TestGlobalGoroutine(t *testing.T) {
 	t.Logf("PASS: hook correctly reports global=%v and non-global goroutines", foundGlobal)
 }
 
-// TestRootInHook verifies that the rootInHook flag correctly prevents
-// findRunnable from re-waking root when the hook is executing.
-// In this test, the hook doesn't actually block (that requires the
-// distributed simulation setup), but we verify that the flag is
-// set correctly and that multiple goroutines yielding during hook
-// execution don't cause panics.
+// TestRootInHook exercises repeated hook/actor round-trips with yielding actors.
+// This finite fixture checks repeated hook/yield round-trips without panics.
+// It does not inspect the internal flag or cover a blocked distributed hook.
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestRootInHook ./
 func TestRootInHook(t *testing.T) {
-	runtime.GOMAXPROCS(4) // multi-P to stress test
+	fixtureProcessors(t, 4)
 
 	var hookCalls atomic.Int32
 
@@ -293,7 +290,7 @@ func TestRootInHook(t *testing.T) {
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestFrontierNonFIFO ./
 func TestFrontierNonFIFO(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	workload := func(t *testing.T) {
 		// Hook: pick index 1 when there's a real choice, else 0.
@@ -370,7 +367,7 @@ func TestFrontierNonFIFO(t *testing.T) {
 // TestIdleHookOwnsTime verifies that once a hook is installed, the hook sees
 // idle/timer states before time advances.
 func TestIdleHookOwnsTime(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	var idleCalls atomic.Int32
 

@@ -1,13 +1,14 @@
-.claude
+# Local instructions and research notes stay outside the shared source tree.
+AGENTS.md
+CLAUDE.md
+DECISIONS.md
+worklog/
+.claude/
 /.vscode/
 .DS_Store
-charts/debug
-tmp/
-bugs/**/data/attempt-*/
 
-# Python caches
+# Generated caches and fresh run artifacts.
 __pycache__/
 *.pyc
-
-# Fresh runs are never mixed with preserved historical inputs.
-runs/
+/tmp/
+/runs/

@@ -407,7 +407,8 @@ func (o *Orchestrator) run(t *testing.T, decide func(DecisionPoint) int) RunResu
 	doneSet := make(map[string]bool)
 	active := n
 
-	// drainLocalSteps appends a node's local decisions to the unified trace.
+	// Discard the wrapper log: scheduling hooks already recorded local decisions
+	// synchronously in the unified trace above.
 	drainLocalSteps := func(addr string) { o.nodes[addr].bubble.DrainLocal() }
 
 	markDone := func(addr, reason string) {

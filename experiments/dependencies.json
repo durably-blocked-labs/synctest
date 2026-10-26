@@ -1,6 +1,12 @@
 {
   "schema": 1,
   "local_sources": {
+    "go": {
+      "path": "go",
+      "fork": "https://github.com/durably-blocked-labs/go.git",
+      "upstream": "https://github.com/golang/go.git",
+      "commit": "eb31355834f3b0c9821afeaee17d2cf3d388d88c"
+    },
     "raft": {
       "path": "raft",
       "fork": "https://github.com/durably-blocked-labs/raft.git",

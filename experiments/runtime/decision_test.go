@@ -1,7 +1,13 @@
 package experiments
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -12,7 +18,7 @@ import (
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestDecisionRecording ./
 func TestDecisionRecording(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	workload := func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -69,7 +75,7 @@ func TestDecisionRecording(t *testing.T) {
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestFollowDecisions ./
 func TestFollowDecisions(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	workload := func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -126,7 +132,7 @@ func TestFollowDecisions(t *testing.T) {
 	t.Logf("PASS: follow run produced identical decisions (%d decisions)", len(recorded))
 }
 
-// TestDivergentFollow proves that changing a decision index in the prefix
+// TestDivergentFollow checks that changing a decision index in the prefix
 // causes a different goroutine to be picked, producing a divergent trace.
 //
 // The workload creates 3 goroutines (B3, B4, B5) that each Gosched twice.
@@ -138,7 +144,7 @@ func TestFollowDecisions(t *testing.T) {
 //
 // Run: GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -run TestDivergentFollow ./
 func TestDivergentFollow(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	workload := func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -219,10 +225,22 @@ func TestDivergentFollow(t *testing.T) {
 		divergeStep, baseline[divergeStep].ChosenBgid, diverged[divergeStep].ChosenBgid)
 }
 
-// TestReplayDivergenceFails verifies that an impossible replay prefix fails
-// loudly instead of silently falling back to normal scheduling.
+// TestReplayDivergenceFails requires an impossible prefix to fail closed in a
+// disposable process. Unsafe recovery does not join surviving bubble actors.
 func TestReplayDivergenceFails(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	const marker = "BUBBLES_RUNTIME_DIVERGENCE_CHILD"
+	const sentinel = "EXPECTED_UNSAFE_REPLAY_DIVERGENCE"
+	if os.Getenv(marker) != "1" {
+		command := exec.Command(os.Args[0], "-test.run=^TestReplayDivergenceFails$", "-test.count=1", "-test.timeout=15s")
+		command.Env = append(os.Environ(), marker+"=1")
+		output, err := command.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 77 || !bytes.Contains(output, []byte(sentinel+"\n")) {
+			t.Fatalf("unsafe replay child: expected exit77 and sentinel, error=%v output=%s", err, output)
+		}
+		return
+	}
+	fixtureProcessors(t, 2)
 
 	workload := func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -257,19 +275,22 @@ func TestReplayDivergenceFails(t *testing.T) {
 	copy(prefix, baseline[:step+1])
 	prefix[step].Index = prefix[step].RunqSize + 1
 
-	if _, ok := synctest.Explore(t, workload, prefix); ok {
-		t.Fatal("expected replay divergence to fail")
+	result := synctest.ExploreResult(t, workload, prefix)
+	if result.OK || !result.WorkerUnsafe || result.Cause == nil || !strings.HasPrefix(fmt.Sprint(result.Cause), "synctest replay divergence") {
+		fmt.Fprintln(os.Stderr, "unexpected replay result:", result.OK, result.WorkerUnsafe, result.Cause)
+		os.Exit(78)
 	}
+	// Exit immediately: no test cleanup, reset or second workload in this process.
+	_, _ = os.Stdout.WriteString(sentinel + "\n")
+	os.Exit(77)
 }
 
-// TestPPinning verifies that P pinning makes bubbles deterministic under GOMAXPROCS>1.
-//
-// Runs the same workload 20 times with GOMAXPROCS=4 and verifies all traces are identical.
-// Without P pinning, schedtick%61 and stealWork cause occasional non-determinism.
+// TestPPinning compares this finite yielding workload across 20 fresh runs at
+// GOMAXPROCS=4. A pass does not establish determinism for other workloads.
 //
 // Run: GODEBUG=asyncpreemptoff=1 GOMAXPROCS=4 ../go/bin/go test -v -run TestPPinning ./
 func TestPPinning(t *testing.T) {
-	runtime.GOMAXPROCS(4) // multiple Ps — the whole point
+	fixtureProcessors(t, 4)
 
 	workload := func(t *testing.T) {
 		var wg sync.WaitGroup

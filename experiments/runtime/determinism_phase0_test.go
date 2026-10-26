@@ -9,11 +9,10 @@ import (
 )
 
 // ============================================================================
-// Phase 0.1 — Determinism Verification Tests
+// Bounded scheduling and replay characterization
 //
-// These tests attack the foundational determinism claims:
-//   T2.1: Record-replay determinism (identical prefix -> identical trace)
-//   T2.2: BGID stability (goroutine IDs depend only on creation order)
+// These finite workloads compare recorded traces, ordered bubble IDs and
+// repeated replay. They do not prove determinism for all Go programs or GC timings.
 //
 // Run:
 //   GODEBUG=asyncpreemptoff=1 ../go/bin/go test -v -count=1 -run TestPhase0 ./
@@ -132,7 +131,7 @@ func logTrace(t *testing.T, label string, trace []synctest.Decision) {
 // ============================================================================
 
 func TestPhase0_SingleBubbleReplayDeterminism(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	// Sub-test A: 3 goroutines with Gosched (the simplest case)
 	t.Run("3goroutines_gosched", func(t *testing.T) {
@@ -197,13 +196,12 @@ func TestPhase0_SingleBubbleReplayDeterminism(t *testing.T) {
 
 // ============================================================================
 // Test 1 adversarial: record WITHOUT prefix, replay 100 times without prefix.
-// If the default scheduling is deterministic (FIFO under asyncpreemptoff=1),
-// all 100 runs should produce the same trace even without replay.
-// This tests that the FIFO baseline itself is deterministic.
+// Compare 100 fresh FIFO runs of this yielding workload without a prefix.
+// A match is bounded characterization, not a general scheduling guarantee.
 // ============================================================================
 
 func TestPhase0_FIFOBaselineDeterminism(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	baseline := synctest.Test(t, workload5G)
 	if len(baseline) == 0 {
@@ -227,7 +225,7 @@ func TestPhase0_FIFOBaselineDeterminism(t *testing.T) {
 // ============================================================================
 
 func TestPhase0_NonFIFOReplayDeterminism(t *testing.T) {
-	runtime.GOMAXPROCS(1)
+	fixtureProcessors(t, 2)
 
 	// Record baseline
 	baseline := synctest.Test(t, workload5G)
@@ -278,14 +276,15 @@ func TestPhase0_NonFIFOReplayDeterminism(t *testing.T) {
 // ============================================================================
 // Test 2: Cross-GOMAXPROCS determinism (T2.2)
 //
-// Record with GOMAXPROCS=4, replay with GOMAXPROCS=1 and vice versa.
-// If P-pinning works correctly, BGIDs and traces must be identical because
-// each bubble runs on exactly one P regardless of how many Ps exist.
+// Compare completed runs at GOMAXPROCS=2, 4 and 8. Each run keeps a fixed
+// topology, with one owned P and at least one host P. Resizing an active
+// bubble is not supported or tested here.
 // ============================================================================
 
 func TestPhase0_CrossGOMAXPROCS_Determinism(t *testing.T) {
-	// Sub-test A: Record at GOMAXPROCS=4, replay at GOMAXPROCS=1
-	t.Run("record4_replay1", func(t *testing.T) {
+	fixtureProcessors(t, 4)
+	// Sub-test A: Record at GOMAXPROCS=4, replay at GOMAXPROCS=2
+	t.Run("record4_replay2", func(t *testing.T) {
 		runtime.GOMAXPROCS(4)
 		recorded := synctest.Test(t, workload5G)
 		if len(recorded) == 0 {
@@ -293,31 +292,31 @@ func TestPhase0_CrossGOMAXPROCS_Determinism(t *testing.T) {
 		}
 		logTrace(t, "GOMAXPROCS=4 baseline", recorded)
 
-		runtime.GOMAXPROCS(1)
+		runtime.GOMAXPROCS(2)
 		replayed := synctest.Test(t, workload5G, recorded)
 		if err := assertTracesIdentical(recorded, replayed); err != nil {
-			logTrace(t, "GOMAXPROCS=1 replay", replayed)
-			t.Fatalf("cross-GOMAXPROCS divergence (4->1): %v", err)
+			logTrace(t, "GOMAXPROCS=2 replay", replayed)
+			t.Fatalf("cross-GOMAXPROCS divergence (4->2): %v", err)
 		}
-		t.Logf("PASS: GOMAXPROCS=4 trace replayed at GOMAXPROCS=1 (%d decisions)", len(recorded))
+		t.Logf("PASS: GOMAXPROCS=4 trace replayed at GOMAXPROCS=2 (%d decisions)", len(recorded))
 	})
 
-	// Sub-test B: Record at GOMAXPROCS=1, replay at GOMAXPROCS=4
-	t.Run("record1_replay4", func(t *testing.T) {
-		runtime.GOMAXPROCS(1)
+	// Sub-test B: Record at GOMAXPROCS=2, replay at GOMAXPROCS=4
+	t.Run("record2_replay4", func(t *testing.T) {
+		runtime.GOMAXPROCS(2)
 		recorded := synctest.Test(t, workload5G)
 		if len(recorded) == 0 {
-			t.Fatal("no decisions recorded at GOMAXPROCS=1")
+			t.Fatal("no decisions recorded at GOMAXPROCS=2")
 		}
-		logTrace(t, "GOMAXPROCS=1 baseline", recorded)
+		logTrace(t, "GOMAXPROCS=2 baseline", recorded)
 
 		runtime.GOMAXPROCS(4)
 		replayed := synctest.Test(t, workload5G, recorded)
 		if err := assertTracesIdentical(recorded, replayed); err != nil {
 			logTrace(t, "GOMAXPROCS=4 replay", replayed)
-			t.Fatalf("cross-GOMAXPROCS divergence (1->4): %v", err)
+			t.Fatalf("cross-GOMAXPROCS divergence (2->4): %v", err)
 		}
-		t.Logf("PASS: GOMAXPROCS=1 trace replayed at GOMAXPROCS=4 (%d decisions)", len(recorded))
+		t.Logf("PASS: GOMAXPROCS=2 trace replayed at GOMAXPROCS=4 (%d decisions)", len(recorded))
 	})
 
 	// Sub-test C: Record at GOMAXPROCS=4, replay at GOMAXPROCS=4 100 times
@@ -339,64 +338,63 @@ func TestPhase0_CrossGOMAXPROCS_Determinism(t *testing.T) {
 		t.Logf("PASS: 100 runs at GOMAXPROCS=4, all identical (%d decisions)", len(baseline))
 	})
 
-	// Sub-test D: Record at GOMAXPROCS=8 (extreme), replay at GOMAXPROCS=1
-	t.Run("record8_replay1", func(t *testing.T) {
+	// Sub-test D: Record at GOMAXPROCS=8 (extreme), replay at GOMAXPROCS=2
+	t.Run("record8_replay2", func(t *testing.T) {
 		runtime.GOMAXPROCS(8)
 		recorded := synctest.Test(t, workload5G)
 		if len(recorded) == 0 {
 			t.Fatal("no decisions recorded at GOMAXPROCS=8")
 		}
 
-		runtime.GOMAXPROCS(1)
+		runtime.GOMAXPROCS(2)
 		replayed := synctest.Test(t, workload5G, recorded)
 		if err := assertTracesIdentical(recorded, replayed); err != nil {
 			logTrace(t, "GOMAXPROCS=8 baseline", recorded)
-			logTrace(t, "GOMAXPROCS=1 replay", replayed)
-			t.Fatalf("cross-GOMAXPROCS divergence (8->1): %v", err)
+			logTrace(t, "GOMAXPROCS=2 replay", replayed)
+			t.Fatalf("cross-GOMAXPROCS divergence (8->2): %v", err)
 		}
-		t.Logf("PASS: GOMAXPROCS=8 trace replayed at GOMAXPROCS=1 (%d decisions)", len(recorded))
+		t.Logf("PASS: GOMAXPROCS=8 trace replayed at GOMAXPROCS=2 (%d decisions)", len(recorded))
 	})
 }
 
 // ============================================================================
 // Test 2 adversarial: record with GOMAXPROCS=4, record again fresh (no prefix)
-// at GOMAXPROCS=1. Are the traces identical WITHOUT using replay?
-// If yes: P-pinning means the number of Ps has NO effect on scheduling.
-// If no: P count affects something (BGID assignment? runq ordering?).
+// at GOMAXPROCS=2. Are the traces identical WITHOUT using replay?
+// This compares the fixed workload only; matching traces do not establish
+// independence from processor count for arbitrary programs.
 // ============================================================================
 
 func TestPhase0_CrossGOMAXPROCS_FreshRuns(t *testing.T) {
-	runtime.GOMAXPROCS(4)
+	fixtureProcessors(t, 4)
 	trace4 := synctest.Test(t, workload5G)
 	if len(trace4) == 0 {
 		t.Fatal("no decisions at GOMAXPROCS=4")
 	}
 	logTrace(t, "GOMAXPROCS=4 fresh", trace4)
 
-	runtime.GOMAXPROCS(1)
-	trace1 := synctest.Test(t, workload5G)
-	if len(trace1) == 0 {
-		t.Fatal("no decisions at GOMAXPROCS=1")
+	runtime.GOMAXPROCS(2)
+	trace2 := synctest.Test(t, workload5G)
+	if len(trace2) == 0 {
+		t.Fatal("no decisions at GOMAXPROCS=2")
 	}
-	logTrace(t, "GOMAXPROCS=1 fresh", trace1)
+	logTrace(t, "GOMAXPROCS=2 fresh", trace2)
 
-	err := assertTracesIdentical(trace4, trace1)
+	err := assertTracesIdentical(trace4, trace2)
 	if err != nil {
-		t.Logf("NOTE: Fresh runs at GOMAXPROCS=4 vs 1 differ: %v", err)
+		t.Logf("NOTE: Fresh runs at GOMAXPROCS=4 vs 2 differ: %v", err)
 		t.Logf("This means P count affects default scheduling even without explicit replay.")
 		t.Logf("Replay still works (tested separately), but BGID assignment may depend on P count.")
-		// This is informational, not necessarily a failure of T2.2 which is about
-		// replay determinism, not about cross-P natural determinism.
-		// But it IS a failure if BGIDs differ, since T2.2 says BGIDs depend only on creation order.
-		if len(trace4) == len(trace1) {
+		// Retain the fixture's chosen-BGID assertion while reporting other trace
+		// differences as characterization. This does not prove general ID stability.
+		if len(trace4) == len(trace2) {
 			for i := range trace4 {
-				if trace4[i].ChosenBgid != trace1[i].ChosenBgid {
-					t.Errorf("BGID differs at step %d: GOMAXPROCS=4 B%d vs GOMAXPROCS=1 B%d",
-						i, trace4[i].ChosenBgid, trace1[i].ChosenBgid)
+				if trace4[i].ChosenBgid != trace2[i].ChosenBgid {
+					t.Errorf("BGID differs at step %d: GOMAXPROCS=4 B%d vs GOMAXPROCS=2 B%d",
+						i, trace4[i].ChosenBgid, trace2[i].ChosenBgid)
 				}
 			}
 		}
 	} else {
-		t.Logf("PASS: Fresh runs at GOMAXPROCS=4 and GOMAXPROCS=1 produce identical traces")
+		t.Logf("PASS: Fresh runs at GOMAXPROCS=4 and GOMAXPROCS=2 produce identical traces")
 	}
 }
