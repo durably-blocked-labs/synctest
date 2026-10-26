@@ -113,7 +113,7 @@ func (o *Orchestrator) execute(t *testing.T, decide func(DecisionPoint) int) (rr
 				}
 			}
 		}
-		if rr.TeardownError == nil && !rr.WorkerUnsafe {
+		if rr.TeardownError == nil && (!rr.WorkerUnsafe || rr.Outcome == OutcomeResourceLimit) {
 			rr.Trace = o.partial
 			rr.GlobalTrace = o.trace
 		}
@@ -146,12 +146,6 @@ func (o *Orchestrator) enqueue(op *PendingOp) {
 		panic(ResourceLimitError{Resource: "pending operations", Limit: o.limits.PendingOperations})
 	}
 	o.schedulable = append(o.schedulable, op)
-}
-
-// ReplayGlobalOnly preserves the historical FIFO-local compatibility behavior.
-// It is not exact replay; use ReplayUnified for the versioned G+L+select path.
-func (o *Orchestrator) ReplayGlobalOnly(t *testing.T, rec RecordedRun) (RecordedRun, bool) {
-	return o.Replay(t, rec)
 }
 
 func (o *Orchestrator) ReplayUnified(t *testing.T, rec UnifiedReplay) RunResult {

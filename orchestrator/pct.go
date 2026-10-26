@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"math/rand"
 	"sort"
 	"testing"
@@ -36,6 +37,34 @@ type PCT struct {
 	changePoints map[int]struct{}
 	step         int // current step within the run (tracks G+L)
 	count        int
+}
+
+type pctCheckpoint struct {
+	checkpointMetadata
+	Count int `json:"count"`
+}
+
+var _ CheckpointableAlgorithm = (*PCT)(nil)
+
+func (p *PCT) MarshalCheckpoint() ([]byte, error) {
+	return json.Marshal(pctCheckpoint{
+		checkpointMetadata: checkpointMetadata{Version: checkpointVersion, Algorithm: "pct"},
+		Count:              p.count,
+	})
+}
+
+func (p *PCT) UnmarshalCheckpoint(data []byte) error {
+	var checkpoint pctCheckpoint
+	if err := validateCheckpoint(data, "pct", &checkpoint); err != nil {
+		return err
+	}
+	p.count = checkpoint.Count
+	p.rng = nil
+	p.priority = nil
+	p.nextLow = 0
+	p.changePoints = nil
+	p.step = 0
+	return nil
 }
 
 type pctPriorityKey struct {
@@ -85,12 +114,11 @@ func (p *PCT) BeforeRun() bool {
 	return true
 }
 
-// Decide picks the alternative with the lowest priority (both G and L).
+// Decide picks the alternative with the lowest priority at each scheduling point.
 func (p *PCT) Decide(dp DecisionPoint) int {
 	if dp.N() == 0 {
 		panic("PCT: empty decision")
 	}
-
 	chosen := 0
 	chosenPri := p.priorityOf(pctKey(dp, dp.Alts[0]))
 	for i := 1; i < dp.N(); i++ {

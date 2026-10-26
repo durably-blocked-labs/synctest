@@ -13,9 +13,10 @@ BOOTSTRAP ?=
 TOOLCHAIN_DIR ?=
 BUILD_JOBS ?= 4
 BUILD_WATCHDOG ?= 600
+BUBBLEGUN_BUILD_DIR ?=
 
 .PHONY: help build-go go-version test test-all test-det test-one determinism \
-        test-ragate test-resourcegc-smoke test-raft test-etcd test-entrypoints test-campaign-entrypoints clean
+        test-ragate test-resourcegc-smoke test-raft test-etcd test-entrypoints test-campaign-entrypoints bubblegun-build clean
 help:
 	@echo 'test PKG=package TEST_PATTERN=pattern RUN_DIR=/new/run: saved, bounded test'
 	@echo 'test-all: root library + runtime, RA protocol and single-bubble Raft tests'
@@ -24,6 +25,7 @@ help:
 	@echo 'build-go BOOTSTRAP=/bootstrap/go TOOLCHAIN_DIR=/new/toolchain: bounded build/copy/seal/smoke'
 	@echo 'test-raft: single-bubble three-voter memory service and small-history oracle'
 	@echo 'test-etcd ETCD_PROFILE=stock|custom-http2legacy|custom-untagged: external I/O'
+	@echo 'bubblegun-build BUBBLEGUN_BUILD_DIR=/new/directory: bounded Bubble Gun build'
 	@echo 'Group test targets require an external process-group watchdog; see README.'
 
 build-go:
@@ -32,6 +34,10 @@ build-go:
 
 go-version:
 	GOROOT="$(GO_ROOT)" GOTOOLCHAIN=local "$(GO_BIN)" version
+
+bubblegun-build:
+	@test -n "$(BUBBLEGUN_BUILD_DIR)" || { echo 'set a new BUBBLEGUN_BUILD_DIR'; exit 2; }
+	python3 scripts/build-bubblegun.py --go "$(GO_BIN)" --output "$(BUBBLEGUN_BUILD_DIR)" --timeout "$(WATCHDOG)"
 
 test:
 	@test -n "$(RUN_DIR)" || { echo 'set a new RUN_DIR'; exit 2; }
