@@ -11,6 +11,7 @@ import (
 
 	"github.com/shubhaankar/synctest/evaluations/bubblegun"
 	raft "github.com/shubhaankar/synctest/evaluations/raft"
+	"github.com/shubhaankar/synctest/evaluations/scenarios"
 )
 
 type stringList []string
@@ -84,6 +85,7 @@ func collectFlags(registry *bubblegun.Registry) (bubblegun.Config, error) {
 
 func registerScenarios(registry *bubblegun.Registry) {
 	raft.RegisterScenarios(registry)
+	scenarios.Register(registry)
 }
 
 func exitError(err error) {
