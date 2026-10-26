@@ -153,13 +153,14 @@ func runNode(
 	var instance *raft.Raft
 	defer func() {
 		run.waitForWorkloads()
+		transport.BeginTeardown()
 		if instance != nil {
 			if err := instance.Shutdown().Error(); err != nil {
 				t.Errorf("shutdown raft %s: %v", id, err)
 			}
 		}
 		run.waitForRaftShutdown()
-		if err := transport.Close(); err != nil {
+		if err := transport.CloseForTeardown(); err != nil {
 			t.Errorf("close transport %s: %v", id, err)
 		}
 	}()
