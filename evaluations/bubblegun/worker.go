@@ -179,6 +179,15 @@ func (w *explorationWorker) executeExplorations() (Summary, error) {
 			return finishWorkerError(w.summary, w.config.Directory, w.started, w.priorElapsed, campaignAlgorithm.err)
 		}
 		if exploration.Incomplete > 0 {
+			if isResourceLimit(exploration.Cause) {
+				w.summary.TerminationReason = TerminationProgressBudgetExceeded
+				w.summary.TerminationDetail = fmt.Sprint(exploration.Cause)
+				w.summary.Elapsed = Duration(w.priorElapsed + time.Since(w.started))
+				if err := WriteJSONAtomic(filepath.Join(w.config.Directory, "summary.json"), w.summary); err != nil {
+					return w.summary, err
+				}
+				return w.summary, nil
+			}
 			return finishWorkerError(w.summary, w.config.Directory, w.started, w.priorElapsed,
 				fmt.Errorf("exploration incomplete: %v", exploration.Cause))
 		}
@@ -264,6 +273,22 @@ func finishWorkerError(summary Summary, directory string, started time.Time, pri
 		return summary, errors.Join(cause, err)
 	}
 	return summary, cause
+}
+
+func isResourceLimit(cause any) bool {
+	err, ok := cause.(error)
+	if !ok {
+		return false
+	}
+	var limit orchestrator.ResourceLimitError
+	if errors.As(err, &limit) {
+		return true
+	}
+	var runtimeLimit interface {
+		error
+		Limit() string
+	}
+	return errors.As(err, &runtimeLimit)
 }
 
 func loadWorkerInputs(directory string) (Job, map[int]Attempt, error) {

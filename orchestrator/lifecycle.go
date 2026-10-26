@@ -113,7 +113,7 @@ func (o *Orchestrator) execute(t *testing.T, decide func(DecisionPoint) int) (rr
 				}
 			}
 		}
-		if rr.TeardownError == nil && !rr.WorkerUnsafe {
+		if rr.TeardownError == nil && (!rr.WorkerUnsafe || rr.Outcome == OutcomeResourceLimit) {
 			rr.Trace = o.partial
 			rr.GlobalTrace = o.trace
 		}
