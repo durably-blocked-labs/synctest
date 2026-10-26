@@ -18,11 +18,12 @@ const (
 type TerminationReason string
 
 const (
-	TerminationExhausted   TerminationReason = "exhausted"
-	TerminationTimeLimit   TerminationReason = "time_limit"
-	TerminationInterrupted TerminationReason = "interrupted"
-	TerminationFailure     TerminationReason = "failure"
-	TerminationError       TerminationReason = "error"
+	TerminationExhausted              TerminationReason = "exhausted"
+	TerminationTimeLimit              TerminationReason = "time_limit"
+	TerminationInterrupted            TerminationReason = "interrupted"
+	TerminationFailure                TerminationReason = "failure"
+	TerminationProgressBudgetExceeded TerminationReason = "progress_budget_exceeded"
+	TerminationError                  TerminationReason = "error"
 )
 
 // Duration encodes a time.Duration as a human-readable string.
