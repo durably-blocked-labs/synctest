@@ -1,0 +1,26 @@
+{
+  "scope": "exact historical Bubbles GoBench-derived kernels; not original full etcd systems",
+  "kernels": [
+    {
+      "bug": "6873",
+      "source_commit": "47ca3a5f15a605785103ea4ac46a8a4e8068695c",
+      "source_path": "archive/legacy/bugs/gobench/etcd6873/etcd6873.go",
+      "sha256": "3f34e81ca76e99f4a4ae12e12cead60be9f50807e850040d5d27370983f57770"
+    },
+    {
+      "bug": "7443",
+      "source_commit": "47ca3a5f15a605785103ea4ac46a8a4e8068695c",
+      "source_path": "archive/legacy/bugs/gobench/etcd7443/etcd7443.go",
+      "sha256": "0262bbbc27a709978b7a35d7e535e91aa9635e6cda0c070c50dba6c2dd41cee0"
+    },
+    {
+      "bug": "7902",
+      "source_commit": "47ca3a5f15a605785103ea4ac46a8a4e8068695c",
+      "source_path": "archive/legacy/bugs/gobench/etcd7902/etcd7902.go",
+      "sha256": "53e9f421e838cb27521af472069c65663b0f5707198d01e99ffb42acda147544"
+    }
+  ],
+  "excluded": {
+    "etcd7492": "historical two-assigner reduction does not match original three-assigner GoBench construction; not included as a valid miss"
+  }
+}
